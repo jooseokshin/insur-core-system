@@ -1,0 +1,22 @@
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: insur-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: insur_core_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword # 원하는 비밀번호 설정
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "timezone=Asia/Seoul"
+
+volumes:
+  postgres_data:
+    driver: local

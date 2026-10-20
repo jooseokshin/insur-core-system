@@ -1,0 +1,983 @@
+<title>insur-core 청약 아키텍처</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --band: #EAEEF4;
+    --ink: #18202D;
+    --muted: #5A6476;
+    --line: #C9D1DD;
+    --accent: #1F5FAD;
+    --accent-soft: #E1EAF7;
+    --danger: #B4382F;
+    --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #11161F;
+      --surface: #18202C;
+      --band: #1C2532;
+      --ink: #E5EAF1;
+      --muted: #98A3B5;
+      --line: #354153;
+      --accent: #6FA5E9;
+      --accent-soft: #1D3150;
+      --danger: #EA786D;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #11161F;
+    --surface: #18202C;
+    --band: #1C2532;
+    --ink: #E5EAF1;
+    --muted: #98A3B5;
+    --line: #354153;
+    --accent: #6FA5E9;
+    --accent-soft: #1D3150;
+    --danger: #EA786D;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .page {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 40px 72px;
+    display: grid;
+    gap: 56px;
+  }
+  header { display: grid; gap: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(26px, 4vw, 34px);
+    font-weight: 700;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+  h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); }
+  code, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    padding: 0;
+    margin: 4px 0 0;
+    list-style: none;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  section { display: grid; gap: 16px; }
+  .section-head { display: grid; gap: 6px; }
+
+  figure { margin: 0; display: grid; gap: 10px; }
+  .scroll {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .scroll svg { display: block; width: 100%; min-width: 780px; height: auto; }
+  figcaption { font-size: 13px; color: var(--muted); max-width: 80ch; }
+
+  /* SVG 요소 스타일 (테마 토큰 사용) */
+  svg text { fill: var(--ink); font-family: var(--sans); font-size: 12px; }
+  svg .t-mono { font-family: var(--mono); font-size: 12px; }
+  svg .t-name { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
+  svg .t-sub { fill: var(--muted); font-size: 11px; }
+  svg .t-band { font-family: var(--mono); font-size: 11px; fill: var(--muted); letter-spacing: 0.04em; }
+  svg .t-accent { fill: var(--accent); }
+  svg .t-danger { fill: var(--danger); }
+  svg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+  svg .band { fill: var(--band); stroke: none; }
+  svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+  svg .box-key { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.25; }
+  svg .box-head { fill: var(--band); stroke: var(--line); stroke-width: 1; }
+  svg .edge { stroke: var(--ink); stroke-width: 1.25; fill: none; }
+  svg .edge-accent { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+  svg .edge-return { stroke: var(--muted); stroke-width: 1.25; fill: none; stroke-dasharray: 5 4; }
+  svg .edge-danger { stroke: var(--danger); stroke-width: 1.5; fill: none; stroke-dasharray: 6 4; }
+  svg .lifeline { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+  svg .activation { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+  svg .row-line { stroke: var(--line); stroke-width: 1; }
+  svg .ah-ink { fill: var(--ink); }
+  svg .ah-accent { fill: var(--accent); }
+  svg .ah-muted { fill: var(--muted); }
+  svg .ah-danger { fill: var(--danger); }
+
+  pre.tree {
+    margin: 0;
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .tree .c { color: var(--muted); }
+  .tree .p { color: var(--accent); font-weight: 500; }
+
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; align-items: start; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; }
+  td:first-child { white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; padding-right: 0; }
+  .code-chip {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .code-chip.err { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  footer { font-size: 13px; color: var(--muted); }
+</style>
+
+<main class="page">
+  <header>
+    <div class="eyebrow">com.insur.insurcoresystem · Spring Boot 4.1 · PostgreSQL 16</div>
+    <h1>손해보험 기간계 청약 처리 구조</h1>
+    <p class="lede">자동차보험(01)과 일반화재보험(02)의 청약을 받아 증권번호와 청약번호를 채번하고, 계약 원장과 담보를 한 트랜잭션으로 저장한 뒤 조회할 수 있는 1차 코어 로직입니다. 모든 요청은 JWT 인증을 거치고, 같은 거래 UUID(globalTxId)의 재전송은 중복 저장하지 않습니다. 계층은 controller → service → domain → DB 순서로 내려가고, 공통 전문·인증·로그 처리는 common 패키지가 맡습니다.</p>
+    <ul class="facts">
+      <li>엔드포인트 <b>POST /api/contract/apply · /inquiry · /list · /status-change · /status-history · /endorse · /endorse-history · /renew · /renew-quote · /api/premium/quote · /api/admin/premium/*</b></li>
+      <li>인증 <b>JWT Bearer (HS256)</b> · 역할 인가 <b>4</b>개</li>
+      <li>테이블 <b>9</b>개 (Flyway V1 ~ V17)</li>
+      <li>테스트 <b>202</b>건 통과</li>
+      <li>API 문서 <b>/swagger-ui.html</b> · /v3/api-docs (springdoc, local 프로파일에서만 켜짐)</li>
+      <li>번호 형식 <b>POL-CAR-2026-000001</b></li>
+    </ul>
+  </header>
+
+  <!-- 1. 계층 구조 -->
+  <section>
+    <div class="section-head">
+      <h2>계층 구조</h2>
+      <p class="lede">어떤 클래스가 어느 계층에 있고 누구를 호출하는지 보여줍니다. 채번기만 JPA를 거치지 않고 JdbcTemplate으로 채번 테이블을 직접 갱신합니다.</p>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 880 614" role="img" aria-label="계층 구조: 클라이언트 요청이 ContractController를 거쳐 청약은 ContractService, 조회는 ContractInquiryService, 상태 변경은 ContractStatusService, 갱신은 ContractRenewalService가 처리하고, Repository와 채번기를 통해 PostgreSQL에 저장되며, common 패키지가 요청 헤더 처리와 예외 변환을 담당한다">
+          <defs>
+            <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-ink"/></marker>
+            <marker id="a-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-accent"/></marker>
+            <marker id="a-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-danger"/></marker>
+          </defs>
+
+          <!-- 계층 밴드 -->
+          <rect class="band" x="20" y="80" width="590" height="76" rx="4"/>
+          <rect class="band" x="20" y="186" width="590" height="194" rx="4"/>
+          <rect class="band" x="20" y="410" width="590" height="80" rx="4"/>
+          <rect class="band" x="20" y="520" width="590" height="80" rx="4"/>
+          <rect class="band" x="630" y="80" width="240" height="520" rx="4"/>
+          <text class="t-band" x="32" y="100">controller</text>
+          <text class="t-band" x="32" y="374">service</text>
+          <text class="t-band" x="32" y="430">domain</text>
+          <text class="t-band" x="32" y="540">PostgreSQL</text>
+          <text class="t-band" x="32" y="556">Flyway</text>
+          <text class="t-band" x="32" y="572">V1 ~ V17</text>
+          <text class="t-band" x="642" y="100">common</text>
+
+          <!-- 클라이언트 -->
+          <rect class="box" x="250" y="10" width="170" height="36" rx="4"/>
+          <text x="335" y="33" text-anchor="middle">HTTP 클라이언트</text>
+
+          <!-- controller -->
+          <rect class="box" x="150" y="96" width="370" height="46" rx="4"/>
+          <text class="t-name" x="335" y="116" text-anchor="middle">ContractController</text>
+          <text class="t-sub" x="335" y="133" text-anchor="middle">apply · inquiry · list · status-change · endorse · renew · renew-quote</text>
+
+          <!-- service: 협력 서비스 (윗줄) -->
+          <rect class="box" x="30" y="204" width="175" height="50" rx="4"/>
+          <text class="t-name" x="117" y="224" text-anchor="middle">ContractInquiryService</text>
+          <text class="t-sub" x="117" y="242" text-anchor="middle">조회 · 목록 · 상태 이력</text>
+          <rect class="box" x="227" y="204" width="175" height="50" rx="4"/>
+          <text class="t-name" x="314" y="224" text-anchor="middle">ContractStatusService</text>
+          <text class="t-sub" x="314" y="242" text-anchor="middle">상태 변경 · 해지 환급 · 이력</text>
+          <rect class="box" x="424" y="204" width="175" height="50" rx="4"/>
+          <text class="t-name" x="511" y="224" text-anchor="middle">ContractRenewalService</text>
+          <text class="t-sub" x="511" y="242" text-anchor="middle">갱신 · 보험료 미리보기</text>
+
+          <!-- service: 청약과 채번 (아랫줄) -->
+          <rect class="box-key" x="130" y="292" width="210" height="70" rx="4"/>
+          <text class="t-name" x="235" y="316" text-anchor="middle">ContractService</text>
+          <text class="t-sub" x="235" y="334" text-anchor="middle">청약 접수</text>
+          <text class="t-sub t-mono" x="235" y="350" text-anchor="middle">@Transactional</text>
+
+          <rect class="box" x="400" y="292" width="200" height="70" rx="4"/>
+          <text class="t-name" x="500" y="316" text-anchor="middle">ContractNumberGenerator</text>
+          <text class="t-sub t-mono" x="500" y="334" text-anchor="middle">POL·APP-상품-YYYY-NNNNNN</text>
+          <text class="t-sub" x="500" y="350" text-anchor="middle">ProductType CAR(01) · FIRE(02)</text>
+
+          <!-- domain -->
+          <rect class="box" x="120" y="430" width="170" height="44" rx="4"/>
+          <text class="t-name" x="205" y="449" text-anchor="middle">ContractRepository</text>
+          <text class="t-sub" x="205" y="465" text-anchor="middle">Contract 엔티티</text>
+          <rect class="box" x="300" y="430" width="170" height="44" rx="4"/>
+          <text class="t-name" x="385" y="449" text-anchor="middle">CoverageRepository</text>
+          <text class="t-sub" x="385" y="465" text-anchor="middle">Coverage 엔티티 (N:1)</text>
+
+          <!-- DB -->
+          <rect class="box" x="120" y="540" width="170" height="40" rx="4"/>
+          <text class="t-name" x="205" y="557" text-anchor="middle">TB_CTR_LGD</text>
+          <text class="t-sub" x="205" y="572" text-anchor="middle">계약 원장</text>
+          <rect class="box" x="300" y="540" width="170" height="40" rx="4"/>
+          <text class="t-name" x="385" y="557" text-anchor="middle">TB_CTR_CVRG</text>
+          <text class="t-sub" x="385" y="572" text-anchor="middle">계약 담보</text>
+          <rect class="box" x="490" y="540" width="110" height="40" rx="4"/>
+          <text class="t-name" x="545" y="557" text-anchor="middle">TB_CMN_SEQ</text>
+          <text class="t-sub" x="545" y="572" text-anchor="middle">채번 관리</text>
+
+          <!-- common -->
+          <rect class="box" x="642" y="112" width="216" height="50" rx="4"/>
+          <text class="t-name" x="750" y="132" text-anchor="middle">CommonHeaderRequestBodyAdvice</text>
+          <text class="t-sub" x="750" y="150" text-anchor="middle">헤더 정리 · empId(JWT) · MDC 등록</text>
+          <rect class="box" x="642" y="176" width="216" height="50" rx="4"/>
+          <text class="t-name" x="750" y="196" text-anchor="middle">CommonHeaderContext</text>
+          <text class="t-sub" x="750" y="214" text-anchor="middle">요청 범위에 헤더 보관</text>
+          <rect class="box" x="642" y="240" width="216" height="50" rx="4"/>
+          <text class="t-name" x="750" y="260" text-anchor="middle">GlobalExceptionHandler</text>
+          <text class="t-sub" x="750" y="278" text-anchor="middle">모든 예외 → 공통 오류 전문</text>
+          <rect class="box" x="642" y="304" width="216" height="50" rx="4"/>
+          <text class="t-name" x="750" y="324" text-anchor="middle">CommonMessage&lt;T&gt;</text>
+          <text class="t-sub" x="750" y="342" text-anchor="middle">CommonHeader + body</text>
+          <rect class="box" x="642" y="368" width="216" height="50" rx="4"/>
+          <text class="t-name" x="750" y="388" text-anchor="middle">BusinessException</text>
+          <text class="t-sub" x="750" y="406" text-anchor="middle">errorCode · errorMessage</text>
+          <rect class="box" x="642" y="428" width="216" height="40" rx="4"/>
+          <text class="t-name" x="750" y="445" text-anchor="middle">SecurityConfig</text>
+          <text class="t-sub" x="750" y="460" text-anchor="middle">JWT 검증 · 역할 인가 · 401/403 전문</text>
+          <rect class="box" x="642" y="472" width="216" height="40" rx="4"/>
+          <text class="t-name" x="750" y="489" text-anchor="middle">MdcClearFilter</text>
+          <text class="t-sub" x="750" y="504" text-anchor="middle">요청 종료 시 로그 거래 ID 제거</text>
+
+          <!-- 정상 호출 경로 -->
+          <line class="edge-accent" x1="335" y1="46" x2="335" y2="94" marker-end="url(#a-accent)"/>
+          <text class="t-sub halo" x="343" y="76">CommonMessage 전문</text>
+          <line class="edge-accent" x1="216" y1="142" x2="216" y2="290" marker-end="url(#a-accent)"/>
+          <text class="t-sub t-mono halo" x="222" y="276">applyContract()</text>
+          <line class="edge" x1="180" y1="142" x2="180" y2="202" marker-end="url(#a-ink)"/>
+          <line class="edge" x1="330" y1="142" x2="330" y2="202" marker-end="url(#a-ink)"/>
+          <line class="edge" x1="480" y1="142" x2="480" y2="202" marker-end="url(#a-ink)"/>
+          <line class="edge-accent" x1="340" y1="327" x2="398" y2="327" marker-end="url(#a-accent)"/>
+          <text class="t-sub halo" x="369" y="320" text-anchor="middle">채번</text>
+          <line class="edge" x1="200" y1="362" x2="200" y2="428" marker-end="url(#a-ink)"/>
+          <text class="t-sub t-mono halo" x="208" y="399">save()</text>
+          <line class="edge" x1="320" y1="362" x2="320" y2="428" marker-end="url(#a-ink)"/>
+          <text class="t-sub t-mono halo" x="328" y="399">saveAll()</text>
+          <line class="edge" x1="545" y1="362" x2="545" y2="538" marker-end="url(#a-ink)"/>
+          <text class="t-sub t-mono halo" x="537" y="385" text-anchor="end">JdbcTemplate UPSERT</text>
+          <line class="edge" x1="205" y1="474" x2="205" y2="538" marker-end="url(#a-ink)"/>
+          <text class="t-sub t-mono halo" x="213" y="510">INSERT</text>
+          <line class="edge" x1="385" y1="474" x2="385" y2="538" marker-end="url(#a-ink)"/>
+          <text class="t-sub t-mono halo" x="393" y="510">INSERT</text>
+
+          <!-- 공통 처리: 수신 직후 헤더 정리 -->
+          <path class="edge-return" d="M335,62 H750 V110" marker-end="url(#a-ink)"/>
+          <text class="t-sub halo" x="560" y="56" text-anchor="middle">바디 수신 직후 가로챔</text>
+
+          <!-- 예외 경로 -->
+          <path class="edge-danger" d="M520,128 H615 V265 H640" marker-end="url(#a-danger)"/>
+          <text class="t-sub t-danger halo" x="608" y="91" text-anchor="end">예외 발생 시 (업무·시스템)</text>
+        </svg>
+      </div>
+      <figcaption>파란 실선은 정상 청약 경로, 빨간 점선은 업무 예외 경로입니다. 업무 예외든 시스템 오류든 GlobalExceptionHandler가 CommonHeaderContext에 보관된 globalTxId와 empId를 넣어 오류 전문을 만듭니다. 컨트롤러에 닿기 전에 SecurityConfig의 JWT 필터가 토큰을 검증하며, 컨트롤러는 업무별로 서비스를 나눠 호출합니다. 청약은 ContractService(파란 선)가 채번과 저장을 맡고, 조회·목록·이력은 ContractInquiryService가 Repository에서 읽기만 하며, 상태 변경은 ContractStatusService가, 갱신과 미리보기는 ContractRenewalService가 처리합니다(갱신은 청약 경로를 거쳐 저장하고, 상태 변경 이력은 ContractHistoryRecorder가 청약과 같은 규칙으로 남깁니다). 윗줄 서비스의 Repository 호출은 그림에서 생략했습니다. 보험료 산출과 요율 관리(PremiumController, PremiumAdminController)는 아래 "보험료 산출과 요율 관리 구조" 그림에 따로 있고, 청약 대조와 갱신, 해지 환급은 거기서 PremiumService를 호출합니다.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 1-1. 보험료·요율 관리 구조 -->
+  <section>
+    <div class="section-head">
+      <h2>보험료 산출과 요율 관리 구조</h2>
+      <p class="lede">보험료를 계산하는 쪽(PremiumService)과 요율표를 고치는 쪽(PremiumAdminService)은 컨트롤러부터 서비스까지 나뉘어 있고, 요율·계수·필수 계수 정책 테이블을 함께 씁니다. 계약 서비스는 청약 대조, 갱신, 해지 환급에서 이 계산을 가져다 씁니다.</p>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 880 536" role="img" aria-label="보험료 산출과 요율 관리 구조: 클라이언트가 PremiumController와 PremiumAdminController를 호출하고, 각각 PremiumService와 PremiumAdminService가 처리한다. 계약 서비스도 PremiumService를 호출한다. 두 서비스는 요율, 계수, 필수 계수 정책 저장소를 읽고, 관리 서비스만 감사 이력까지 저장하며, 각 저장소는 TB_PRM 테이블에 대응한다.">
+          <defs>
+            <marker id="p-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-ink"/></marker>
+            <marker id="p-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-accent"/></marker>
+          </defs>
+
+          <!-- 계층 밴드 -->
+          <rect class="band" x="20" y="80" width="840" height="76" rx="4"/>
+          <rect class="band" x="20" y="186" width="840" height="110" rx="4"/>
+          <rect class="band" x="20" y="326" width="840" height="80" rx="4"/>
+          <rect class="band" x="20" y="436" width="840" height="80" rx="4"/>
+          <text class="t-band" x="32" y="100">controller</text>
+          <text class="t-band" x="32" y="206">service</text>
+          <text class="t-band" x="32" y="346">domain</text>
+          <text class="t-band" x="32" y="456">PostgreSQL</text>
+          <text class="t-band" x="32" y="472">Flyway</text>
+          <text class="t-band" x="32" y="488">V7 ~ V17</text>
+
+          <!-- 클라이언트 -->
+          <rect class="box" x="470" y="10" width="140" height="36" rx="4"/>
+          <text x="540" y="33" text-anchor="middle">HTTP 클라이언트</text>
+
+          <!-- controller -->
+          <rect class="box" x="300" y="96" width="200" height="46" rx="4"/>
+          <text class="t-name" x="400" y="116" text-anchor="middle">PremiumController</text>
+          <text class="t-sub" x="400" y="133" text-anchor="middle">POST /api/premium/quote</text>
+          <rect class="box" x="590" y="96" width="250" height="46" rx="4"/>
+          <text class="t-name" x="715" y="116" text-anchor="middle">PremiumAdminController</text>
+          <text class="t-sub" x="715" y="133" text-anchor="middle">rate · factor · policy · audit (list · revise)</text>
+
+          <!-- service -->
+          <rect class="box" x="60" y="216" width="180" height="58" rx="4"/>
+          <text class="t-name" x="150" y="236" text-anchor="middle">계약 서비스</text>
+          <text class="t-sub" x="150" y="252" text-anchor="middle">청약 대조 · 갱신 · 해지 환급</text>
+          <text class="t-sub t-mono" x="150" y="266" text-anchor="middle">contract 패키지</text>
+          <rect class="box-key" x="300" y="204" width="200" height="70" rx="4"/>
+          <text class="t-name" x="400" y="228" text-anchor="middle">PremiumService</text>
+          <text class="t-sub" x="400" y="246" text-anchor="middle">산출 · 필수 계수 확인</text>
+          <text class="t-sub t-mono" x="400" y="262" text-anchor="middle">PremiumCalculator</text>
+          <rect class="box" x="590" y="204" width="250" height="70" rx="4"/>
+          <text class="t-name" x="715" y="228" text-anchor="middle">PremiumAdminService</text>
+          <text class="t-sub" x="715" y="246" text-anchor="middle">개정 · 이전 행 닫기 · 감사 · 재전송</text>
+          <text class="t-sub t-mono" x="715" y="262" text-anchor="middle">@Transactional</text>
+
+          <!-- domain -->
+          <rect class="box" x="100" y="346" width="170" height="44" rx="4"/>
+          <text class="t-name" x="185" y="365" text-anchor="middle">PremiumRate</text>
+          <text class="t-sub" x="185" y="381" text-anchor="middle">+ Repository</text>
+          <rect class="box" x="284" y="346" width="170" height="44" rx="4"/>
+          <text class="t-name" x="369" y="365" text-anchor="middle">PremiumFactor</text>
+          <text class="t-sub" x="369" y="381" text-anchor="middle">+ Repository</text>
+          <rect class="box" x="468" y="346" width="170" height="44" rx="4"/>
+          <text class="t-name" x="553" y="365" text-anchor="middle">PremiumFactorPolicy</text>
+          <text class="t-sub" x="553" y="381" text-anchor="middle">+ Repository</text>
+          <rect class="box" x="652" y="346" width="170" height="44" rx="4"/>
+          <text class="t-name" x="737" y="365" text-anchor="middle">PremiumAudit</text>
+          <text class="t-sub" x="737" y="381" text-anchor="middle">+ Repository (관리 전용)</text>
+
+          <!-- DB -->
+          <rect class="box" x="100" y="456" width="170" height="40" rx="4"/>
+          <text class="t-name" x="185" y="473" text-anchor="middle">TB_PRM_RATE</text>
+          <text class="t-sub" x="185" y="488" text-anchor="middle">담보별 요율</text>
+          <rect class="box" x="284" y="456" width="170" height="40" rx="4"/>
+          <text class="t-name" x="369" y="473" text-anchor="middle">TB_PRM_FACTOR</text>
+          <text class="t-sub" x="369" y="488" text-anchor="middle">요율 계수</text>
+          <rect class="box" x="468" y="456" width="170" height="40" rx="4"/>
+          <text class="t-name" x="553" y="473" text-anchor="middle">TB_PRM_FACTOR_POLICY</text>
+          <text class="t-sub" x="553" y="488" text-anchor="middle">필수 계수 정책</text>
+          <rect class="box" x="652" y="456" width="170" height="40" rx="4"/>
+          <text class="t-name" x="737" y="473" text-anchor="middle">TB_PRM_AUDIT</text>
+          <text class="t-sub" x="737" y="488" text-anchor="middle">개정 감사 이력</text>
+
+          <!-- 호출 경로 -->
+          <path class="edge-accent" d="M470,28 H400 V94" marker-end="url(#p-accent)"/>
+          <path class="edge" d="M610,28 H715 V94" marker-end="url(#p-ink)"/>
+          <line class="edge-accent" x1="400" y1="142" x2="400" y2="202" marker-end="url(#p-accent)"/>
+          <line class="edge" x1="715" y1="142" x2="715" y2="202" marker-end="url(#p-ink)"/>
+          <line class="edge" x1="242" y1="245" x2="298" y2="245" marker-end="url(#p-ink)"/>
+          <text class="t-sub t-mono halo" x="270" y="238" text-anchor="middle">quote()</text>
+          <line class="edge-accent" x1="400" y1="274" x2="400" y2="324" marker-end="url(#p-accent)"/>
+          <text class="t-sub halo" x="408" y="304">조회: 요율 · 계수 · 정책</text>
+          <line class="edge" x1="715" y1="274" x2="715" y2="324" marker-end="url(#p-ink)"/>
+          <text class="t-sub halo" x="707" y="304" text-anchor="end">조회 · 저장: 요율 · 계수 · 정책 · 감사</text>
+
+          <line class="edge" x1="185" y1="390" x2="185" y2="454" marker-end="url(#p-ink)"/>
+          <line class="edge" x1="369" y1="390" x2="369" y2="454" marker-end="url(#p-ink)"/>
+          <line class="edge" x1="553" y1="390" x2="553" y2="454" marker-end="url(#p-ink)"/>
+          <line class="edge" x1="737" y1="390" x2="737" y2="454" marker-end="url(#p-ink)"/>
+        </svg>
+      </div>
+      <figcaption>파란 선은 보험료 산출 경로, 검은 선은 요율 관리와 계약 서비스의 호출입니다. 요율, 계수, 정책은 모두 적용 시작·종료일로 이력을 관리하고, 산출은 보험시기에 유효한 행을 조회합니다. 개정은 기존 행을 고치지 않고 이전 행을 닫은 뒤 새 행을 추가하며, 같은 트랜잭션에서 감사 이력(TB_PRM_AUDIT)을 남깁니다. 오류 응답 처리와 인증은 위 계층 그림의 common 패키지가 같은 방식으로 맡습니다.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 2. 처리 흐름 -->
+  <section>
+    <div class="section-head">
+      <h2>청약 요청 처리 순서</h2>
+      <p class="lede">한 건의 청약이 저장되기까지 오가는 호출입니다. 파란 막대 구간이 하나의 트랜잭션이라서 중간에 실패하면 채번까지 함께 롤백되고 결번이 생기지 않습니다.</p>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 880 589" role="img" aria-label="청약 처리 순서: 요청 수신, 헤더 정리, 서비스 호출, 보험료 검증, 채번, 계약 저장, 담보 저장, 응답 반환">
+          <defs>
+            <marker id="s-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-ink"/></marker>
+            <marker id="s-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-muted"/></marker>
+          </defs>
+
+          <!-- 참여자 -->
+          <rect class="box" x="10" y="16" width="100" height="36" rx="4"/>
+          <text x="60" y="39" text-anchor="middle">클라이언트</text>
+          <rect class="box" x="125" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="180" y="39" text-anchor="middle">BodyAdvice</text>
+          <rect class="box" x="245" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="300" y="39" text-anchor="middle">Controller</text>
+          <rect class="box-key" x="365" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="420" y="39" text-anchor="middle">Service</text>
+          <rect class="box" x="485" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="540" y="39" text-anchor="middle">NumberGen</text>
+          <rect class="box" x="605" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="660" y="39" text-anchor="middle">Repository</text>
+          <rect class="box" x="745" y="16" width="110" height="36" rx="4"/>
+          <text class="t-name" x="800" y="39" text-anchor="middle">PostgreSQL</text>
+
+          <line class="lifeline" x1="60" y1="52" x2="60" y2="579"/>
+          <line class="lifeline" x1="180" y1="52" x2="180" y2="579"/>
+          <line class="lifeline" x1="300" y1="52" x2="300" y2="579"/>
+          <line class="lifeline" x1="420" y1="52" x2="420" y2="579"/>
+          <line class="lifeline" x1="540" y1="52" x2="540" y2="579"/>
+          <line class="lifeline" x1="660" y1="52" x2="660" y2="579"/>
+          <line class="lifeline" x1="800" y1="52" x2="800" y2="579"/>
+
+          <!-- 트랜잭션 구간 -->
+          <rect class="activation" x="414" y="166" width="12" height="362"/>
+          <text class="t-sub t-mono t-accent halo" x="408" y="160" text-anchor="end">@Transactional 시작</text>
+
+          <!-- 메시지 -->
+          <line class="edge" x1="60" y1="90" x2="178" y2="90" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="68" y="83">POST /apply</text>
+
+          <line class="edge" x1="180" y1="130" x2="298" y2="130" marker-end="url(#s-ink)"/>
+          <text class="t-sub halo" x="188" y="116">헤더 정리 후 전달</text>
+          <text class="t-sub halo" x="188" y="146">globalTxId 없으면 UUID</text>
+
+          <line class="edge" x1="300" y1="176" x2="412" y2="176" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="308" y="169">applyContract()</text>
+
+          <rect class="box" x="432" y="194" width="226" height="30" rx="4"/>
+          <text class="t-sub" x="442" y="213">보험종목 · 보험료 · 입력값 검증</text>
+
+          <rect class="box" x="432" y="234" width="340" height="30" rx="4"/>
+          <text class="t-sub" x="442" y="253">멱등성 확인 · 요율표 보험료 대조(새 청약)</text>
+
+          <line class="edge" x1="426" y1="300" x2="538" y2="300" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="434" y="293">generate(CAR)</text>
+
+          <line class="edge" x1="540" y1="330" x2="798" y2="330" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="548" y="323">UPSERT TB_CMN_SEQ ×2 (POL, APP)</text>
+
+          <line class="edge-return" x1="540" y1="360" x2="428" y2="360" marker-end="url(#s-muted)"/>
+          <text class="t-sub t-mono halo" x="434" y="353">POL-… / APP-…</text>
+
+          <line class="edge" x1="426" y1="400" x2="658" y2="400" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="434" y="393">save(Contract)</text>
+          <line class="edge" x1="660" y1="424" x2="798" y2="424" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="668" y="417">INSERT TB_CTR_LGD</text>
+
+          <line class="edge" x1="426" y1="464" x2="658" y2="464" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="434" y="457">saveAll(Coverage[])</text>
+          <line class="edge" x1="660" y1="488" x2="798" y2="488" marker-end="url(#s-ink)"/>
+          <text class="t-sub t-mono halo" x="668" y="481">INSERT TB_CTR_CVRG</text>
+
+          <text class="t-sub t-mono t-accent halo" x="432" y="524">커밋</text>
+
+          <line class="edge-return" x1="414" y1="544" x2="302" y2="544" marker-end="url(#s-muted)"/>
+          <text class="t-sub t-mono halo" x="308" y="537">ContractApplyResponse</text>
+          <line class="edge-return" x1="300" y1="570" x2="62" y2="570" marker-end="url(#s-muted)"/>
+          <text class="t-sub t-mono halo" x="68" y="563">CommonMessage · responseCode 0000</text>
+        </svg>
+      </div>
+      <figcaption>요청은 먼저 Spring Security 필터에서 JWT를 검증하고, 통과한 뒤 BodyAdvice가 empId를 토큰의 subject로 덮어씁니다. 검증과 멱등성 확인을 채번보다 먼저 하므로, 검증에 실패한 요청과 이미 접수된 거래의 재전송은 번호를 쓰지 않습니다. 재전송은 요청 내용의 지문(업무 필드의 SHA-256, 금액 표기와 담보 순서는 무시)이 처음 접수한 것과 같을 때만 기존 결과를 돌려주고, 내용이 다르면 409 E-CTR-019로 거절합니다. 다른 사번이 보낸 재전송은 내용과 무관하게 먼저 E-CTR-015로 거절해, 남의 요청 내용을 짐작할 수 없게 합니다. 새로 접수하는 청약은 채번 전에 요율표로 담보별 보험료를 다시 계산해 대조하고(재전송은 건너뜀), 일치하지 않으면 번호를 쓰지 않고 거절합니다. 채번은 INSERT … ON CONFLICT DO UPDATE … RETURNING 한 문장으로 처리해 동시 요청에도 번호가 중복되지 않습니다.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 3. 테이블 -->
+  <section>
+    <div class="section-head">
+      <h2>테이블 구조</h2>
+      <p class="lede">V1__create_contract_tables.sql로 생성되고, V2__add_contract_global_tx_id.sql이 멱등성용 GLOBAL_TX_ID 컬럼을, V3__create_contract_status_history.sql이 상태 변경 이력 테이블을, V4__add_contract_reg_emp_id.sql이 청약 접수 사번(REG_EMP_ID)을 더합니다. V4는 V3 이후 접수한 계약의 접수 사번을 이력의 최초 기록에서 채우고, 그 이전 계약은 NULL로 남깁니다. V5__add_contract_list_indexes.sql은 목록 조회의 최근 접수순 정렬과 접수자별 목록을 받치는 인덱스 두 개(SYS_REG_DT, REG_EMP_ID + SYS_REG_DT)를, V6__add_contract_req_hash.sql이 청약 요청 내용의 지문(REQ_HASH, SHA-256)을, V7__create_premium_rate.sql이 담보별 요율표(TB_PRM_RATE)와 샘플 요율을, V8__create_premium_factor.sql이 요율 계수표(TB_PRM_FACTOR)를, V9__add_contract_rating_info.sql이 청약 때 쓴 요율 계수 입력값 컬럼을, V10__add_premium_effective_period.sql이 요율/계수의 적용 기간(EFF_FROM~EFF_TO)을, V11__add_contract_termination_refund.sql이 해지일과 환급보험료를, V12__create_contract_endorsement.sql이 계약 변경(배서) 이력 테이블(TB_CTR_ENDORSE)을, V13__guard_premium_period_overlap.sql이 요율/계수의 적용 기간이 겹치면 DB가 거절하는 트리거를, V14__create_premium_audit.sql이 요율/계수 관리 감사 이력(TB_PRM_AUDIT)을, V15__create_premium_factor_policy.sql이 필수 계수 정책(TB_PRM_FACTOR_POLICY)과 샘플 정책을, V16__allow_policy_audit_target.sql이 감사 이력의 대상 종류에 POLICY를, V17__add_contract_renewal_link.sql이 갱신 계약의 원 계약 증권번호(RENEWED_FROM)와 계약당 유효한 갱신 하나만 허용하는 부분 유니크 인덱스(청약취소 제외)를 더합니다. 금액 컬럼은 원 단위 NUMERIC(15, 0)이고 엔티티에서는 BigDecimal로 다룹니다.</p>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 880 880" role="img" aria-label="테이블 구조: TB_CTR_CVRG, TB_CTR_STAT_HIST, TB_CTR_ENDORSE가 CONTRACT_NO 외래키로 TB_CTR_LGD를 N대1로 참조하고, TB_CMN_SEQ, TB_PRM_RATE, TB_PRM_FACTOR, TB_PRM_FACTOR_POLICY는 독립 테이블이다">
+          <defs>
+            <marker id="e-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-ink"/></marker>
+          </defs>
+
+          <!-- TB_CTR_LGD -->
+          <rect class="box" x="20" y="20" width="270" height="420" rx="4"/>
+          <rect class="box-head" x="20" y="20" width="270" height="30" rx="4"/>
+          <text class="t-name" x="32" y="40">TB_CTR_LGD</text>
+          <text class="t-sub" x="278" y="40" text-anchor="end">계약 원장</text>
+          <text class="t-mono t-accent" x="32" y="64">CONTRACT_NO</text><text class="t-sub t-mono" x="278" y="64" text-anchor="end">PK VARCHAR(30)</text>
+          <text class="t-mono" x="32" y="84">APPL_NO</text><text class="t-sub t-mono" x="278" y="84" text-anchor="end">UK VARCHAR(30)</text>
+          <text class="t-mono" x="32" y="104">INSR_CLS_CD</text><text class="t-sub t-mono" x="278" y="104" text-anchor="end">01 자동차 · 02 화재</text>
+          <text class="t-mono" x="32" y="124">CTR_STAT_CD</text><text class="t-sub t-mono" x="278" y="124" text-anchor="end">10 청약</text>
+          <text class="t-mono" x="32" y="144">START_DATE</text><text class="t-sub t-mono" x="278" y="144" text-anchor="end">DATE</text>
+          <text class="t-mono" x="32" y="164">END_DATE</text><text class="t-sub t-mono" x="278" y="164" text-anchor="end">DATE</text>
+          <text class="t-mono" x="32" y="184">POLICYHOLDER_ID</text><text class="t-sub t-mono" x="278" y="184" text-anchor="end">VARCHAR(20)</text>
+          <text class="t-mono" x="32" y="204">INSURED_ID</text><text class="t-sub t-mono" x="278" y="204" text-anchor="end">VARCHAR(20)</text>
+          <text class="t-mono" x="32" y="224">TOTAL_PREMIUM</text><text class="t-sub t-mono" x="278" y="224" text-anchor="end">NUMERIC(15,0)</text>
+          <text class="t-mono" x="32" y="244">SYS_REG_DT</text><text class="t-sub t-mono" x="278" y="244" text-anchor="end">TIMESTAMP</text>
+          <text class="t-mono" x="32" y="264">GLOBAL_TX_ID</text><text class="t-sub t-mono" x="278" y="264" text-anchor="end">UK VARCHAR(64) · V2</text>
+          <text class="t-mono" x="32" y="284">REG_EMP_ID</text><text class="t-sub t-mono" x="278" y="284" text-anchor="end">VARCHAR(64) · V4</text>
+          <text class="t-mono" x="32" y="304">REQ_HASH</text><text class="t-sub t-mono" x="278" y="304" text-anchor="end">VARCHAR(64) · V6</text>
+          <text class="t-mono" x="32" y="324">DRIVER_AGE</text><text class="t-sub t-mono" x="278" y="324" text-anchor="end">INTEGER · V9</text>
+          <text class="t-mono" x="32" y="344">DISCOUNT_GRADE</text><text class="t-sub t-mono" x="278" y="344" text-anchor="end">VARCHAR(10) · V9</text>
+          <text class="t-mono" x="32" y="364">STRUCTURE_GRADE</text><text class="t-sub t-mono" x="278" y="364" text-anchor="end">VARCHAR(10) · V9</text>
+          <text class="t-mono" x="32" y="384">TERM_DT</text><text class="t-sub t-mono" x="278" y="384" text-anchor="end">DATE · V11</text>
+          <text class="t-mono" x="32" y="404">REFUND_PREM</text><text class="t-sub t-mono" x="278" y="404" text-anchor="end">NUMERIC(15,0) · V11</text>
+          <text class="t-mono" x="32" y="424">RENEWED_FROM</text><text class="t-sub t-mono" x="278" y="424" text-anchor="end">VARCHAR(30) · V17</text>
+
+          <!-- TB_CTR_CVRG -->
+          <rect class="box" x="370" y="20" width="240" height="130" rx="4"/>
+          <rect class="box-head" x="370" y="20" width="240" height="30" rx="4"/>
+          <text class="t-name" x="382" y="40">TB_CTR_CVRG</text>
+          <text class="t-sub" x="598" y="40" text-anchor="end">계약 담보</text>
+          <text class="t-mono" x="382" y="64">ID</text><text class="t-sub t-mono" x="598" y="64" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono t-accent" x="382" y="84">CONTRACT_NO</text><text class="t-sub t-mono" x="598" y="84" text-anchor="end">FK VARCHAR(30)</text>
+          <text class="t-mono" x="382" y="104">CVRG_CD</text><text class="t-sub t-mono" x="598" y="104" text-anchor="end">VARCHAR(10)</text>
+          <text class="t-mono" x="382" y="124">ISRD_AMT</text><text class="t-sub t-mono" x="598" y="124" text-anchor="end">NUMERIC(15,0)</text>
+          <text class="t-mono" x="382" y="144">PREM</text><text class="t-sub t-mono" x="598" y="144" text-anchor="end">NUMERIC(15,0)</text>
+
+          <!-- TB_CTR_STAT_HIST -->
+          <rect class="box" x="370" y="180" width="240" height="180" rx="4"/>
+          <rect class="box-head" x="370" y="180" width="240" height="30" rx="4"/>
+          <text class="t-name" x="382" y="200">TB_CTR_STAT_HIST</text>
+          <text class="t-sub" x="598" y="200" text-anchor="end">상태 이력</text>
+          <text class="t-mono" x="382" y="224">HIST_ID</text><text class="t-sub t-mono" x="598" y="224" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono t-accent" x="382" y="244">CONTRACT_NO</text><text class="t-sub t-mono" x="598" y="244" text-anchor="end">FK VARCHAR(30)</text>
+          <text class="t-mono" x="382" y="264">BEFORE_STAT_CD</text><text class="t-sub t-mono" x="598" y="264" text-anchor="end">NULL = 청약 접수</text>
+          <text class="t-mono" x="382" y="284">AFTER_STAT_CD</text><text class="t-sub t-mono" x="598" y="284" text-anchor="end">VARCHAR(2)</text>
+          <text class="t-mono" x="382" y="304">EMP_ID</text><text class="t-sub t-mono" x="598" y="304" text-anchor="end">VARCHAR(64)</text>
+          <text class="t-mono" x="382" y="324">GLOBAL_TX_ID</text><text class="t-sub t-mono" x="598" y="324" text-anchor="end">VARCHAR(64)</text>
+          <text class="t-mono" x="382" y="344">CHG_DT</text><text class="t-sub t-mono" x="598" y="344" text-anchor="end">TIMESTAMP</text>
+          <path class="edge" d="M370,244 H292" marker-end="url(#e-ink)"/>
+          <text class="t-sub halo" x="331" y="236" text-anchor="middle">N : 1</text>
+
+          <!-- TB_CTR_ENDORSE -->
+          <rect class="box" x="370" y="380" width="240" height="200" rx="4"/>
+          <rect class="box-head" x="370" y="380" width="240" height="30" rx="4"/>
+          <text class="t-name" x="382" y="400">TB_CTR_ENDORSE</text>
+          <text class="t-sub" x="598" y="400" text-anchor="end">변경(배서) 이력</text>
+          <text class="t-mono" x="382" y="434">ENDORSE_ID</text><text class="t-sub t-mono" x="598" y="434" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono t-accent" x="382" y="454">CONTRACT_NO</text><text class="t-sub t-mono" x="598" y="454" text-anchor="end">FK VARCHAR(30)</text>
+          <text class="t-mono" x="382" y="474">FIELD_NM</text><text class="t-sub t-mono" x="598" y="474" text-anchor="end">계약자 · 피보험자</text>
+          <text class="t-mono" x="382" y="494">BEFORE_VAL</text><text class="t-sub t-mono" x="598" y="494" text-anchor="end">VARCHAR(100)</text>
+          <text class="t-mono" x="382" y="514">AFTER_VAL</text><text class="t-sub t-mono" x="598" y="514" text-anchor="end">VARCHAR(100)</text>
+          <text class="t-mono" x="382" y="534">EMP_ID</text><text class="t-sub t-mono" x="598" y="534" text-anchor="end">VARCHAR(64)</text>
+          <text class="t-mono" x="382" y="554">GLOBAL_TX_ID</text><text class="t-sub t-mono" x="598" y="554" text-anchor="end">VARCHAR(64)</text>
+          <text class="t-mono" x="382" y="574">CHG_DT</text><text class="t-sub t-mono" x="598" y="574" text-anchor="end">TIMESTAMP · V12</text>
+          <path class="edge" d="M370,454 H335 V404 H292" marker-end="url(#e-ink)"/>
+          <text class="t-sub halo" x="331" y="446" text-anchor="middle">N : 1</text>
+
+          <!-- TB_PRM_RATE -->
+          <rect class="box" x="650" y="210" width="210" height="180" rx="4"/>
+          <rect class="box-head" x="650" y="210" width="210" height="30" rx="4"/>
+          <text class="t-name" x="662" y="230">TB_PRM_RATE</text>
+          <text class="t-sub" x="848" y="230" text-anchor="end">보험료 요율</text>
+          <text class="t-mono" x="662" y="254">RATE_ID</text><text class="t-sub t-mono" x="848" y="254" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono" x="662" y="274">INSR_CLS_CD</text><text class="t-sub t-mono" x="848" y="274" text-anchor="end">UK VARCHAR(2)</text>
+          <text class="t-mono" x="662" y="294">CVRG_CD</text><text class="t-sub t-mono" x="848" y="294" text-anchor="end">UK VARCHAR(10)</text>
+          <text class="t-mono" x="662" y="314">CVRG_NM</text><text class="t-sub t-mono" x="848" y="314" text-anchor="end">VARCHAR(50)</text>
+          <text class="t-mono" x="662" y="334">ANNUAL_RATE</text><text class="t-sub t-mono" x="848" y="334" text-anchor="end">NUMERIC(10,6)</text>
+          <text class="t-mono" x="662" y="354">EFF_FROM</text><text class="t-sub t-mono" x="848" y="354" text-anchor="end">UK DATE · V10</text>
+          <text class="t-mono" x="662" y="374">EFF_TO</text><text class="t-sub t-mono" x="848" y="374" text-anchor="end">DATE (NULL 현재)</text>
+
+          <!-- TB_PRM_FACTOR -->
+          <rect class="box" x="650" y="410" width="210" height="190" rx="4"/>
+          <rect class="box-head" x="650" y="410" width="210" height="30" rx="4"/>
+          <text class="t-name" x="662" y="430">TB_PRM_FACTOR</text>
+          <text class="t-sub" x="848" y="430" text-anchor="end">요율 계수</text>
+          <text class="t-mono" x="662" y="454">FACTOR_ID</text><text class="t-sub t-mono" x="848" y="454" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono" x="662" y="474">INSR_CLS_CD</text><text class="t-sub t-mono" x="848" y="474" text-anchor="end">VARCHAR(2)</text>
+          <text class="t-mono" x="662" y="494">FACTOR_TYPE</text><text class="t-sub t-mono" x="848" y="494" text-anchor="end">VARCHAR(20)</text>
+          <text class="t-mono" x="662" y="514">FACTOR_KEY</text><text class="t-sub t-mono" x="848" y="514" text-anchor="end">키형 코드</text>
+          <text class="t-mono" x="662" y="534">RANGE_FROM · TO</text><text class="t-sub t-mono" x="848" y="534" text-anchor="end">범위형 구간</text>
+          <text class="t-mono" x="662" y="554">FACTOR_VALUE</text><text class="t-sub t-mono" x="848" y="554" text-anchor="end">NUMERIC(6,4)</text>
+          <text class="t-mono" x="662" y="574">EFF_FROM · TO</text><text class="t-sub t-mono" x="848" y="574" text-anchor="end">DATE · V10</text>
+
+          <!-- TB_PRM_FACTOR_POLICY -->
+          <rect class="box" x="370" y="600" width="240" height="160" rx="4"/>
+          <rect class="box-head" x="370" y="600" width="240" height="30" rx="4"/>
+          <text class="t-name" x="382" y="620">TB_PRM_FACTOR_POLICY</text>
+          <text class="t-sub" x="598" y="620" text-anchor="end">필수 계수</text>
+          <text class="t-mono" x="382" y="644">POLICY_ID</text><text class="t-sub t-mono" x="598" y="644" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono" x="382" y="664">INSR_CLS_CD</text><text class="t-sub t-mono" x="598" y="664" text-anchor="end">UK VARCHAR(2)</text>
+          <text class="t-mono" x="382" y="684">FACTOR_TYPE</text><text class="t-sub t-mono" x="598" y="684" text-anchor="end">UK VARCHAR(20)</text>
+          <text class="t-mono" x="382" y="704">REQUIRED_YN</text><text class="t-sub t-mono" x="598" y="704" text-anchor="end">BOOLEAN</text>
+          <text class="t-mono" x="382" y="724">EFF_FROM</text><text class="t-sub t-mono" x="598" y="724" text-anchor="end">UK DATE · V15</text>
+          <text class="t-mono" x="382" y="744">EFF_TO</text><text class="t-sub t-mono" x="598" y="744" text-anchor="end">DATE (NULL 현재)</text>
+
+          <!-- TB_PRM_AUDIT -->
+          <rect class="box" x="650" y="620" width="210" height="240" rx="4"/>
+          <rect class="box-head" x="650" y="620" width="210" height="30" rx="4"/>
+          <text class="t-name" x="662" y="640">TB_PRM_AUDIT</text>
+          <text class="t-sub" x="848" y="640" text-anchor="end">요율 관리 감사</text>
+          <text class="t-mono" x="662" y="664">AUDIT_ID</text><text class="t-sub t-mono" x="848" y="664" text-anchor="end">PK IDENTITY</text>
+          <text class="t-mono" x="662" y="684">TARGET_TYPE</text><text class="t-sub t-mono" x="848" y="684" text-anchor="end">RATE · FACTOR · POLICY</text>
+          <text class="t-mono" x="662" y="704">TARGET_KEY</text><text class="t-sub t-mono" x="848" y="704" text-anchor="end">01/CA001</text>
+          <text class="t-mono" x="662" y="724">ACTION</text><text class="t-sub t-mono" x="848" y="724" text-anchor="end">CREATE · REVISE</text>
+          <text class="t-mono" x="662" y="744">BEFORE_VAL · AFTER_VAL</text>
+          <text class="t-mono" x="662" y="764">EFF_FROM</text><text class="t-sub t-mono" x="848" y="764" text-anchor="end">DATE</text>
+          <text class="t-mono" x="662" y="784">EMP_ID</text><text class="t-sub t-mono" x="848" y="784" text-anchor="end">VARCHAR(64)</text>
+          <text class="t-mono" x="662" y="804">GLOBAL_TX_ID</text><text class="t-sub t-mono" x="848" y="804" text-anchor="end">UK(유형, 거래)</text>
+          <text class="t-mono" x="662" y="824">CHG_DT</text><text class="t-sub t-mono" x="848" y="824" text-anchor="end">TIMESTAMP · V14</text>
+
+          <!-- TB_CMN_SEQ -->
+          <rect class="box" x="650" y="20" width="210" height="110" rx="4"/>
+          <rect class="box-head" x="650" y="20" width="210" height="30" rx="4"/>
+          <text class="t-name" x="662" y="40">TB_CMN_SEQ</text>
+          <text class="t-sub" x="848" y="40" text-anchor="end">채번 관리</text>
+          <text class="t-mono" x="662" y="64">SEQ_TYPE</text><text class="t-sub t-mono" x="848" y="64" text-anchor="end">PK POL · APP</text>
+          <text class="t-mono" x="662" y="84">PROD_CD</text><text class="t-sub t-mono" x="848" y="84" text-anchor="end">PK CAR · FIRE</text>
+          <text class="t-mono" x="662" y="104">SEQ_YEAR</text><text class="t-sub t-mono" x="848" y="104" text-anchor="end">PK YYYY</text>
+          <text class="t-mono" x="662" y="124">LAST_NO</text><text class="t-sub t-mono" x="848" y="124" text-anchor="end">BIGINT</text>
+
+          <!-- FK -->
+          <path class="edge" d="M370,80 H330 V60 H292" marker-end="url(#e-ink)"/>
+          <text class="t-sub halo" x="330" y="100" text-anchor="middle">N : 1</text>
+
+          <text class="t-sub" x="650" y="160">연도가 바뀌면 상품별로 1부터 다시 시작</text>
+          <text class="t-sub" x="650" y="178">일련번호 999,999 초과 시 E-SEQ-002</text>
+        </svg>
+      </div>
+      <figcaption>TB_CTR_CVRG.CONTRACT_NO가 TB_CTR_LGD를 참조합니다. GLOBAL_TX_ID의 유니크 제약은 같은 거래가 동시에 들어와도 한 건만 저장되게 하는 최후 방어선이고, V2 이전 계약은 이 값이 NULL입니다. TB_CTR_STAT_HIST는 청약 접수(최초 상태)와 이후 모든 상태 변경을 한 건씩 쌓는 추가 전용 테이블이며, 상태 변경과 같은 트랜잭션에서 저장되어 롤백되면 이력도 함께 사라집니다. TB_CMN_SEQ는 (번호유형, 상품, 연도) 단위로 마지막 일련번호만 보관합니다.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 3-00. 보험료 산출 -->
+  <section>
+    <div class="section-head">
+      <h2>보험료 산출</h2>
+      <p class="lede">POST /api/premium/quote는 보험종목, 보험기간, 요율 계수 입력, 담보별 가입금액으로 담보별 보험료와 총보험료를 계산해 돌려줍니다. 아무것도 저장하지 않으며, 응답의 담보별 보험료와 총보험료를 청약 요청에 그대로 넣으면 청약 접수의 보험료 검증을 통과합니다. 청약 접수는 같은 계산으로 담보별 보험료를 다시 구해 대조하므로(불일치는 400 E-CTR-020), 산출 API의 결과를 그대로 쓰는 것이 청약이 통과하는 가장 확실한 방법입니다. 이미 접수된 거래의 재전송은 요율표를 다시 조회하지 않아서, 접수 이후 요율이 바뀌어도 기존 결과를 돌려줍니다.</p>
+    </div>
+    <pre class="tree"><span class="p">담보 보험료</span> = 가입금액 × 연 요율 × 요율 계수 × 보험기간 일수 ÷ 365   <span class="c">원 단위 반올림(HALF_UP), 마지막에 한 번만</span>
+<span class="p">요율 계수</span>   = 적용한 계수들의 곱 (입력하지 않은 계수는 1)             <span class="c">모든 담보에 같은 계수를 적용</span>
+<span class="p">총보험료</span>   = 반올림된 담보 보험료의 합                            <span class="c">윤년이어도 분모는 365 (366일 계약은 1년보다 약간 비쌈)</span></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>보험종목</th><th>담보코드</th><th>담보명</th><th style="text-align:right">연 요율</th></tr></thead>
+        <tbody>
+          <tr><td>01 자동차</td><td><span class="code-chip">CA001</span></td><td>대인배상</td><td class="num">0.5000%</td></tr>
+          <tr><td>01 자동차</td><td><span class="code-chip">CA002</span></td><td>대물배상</td><td class="num">1.7500%</td></tr>
+          <tr><td>01 자동차</td><td><span class="code-chip">CA003</span></td><td>자기신체사고</td><td class="num">0.8000%</td></tr>
+          <tr><td>01 자동차</td><td><span class="code-chip">CA004</span></td><td>자기차량손해</td><td class="num">3.0000%</td></tr>
+          <tr><td>02 화재</td><td><span class="code-chip">FI001</span></td><td>건물</td><td class="num">0.1200%</td></tr>
+          <tr><td>02 화재</td><td><span class="code-chip">FI002</span></td><td>가재도구</td><td class="num">0.2000%</td></tr>
+          <tr><td>02 화재</td><td><span class="code-chip">FI003</span></td><td>시설소유자배상책임</td><td class="num">0.3500%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>보험종목</th><th>요청 필드 (rating)</th><th>계수 종류</th><th>입력값 → 계수</th></tr></thead>
+        <tbody>
+          <tr><td>01 자동차</td><td><span class="code-chip">driverAge</span></td><td>운전자 연령</td><td>만 18~25세 1.50 · 26~29세 1.20 · 30~49세 1.00 · 50~64세 0.95 · 65세 이상 1.30</td></tr>
+          <tr><td>01 자동차</td><td><span class="code-chip">discountGrade</span></td><td>할인할증 등급</td><td>1등급 0.80 · 2등급 0.90 · 3등급 1.00 · 4등급 1.15 · 5등급 1.30</td></tr>
+          <tr><td>02 화재</td><td><span class="code-chip">structureGrade</span></td><td>건물 구조 등급</td><td>1급(내화) 0.90 · 2급(준내화) 1.10 · 3급(비내화) 1.60</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size:13px"><b>위 요율과 계수는 개발·시연용 샘플입니다.</b> 계수 입력(rating)은 보험종목별 <b>필수 계수 정책</b>(TB_PRM_FACTOR_POLICY)에 따라 필수 여부가 정해집니다. 필수 계수를 빠뜨리면 산출과 청약 모두 400 E-PRM-005이며 빠진 계수와 입력 필드를 알려 줍니다(샘플: 자동차 DRIVER_AGE·DISCOUNT_GRADE, 화재 STRUCTURE_GRADE). 정책은 보험시기 기준으로 적용되고, 필수가 아닌 계수는 입력하지 않으면 적용하지 않습니다(1.0). 산출 응답의 requiredFactors에 적용된 필수 계수 종류가 나옵니다. 보험종목에서 쓰지 않는 계수를 입력하면 400 E-PRM-003, 계수표에 없는 값(예: 만 17세, 9등급)은 400 E-PRM-004입니다. 청약에 쓴 계수 입력값(driverAge, discountGrade, structureGrade)은 계약에 저장되어 조회 응답에 나옵니다.</p>
+    <p class="lede" style="font-size:13px"><b>요율 개정(적용 기간)</b> — 요율과 계수 행마다 적용 기간(EFF_FROM ~ EFF_TO, 양 끝 포함, EFF_TO가 비어 있으면 현재까지 유효)이 있고, 보험시기에 적용되는 행으로 계산합니다. 개정할 때는 기존 행을 지우거나 고치지 말고 기존 행의 EFF_TO를 닫은 뒤 새 행을 추가하는 새 마이그레이션(V&lt;n&gt;)을 만듭니다. 적용 기간이 겹치는 행(같은 담보, 같은 계수 키, 겹치는 연령 구간)은 DB 트리거가 거절합니다. 보험시기에 적용되는 요율이 없는 담보는 400 E-PRM-001이고, 가입금액이 0 이하이거나 소수·15자리 초과면 400 E-CTR-007입니다.</p>
+  </section>
+
+  <!-- 3-00-1. 요율/계수 관리 -->
+  <section>
+    <div class="section-head">
+      <h2>요율/계수 관리</h2>
+      <p class="lede">요율표와 계수표를 코드 배포나 마이그레이션 없이 개정하는 API입니다(/api/admin/premium). 조회(rate-list, factor-list, policy-list, audit-list)는 심사·계약 관리·ADMIN, 개정과 신규 등록(rate-revise, factor-revise, policy-revise)은 ADMIN만 할 수 있습니다. 요율과 계수는 적용 기간으로 이력을 관리하므로, 개정은 기존 행을 고치거나 지우지 않고 가장 최근 행의 적용 종료일을 (새 시작일 − 1일)로 닫은 뒤 새 행을 추가합니다. 같은 보험종목·담보코드(계수는 같은 칸)가 없으면 새로 만듭니다(CREATE). 모든 변경은 감사 이력(TB_PRM_AUDIT)에 남고, audit-list로 대상 종류(RATE·FACTOR·POLICY), 대상 식별 앞부분, 처리 사번, 처리일 범위(서울 기준)를 조합해 최근 처리순으로 페이지(기본 20, 최대 100) 단위 조회할 수 있습니다. 조건 오류는 400 E-ADM-001, 페이징 오류는 400 E-CTR-016입니다.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>규칙</th><th>내용</th></tr></thead>
+        <tbody>
+          <tr><td>적용 시작일</td><td>오늘(서울 기준) 이후여야 합니다. 과거 일자를 바꾸면 이미 나간 견적과 맞지 않게 되므로 400 <span class="code-chip err">E-ADM-002</span>. 같은 칸의 가장 최근 행(예약된 미래 행 포함)의 시작일보다 늦어야 하며, 아니면 409 <span class="code-chip err">E-ADM-003</span></td></tr>
+          <tr><td>값 범위</td><td>연 요율은 0 초과 1 이하(소수 6자리), 계수 값은 0 초과 9.9999 이하(소수 4자리), 이름은 50자 이하. 새 담보/칸을 만들 때는 이름이 필수. 위반은 400 <span class="code-chip err">E-ADM-001</span></td></tr>
+          <tr><td>계수 형태</td><td>DRIVER_AGE는 구간(rangeFrom ≤ rangeTo, 0~150), DISCOUNT_GRADE·STRUCTURE_GRADE는 코드(factorKey)만 입력합니다. 보험종목에서 쓰지 않는 종류도 400 E-ADM-001</td></tr>
+          <tr><td>겹침·동시 작업</td><td>적용 기간이 겹치는 행이나 같은 거래의 동시 처리는 DB(트리거, 유니크)가 막고 409 <span class="code-chip err">E-ADM-004</span>로 응답합니다. 다른 구간과 겹치는 새 연령 구간을 같은 기간에 만드는 경우가 여기에 해당합니다</td></tr>
+          <tr><td>재전송</td><td>같은 거래 UUID의 재전송은 다시 처리하지 않고 처음 결과를 돌려주며, 값이나 시작일이 다르면 409 E-CTR-019. 판단 근거는 감사 이력(TB_PRM_AUDIT)의 (대상 종류, 거래 UUID) 유니크입니다</td></tr>
+          <tr><td>감사 이력</td><td>모든 변경(대상, CREATE/REVISE, 변경 전/후 값, 적용 시작일, 처리 사번, 거래 UUID, 처리 일시)이 TB_PRM_AUDIT에 남습니다. 추가 전용입니다</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size:13px">목록 응답의 각 행에는 오늘 기준 상태가 붙습니다: ACTIVE(적용 중), FUTURE(적용 예정), CLOSED(종료). 이 API는 조회 API가 아니라 관리용이라 페이징이 없고 개정 이력 전체를 한 번에 돌려줍니다. 개정으로 이미 접수된 계약의 보험료가 바뀌지는 않습니다(청약 재전송은 요율표를 다시 조회하지 않음). 새 요율이 적용되는 것은 보험시기가 새 시작일 이후인 보험료 산출과 청약부터입니다.</p>
+  </section>
+
+  <!-- 3-0. 역할별 권한 -->
+  <section>
+    <div class="section-head">
+      <h2>역할별 권한</h2>
+      <p class="lede">외부 인증 서버가 발급한 JWT의 roles 클레임이 ROLE_ 권한으로 바뀝니다. API별 허용 역할은 SecurityConfig의 URL 규칙이 정하고, 상태 변경은 변경하려는 상태에 따라 ContractAccessPolicy가 한 번 더 확인합니다. 권한이 없으면 403 E-AUTH-002 전문으로 응답하고 서비스는 호출하지 않습니다.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>업무</th><th style="text-align:center">AGENT</th><th style="text-align:center">UNDERWRITER</th><th style="text-align:center">OPERATOR</th><th style="text-align:center">ADMIN</th></tr></thead>
+        <tbody>
+          <tr><td>청약 접수 <span class="code-chip">/apply</span></td><td style="text-align:center">●</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">●</td></tr>
+          <tr><td>계약 갱신·미리보기 <span class="code-chip">/renew</span> <span class="code-chip">/renew-quote</span></td><td style="text-align:center">● 본인 접수만</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">●</td></tr>
+          <tr><td>계약 조회 <span class="code-chip">/inquiry</span></td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>계약 변경(배서) <span class="code-chip">/endorse</span></td><td style="text-align:center">–</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>배서 이력 조회 <span class="code-chip">/endorse-history</span></td><td style="text-align:center">● 본인 접수만</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>요율/계수 조회 <span class="code-chip">/api/admin/premium/*-list</span></td><td style="text-align:center">–</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>요율/계수 개정 · 신규 <span class="code-chip">/api/admin/premium/*-revise</span></td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">●</td></tr>
+          <tr><td>보험료 산출 <span class="code-chip">/api/premium/quote</span></td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>계약 목록 조회 <span class="code-chip">/list</span></td><td style="text-align:center">● 본인 접수만</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>상태 이력 조회 <span class="code-chip">/status-history</span></td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+          <tr><td>청약 승인 · 청약취소 <span class="code-chip">/status-change → 20 · 90</span></td><td style="text-align:center">–</td><td style="text-align:center">●</td><td style="text-align:center">–</td><td style="text-align:center">●</td></tr>
+          <tr><td>해지 <span class="code-chip">/status-change → 30</span></td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">●</td><td style="text-align:center">●</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede"><b>조회 범위(데이터 단위 권한)</b> — 청약 접수 담당(AGENT)만 가진 사용자는 본인이 접수한 계약(REG_EMP_ID = 토큰의 sub)만 조회할 수 있고, 다른 사람이 접수한 계약은 존재하지 않는 계약과 똑같이 404 E-CTR-010으로 응답해 존재 여부를 알 수 없게 합니다. 심사·계약 관리·ADMIN 역할이 하나라도 있으면 전체를 조회합니다. 다른 사번이 접수한 거래 UUID로 청약을 재전송하면 그 계약의 번호를 알려주지 않고 409 E-CTR-015로 거절합니다.</p>
+  </section>
+
+  <!-- 3-0-1. 계약 목록 조회 -->
+  <section>
+    <div class="section-head">
+      <h2>계약 목록 조회</h2>
+      <p class="lede">POST /api/contract/list는 조건에 맞는 계약을 한 페이지씩 돌려줍니다. 조건은 모두 선택이며, 입력한 것만 AND로 적용합니다. 기본 정렬은 최근 접수순(접수 일시 → 증권번호 내림차순)이고, 접수일·보험시기·총보험료 기준으로 오름차순/내림차순을 고를 수 있습니다. 같은 값끼리는 증권번호를 같은 방향으로 정렬해 페이지 경계가 흔들리지 않습니다. 행에는 계약 요약만 담고 담보는 계약 조회(/inquiry), 이력은 상태 이력 조회(/status-history)로 확인합니다. 청약 접수 담당(AGENT)만 가진 사용자는 어떤 조건을 써도 본인이 접수한 계약만 목록에 나오고, 목록에서는 남의 계약이 오류가 아니라 그냥 빠집니다.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>요청 필드</th><th>설명</th></tr></thead>
+        <tbody>
+          <tr><td><span class="code-chip">contractNo · applNo</span></td><td>증권번호/청약번호 <b>앞부분 일치</b> (예: POL-CAR-2026). 입력에 든 % · _ 는 글자 그대로 비교</td></tr>
+          <tr><td><span class="code-chip">insrClsCd</span></td><td>보험종목 (01 자동차, 02 화재). 모르는 코드는 400 E-SEQ-001</td></tr>
+          <tr><td><span class="code-chip">ctrStatCd</span></td><td>계약상태 (10 · 20 · 30 · 90). 모르는 코드는 400 E-CTR-013</td></tr>
+          <tr><td><span class="code-chip">policyholderId · insuredId</span></td><td>계약자/피보험자 ID (정확히 일치)</td></tr>
+          <tr><td><span class="code-chip">startDateFrom · startDateTo</span></td><td>보험시기 범위 (양 끝 포함)</td></tr>
+          <tr><td><span class="code-chip">premiumMin · premiumMax</span></td><td>총보험료 범위 (양 끝 포함, 최소는 0 이상)</td></tr>
+          <tr><td><span class="code-chip">regDateFrom · regDateTo</span></td><td>청약 접수일 범위 (양 끝 날짜 포함)</td></tr>
+          <tr><td><span class="code-chip">sortBy · sortDir</span></td><td>정렬 기준 REG_DATE(기본) · START_DATE · TOTAL_PREMIUM, 방향 DESC(기본) · ASC (대소문자 무관). 그 밖의 값은 400 E-CTR-018</td></tr>
+          <tr><td><span class="code-chip">page · size</span></td><td>페이지 번호(0부터)와 크기(1~100). 생략하면 0페이지 20건, 벗어나면 400 E-CTR-016</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size:13px">범위 조건의 시작이 종료보다 크거나 총보험료 최소가 음수면 400 E-CTR-017입니다. 증권번호/청약번호 앞부분 일치는 기본키와 유니크 인덱스를 탈 수 있지만, 총보험료·보험시기 정렬과 범위는 전용 인덱스가 없어 계약이 많아지면 인덱스 추가를 검토해야 합니다.</p>
+  </section>
+
+  <!-- 3-1. 계약 상태 전이 -->
+  <section>
+    <div class="section-head">
+      <h2>계약 상태 전이</h2>
+      <p class="lede">POST /api/contract/status-change가 계약상태(CTR_STAT_CD)를 아래 순서로만 바꿉니다. 해지와 청약취소는 종료 상태라 더 바꿀 수 없고, 허용되지 않는 전이(같은 상태로의 변경 포함)는 409 E-CTR-014로 거절합니다. 같은 계약의 변경이 동시에 들어오면 행을 잠그고(SELECT … FOR UPDATE) 한 번에 하나씩 처리하므로, 서로 배타적인 변경 중 하나만 성공합니다. 변경이 성공하면 변경 전/후 상태, 처리 사번(JWT subject), 거래 UUID를 TB_CTR_STAT_HIST에 남기고, POST /api/contract/status-history로 페이지 단위로 조회합니다. 계약 조회(/inquiry) 응답에는 이력을 담지 않으므로, 이력이 필요하면 이 API를 따로 호출합니다. 요청은 {contractNo, page, size}이며 page는 0부터, 생략하면 0페이지 20건입니다. 페이지 크기는 1~100이고 벗어나면 400 E-CTR-016입니다. 응답은 items(오래된 순)와 totalElements, totalPages를 담고, 범위를 벗어난 페이지는 빈 목록으로 응답합니다. 조회 범위는 계약 조회와 같습니다.</p>
+    </div>
+<pre class="tree"><span class="p">청약(10)</span> ──→ <span class="p">유효(20)</span> ──→ <span class="p">해지(30)</span>   <span class="c">청약 승인 · 해지</span>
+   └──────────→ <span class="p">청약취소(90)</span>          <span class="c">성립 전 취소/거절</span></pre>
+    <p class="lede"><b>재전송 안전</b> — 상태 변경과 배서는 같은 계약에서 같은 거래 UUID로 이미 처리한 요청이 다시 오면(응답을 못 받은 재전송) 다시 바꾸지 않고 처음 결과를 돌려줍니다. 같은 거래 UUID로 다른 내용을 요청하면 409 E-CTR-019로 거절합니다. 이력에 남은 거래 UUID를 근거로 판단하므로 별도 저장소는 없습니다.</p>
+    <p class="lede"><b>해지 환급보험료</b> — 해지(30)로 바꿀 때 해지일(서울 기준 오늘)과 환급보험료를 계약에 기록하고 응답에 담습니다. 환급보험료 = 총보험료 × 남은 일수 ÷ 보험기간 일수(원 단위 반올림)이며, 남은 일수 = 보험종기 − max(해지일, 보험시기)입니다. 보험시기 전에 해지하면 전액, 보험종기 이후에 해지하면 0원이고, 단기요율 같은 해지 공제는 적용하지 않습니다. 환급 금액은 조회 응답(termDate, refundPremium)으로도 확인할 수 있습니다.</p>
+    <p class="lede"><b>계약 갱신</b> — POST /api/contract/renew는 유효(20) 계약을 보험종기 60일 전부터 보험종기까지(서울 기준) 갱신해 새 청약(10)을 만듭니다. 보험시기는 원 계약의 보험종기이고 기간 길이는 원 계약과 같으며(년/월 단위면 같은 년/월), 계약자·피보험자·담보·가입금액을 이어받습니다. 담보 보험료는 갱신 시점의 요율표와 필수 계수 정책으로 다시 산출하며, 요율 계수는 요청의 rating 또는 원 계약에 저장된 값을 씁니다(필수 계수가 늘었으면 400 E-PRM-005이므로 rating으로 채웁니다). 응답에 원 계약과 갱신 계약의 총보험료가 함께 나옵니다. 유효 상태가 아니면 409 E-CTR-023, 갱신 가능 기간이 아니면 409 E-CTR-024, 이미 갱신했으면 409 E-CTR-025이며 갱신 계약이 청약취소되면 다시 갱신할 수 있습니다. 같은 거래 UUID의 재전송은 요율이 바뀌었어도 처음 결과를 돌려주고, 다른 원 계약이면 E-CTR-019, 다른 사번이면 E-CTR-015입니다. 동시에 같은 계약을 갱신하면 DB 부분 유니크 인덱스가 막아 한쪽만 성공합니다. AGENT는 본인이 접수한 계약만 갱신할 수 있습니다. 갱신 전에 POST /api/contract/renew-quote로 미리 볼 수 있습니다. 아무것도 저장하지 않고 갱신과 같은 검증·권한·산출을 거치며, 갱신 보험기간과 담보별·총 보험료를 원 계약과 비교해 증감(premiumDifference)과 적용 계수를 보여 줍니다. rating을 바꿔 보내 보험료를 비교해 본 뒤 같은 요청으로 갱신하면 그 보험료가 됩니다.</p>
+    <p class="lede"><b>계약 변경(배서)</b> — POST /api/contract/endorse는 청약(10) 또는 유효(20) 상태의 계약에서 계약자와 피보험자를 바꿉니다. 현재 값과 같은 항목은 바뀐 것으로 보지 않고, 바뀐 항목이 하나도 없으면 400 E-CTR-022, 해지·청약취소 계약은 409 E-CTR-021로 거절합니다. 바뀐 항목마다 변경 전/후 값, 처리 사번, 거래 UUID가 TB_CTR_ENDORSE에 쌓이고 POST /api/contract/endorse-history로 페이지 단위로 조회합니다(조회 범위는 계약 조회와 같음). 보험료와 담보는 바꾸지 않습니다.</p>
+  </section>
+
+  <!-- 4. 패키지 -->
+  <section>
+    <div class="section-head">
+      <h2>패키지 구성</h2>
+      <p class="lede">src/main/java 아래 com.insur.insurcoresystem 기준입니다.</p>
+    </div>
+<pre class="tree"><span class="p">controller</span>                     <span class="c">표현 계층 · 전문 수신/응답</span>
+├── ContractController          <span class="c">POST /api/contract/apply · /inquiry · /list · /status-change · /status-history · /endorse · /endorse-history · /renew · /renew-quote</span>
+├── PremiumController           <span class="c">POST /api/premium/quote</span>
+└── PremiumAdminController      <span class="c">POST /api/admin/premium/rate-list · rate-revise · factor-list · factor-revise · policy-list · policy-revise · audit-list</span>
+
+<span class="p">service</span>                        <span class="c">업무 계층 · 트랜잭션과 업무 규칙</span>
+├── contract
+│   ├── ContractService         <span class="c">청약(검증 → 멱등 → 요율 대조 → 채번 → 저장)</span>
+│   ├── ContractInquiryService  <span class="c">계약 조회 · 목록 · 상태 이력 조회 (읽기 전용, 접수자 제한)</span>
+│   ├── ContractStatusService   <span class="c">상태 변경(멱등, 해지 환급) </span>
+│   ├── ContractHistoryRecorder <span class="c">상태 변경 이력 기록 (청약·상태 변경 공용)</span>
+│   ├── ContractRenewalService  <span class="c">계약 갱신과 갱신 보험료 미리보기</span>
+│   ├── ContractEndorsementService  <span class="c">계약자/피보험자 변경(배서)과 배서 이력</span>
+│   ├── ContractSupport         <span class="c">사번 정규화 · 조회 범위 · 페이징 검증 공통 규칙</span>
+│   └── dto
+│       ├── ContractApplyRequest
+│       ├── CoverageRequest
+│       ├── ContractApplyResponse
+│       ├── ContractInquiryRequest
+│       ├── ContractInquiryResponse
+│       ├── CoverageResponse
+│       ├── ContractStatusChangeRequest
+│       ├── ContractStatusChangeResponse
+│       ├── ContractListRequest
+│       ├── ContractListResponse
+│       ├── ContractSummaryResponse
+│       ├── StatusHistoryInquiryRequest
+│       ├── StatusHistoryPageResponse
+│       ├── StatusHistoryResponse
+│       ├── ContractEndorseRequest
+│       ├── ContractEndorseResponse
+│       ├── EndorsementHistoryRequest
+│       └── EndorsementHistoryPageResponse
+├── premium
+│   ├── PremiumService          <span class="c">요율 조회 → 담보별 보험료 · 합계 산출</span>
+│   ├── PremiumAdminService     <span class="c">요율/계수 조회 · 개정 · 신규 (감사 이력, 재전송 안전)</span>
+│   ├── PremiumCalculator       <span class="c">가입금액 × 연 요율 × 요율 계수 × 일수 ÷ 365</span>
+│   ├── RefundCalculator        <span class="c">총보험료 × 남은 일수 ÷ 보험기간 일수</span>
+│   └── dto
+│       ├── PremiumQuoteRequest
+│       ├── PremiumQuoteResponse
+│       ├── RatingInput
+│       ├── AppliedFactor
+│       ├── RateListRequest · RateListResponse
+│       ├── RateRevisionRequest · RateRevisionResponse
+│       └── FactorListRequest · FactorListResponse · FactorRevisionRequest · FactorRevisionResponse
+└── sequence
+    ├── ContractNumberGenerator <span class="c">증권/청약번호 채번</span>
+    ├── ContractNumbers         <span class="c">채번 결과 record</span>
+    └── ProductType             <span class="c">CAR(01) · FIRE(02)</span>
+
+<span class="p">domain</span>                         <span class="c">영속 계층 · 엔티티와 Repository</span>
+├── premium
+│   ├── PremiumRate             <span class="c">TB_PRM_RATE (적용 기간별 연 요율)</span>
+│   ├── PremiumRateRepository
+│   ├── PremiumFactor           <span class="c">TB_PRM_FACTOR (요율 계수)</span>
+│   ├── PremiumFactorPolicy     <span class="c">TB_PRM_FACTOR_POLICY (필수 계수 정책)</span>
+│   ├── PremiumFactorRepository
+│   ├── PremiumAudit            <span class="c">TB_PRM_AUDIT (관리 감사 이력)</span>
+│   └── PremiumAuditRepository
+└── contract
+    ├── Contract                <span class="c">TB_CTR_LGD</span>
+    ├── ContractStatus          <span class="c">계약상태 10·20·30·90 와 허용 전이</span>
+    ├── ContractStatusHistory   <span class="c">TB_CTR_STAT_HIST</span>
+    ├── ContractEndorsement     <span class="c">TB_CTR_ENDORSE</span>
+    ├── Coverage                <span class="c">TB_CTR_CVRG</span>
+    ├── ContractRepository
+    ├── ContractStatusHistoryRepository
+    ├── ContractEndorsementRepository
+    └── CoverageRepository
+
+<span class="p">common</span>                         <span class="c">공통 프레임워크</span>
+├── dto
+│   ├── CommonHeader            <span class="c">globalTxId · empId · responseCode · responseMsg</span>
+│   └── CommonMessage&lt;T&gt;
+├── exception
+│   ├── BusinessException
+│   └── GlobalExceptionHandler
+├── validation
+│   └── InputRules              <span class="c">업무 공통 입력 규칙 (코드 길이, 금액 형식)</span>
+├── security
+│   ├── SecurityConfig          <span class="c">JWT(HS256) 검증 · API별 역할 · 401/403 공통 전문</span>
+│   └── Roles                   <span class="c">AGENT · UNDERWRITER · OPERATOR · ADMIN</span>
+└── web
+    ├── CommonHeaderRequestBodyAdvice
+    ├── CommonHeaderContext
+    ├── CommonMessages          <span class="c">전문 바디 꺼내기 · 정상 응답 전문 만들기</span>
+    ├── LogSanitizer            <span class="c">로그에 남기는 클라이언트 값의 줄바꿈·길이 정리</span>
+    └── MdcClearFilter          <span class="c">요청 종료 시 MDC 거래 ID 제거</span>
+
+config
+└── BusinessClockConfig         <span class="c">업무 시간대(Asia/Seoul) Clock 빈</span></pre>
+  </section>
+
+  <!-- 5. 오류코드 / 테스트 -->
+  <section class="two-col">
+    <div style="display:grid;gap:12px">
+      <h2>오류코드</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>코드</th><th style="text-align:right;padding-right:12px">HTTP</th><th>상황</th></tr></thead>
+          <tbody>
+            <tr><td><span class="code-chip">0000</span></td><td class="num" style="padding-right:12px">200</td><td>정상 처리</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-001</span></td><td class="num" style="padding-right:12px">400</td><td>담보가 없음</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-002</span></td><td class="num" style="padding-right:12px">400</td><td>총보험료 또는 담보 보험료 누락</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-003</span></td><td class="num" style="padding-right:12px">400</td><td>총보험료와 담보 보험료 합계 불일치</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-004</span></td><td class="num" style="padding-right:12px">400</td><td>보험기간 누락 또는 종기가 시기 이후가 아님</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-005</span></td><td class="num" style="padding-right:12px">400</td><td>계약자/피보험자 ID 누락 또는 20자 초과</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-006</span></td><td class="num" style="padding-right:12px">400</td><td>담보코드 누락 또는 10자 초과</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-007</span></td><td class="num" style="padding-right:12px">400</td><td>금액이 null · 음수 · 소수 · 15자리 초과</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-008</span></td><td class="num" style="padding-right:12px">400</td><td>거래 UUID(globalTxId) 누락 또는 64자 초과</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-009</span></td><td class="num" style="padding-right:12px">400</td><td>조회 조건 오류 (증권번호/청약번호 중 하나만 입력)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-010</span></td><td class="num" style="padding-right:12px">404</td><td>조회한 계약이 없음 (AGENT가 본인이 접수하지 않은 계약을 조회한 경우 포함)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-015</span></td><td class="num" style="padding-right:12px">409</td><td>다른 사번이 접수한 거래 UUID로 청약을 재전송</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-011</span></td><td class="num" style="padding-right:12px">409</td><td>같은 globalTxId가 동시에 접수되어 충돌 (같은 값으로 재전송하면 기존 결과 반환)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-012</span></td><td class="num" style="padding-right:12px">400</td><td>상태 변경 요청에 증권번호 또는 변경할 상태코드가 없음</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-013</span></td><td class="num" style="padding-right:12px">400</td><td>지원하지 않는 계약상태코드</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-014</span></td><td class="num" style="padding-right:12px">409</td><td>허용되지 않는 상태 변경 (예: 청약 → 해지, 종료 상태 변경)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-021</span></td><td class="num" style="padding-right:12px">409</td><td>계약 변경(배서)은 청약·유효 상태의 계약만 가능 (해지·청약취소 계약)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-022</span></td><td class="num" style="padding-right:12px">400</td><td>계약 변경(배서) 요청에 현재 값과 다른 항목이 없음</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-023</span></td><td class="num" style="padding-right:12px">409</td><td>유효(20) 상태가 아닌 계약의 갱신</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-024</span></td><td class="num" style="padding-right:12px">409</td><td>갱신 가능 기간(보험종기 60일 전 ~ 보험종기)이 아님</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-025</span></td><td class="num" style="padding-right:12px">409</td><td>이미 갱신된 계약 (동시 갱신 충돌 포함)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-020</span></td><td class="num" style="padding-right:12px">400</td><td>담보별 보험료가 요율표로 산출한 보험료와 다름 (청약 접수)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-019</span></td><td class="num" style="padding-right:12px">409</td><td>같은 거래 UUID로 처음과 다른 내용을 재전송 (청약: 요청 지문 비교, 지문이 없는 이전 계약은 비교하지 않음 / 상태 변경·배서: 다른 상태·다른 값)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-016</span></td><td class="num" style="padding-right:12px">400</td><td>이력 조회의 페이지 번호(0 이상) 또는 크기(1~100) 오류</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-017</span></td><td class="num" style="padding-right:12px">400</td><td>목록 조회의 범위 오류 (접수일 · 보험시기 · 총보험료의 시작이 종료보다 큼, 총보험료 최소가 음수)</td></tr>
+            <tr><td><span class="code-chip err">E-CTR-018</span></td><td class="num" style="padding-right:12px">400</td><td>목록 조회의 정렬 기준/방향이 허용 값이 아님</td></tr>
+            <tr><td><span class="code-chip err">E-PRM-001</span></td><td class="num" style="padding-right:12px">400</td><td>해당 보험종목의 보험시기에 적용되는 요율이 없는 담보코드 (보험료 산출 불가)</td></tr>
+            <tr><td><span class="code-chip err">E-ADM-001</span></td><td class="num" style="padding-right:12px">400</td><td>요율/계수 관리의 입력 오류 (값 범위, 계수 종류·형태, 새 칸의 이름 누락, 시작일 누락)</td></tr>
+            <tr><td><span class="code-chip err">E-ADM-002</span></td><td class="num" style="padding-right:12px">400</td><td>요율/계수 적용 시작일이 오늘(서울 기준)보다 과거</td></tr>
+            <tr><td><span class="code-chip err">E-ADM-003</span></td><td class="num" style="padding-right:12px">409</td><td>적용 시작일이 같은 칸의 가장 최근 행의 시작일보다 늦지 않음</td></tr>
+            <tr><td><span class="code-chip err">E-ADM-004</span></td><td class="num" style="padding-right:12px">409</td><td>적용 기간 겹침 또는 같은 거래의 동시 처리로 DB가 거절</td></tr>
+            <tr><td><span class="code-chip err">E-PRM-003</span></td><td class="num" style="padding-right:12px">400</td><td>해당 보험종목에서 쓰지 않는 요율 계수를 입력 (예: 자동차에 건물 구조 등급)</td></tr>
+            <tr><td><span class="code-chip err">E-PRM-005</span></td><td class="num" style="padding-right:12px">400</td><td>필수 요율 계수 누락 (필수 계수 정책, 보험시기 기준)</td></tr>
+            <tr><td><span class="code-chip err">E-PRM-004</span></td><td class="num" style="padding-right:12px">400</td><td>요율 계수표에 없는 입력값 (예: 만 17세, 9등급)</td></tr>
+            <tr><td><span class="code-chip err">E-PRM-002</span></td><td class="num" style="padding-right:12px">400</td><td>보험료 산출 요청에서 담보코드가 중복됨</td></tr>
+            <tr><td><span class="code-chip err">E-SEQ-001</span></td><td class="num" style="padding-right:12px">400</td><td>지원하지 않는 보험종목코드</td></tr>
+            <tr><td><span class="code-chip err">E-SEQ-002</span></td><td class="num" style="padding-right:12px">500</td><td>채번 한도(999,999) 초과 (서버 측 문제라 500, 업무 메시지는 그대로 응답)</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-001</span></td><td class="num" style="padding-right:12px">400</td><td>요청 전문에 body가 없음</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-002</span></td><td class="num" style="padding-right:12px">400</td><td>JSON 형식이 잘못됨</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-003</span></td><td class="num" style="padding-right:12px">404</td><td>없는 경로</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-004</span></td><td class="num" style="padding-right:12px">405</td><td>허용되지 않은 HTTP 메서드</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-005</span></td><td class="num" style="padding-right:12px">415</td><td>지원하지 않는 Content-Type</td></tr>
+            <tr><td><span class="code-chip err">E-CMN-009</span></td><td class="num" style="padding-right:12px">4xx</td><td>그 밖의 요청 오류</td></tr>
+            <tr><td><span class="code-chip err">E-AUTH-001</span></td><td class="num" style="padding-right:12px">401</td><td>JWT가 없거나 형식 · 서명 · 만료가 유효하지 않음</td></tr>
+            <tr><td><span class="code-chip err">E-AUTH-002</span></td><td class="num" style="padding-right:12px">403</td><td>역할 권한 없음 (API 접근 불가, 또는 변경하려는 상태에 대한 권한 없음)</td></tr>
+            <tr><td><span class="code-chip err">E-SYS-999</span></td><td class="num" style="padding-right:12px">500</td><td>예상하지 못한 시스템 오류 (내부 메시지는 로그에만 기록)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="display:grid;gap:12px">
+      <h2>테스트</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>클래스</th><th>종류</th><th style="text-align:right">건수</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">GlobalExceptionHandlerTest</td><td>MockMvc 오류 응답</td><td class="num">7</td></tr>
+            <tr><td class="mono">JwtAuthenticationTest</td><td>MockMvc 실제 서명 토큰</td><td class="num">6</td></tr>
+            <tr><td class="mono">RoleAuthorizationTest</td><td>MockMvc 역할별 접근</td><td class="num">12</td></tr>
+            <tr><td class="mono">LogSanitizerTest</td><td>로그 값 정리 단위</td><td class="num">2</td></tr>
+            <tr><td class="mono">MdcClearFilterTest</td><td>필터 단위</td><td class="num">2</td></tr>
+            <tr><td class="mono">ContractStatusTest</td><td>상태 전이 단위</td><td class="num">2</td></tr>
+            <tr><td class="mono">RequestFingerprintTest</td><td>요청 지문 단위</td><td class="num">5</td></tr>
+            <tr><td class="mono">PremiumCalculatorTest</td><td>보험료 계산식 단위</td><td class="num">7</td></tr>
+            <tr><td class="mono">RefundCalculatorTest</td><td>환급보험료 계산식 단위</td><td class="num">5</td></tr>
+            <tr><td class="mono">PremiumServiceTest</td><td>Mockito 단위</td><td class="num">10</td></tr>
+            <tr><td class="mono">PremiumAdminServiceTest</td><td>Mockito 단위</td><td class="num">13</td></tr>
+            <tr><td class="mono">ContractServiceTest</td><td>Mockito 단위</td><td class="num">48</td></tr>
+            <tr><td class="mono">ContractEndorsementServiceTest</td><td>Mockito 단위</td><td class="num">9</td></tr>
+            <tr><td class="mono">ContractNumberGeneratorTest</td><td>Mockito 단위</td><td class="num">1</td></tr>
+            <tr><td class="mono">ContractApplyConcurrencyTest</td><td>동시 청약 · 동시 상태 변경 + Postgres</td><td class="num">2</td></tr>
+            <tr><td class="mono">PremiumAdminIntegrationTest</td><td>MockMvc + Postgres (요율 관리)</td><td class="num">7</td></tr>
+            <tr><td class="mono">ContractApplyIntegrationTest</td><td>MockMvc + Postgres</td><td class="num">36</td></tr>
+            <tr><td class="mono">InsurCoreSystemApplicationTests</td><td>contextLoads</td><td class="num">1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="lede" style="font-size:13px">통합 테스트는 docker compose Postgres에 연결하고, 끝나면 트랜잭션을 롤백해 데이터를 남기지 않습니다. 동시성 테스트만 실제로 커밋하므로 만든 데이터를 직접 지우며, 채번 일련번호는 하나 건너뜁니다.</p>
+    </div>
+  </section>
+
+  <footer>2026-10-05 기준 · 1차 코어 비즈니스 로직</footer>
+</main>

@@ -1,0 +1,47 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.insur'
+version = '0.0.1-SNAPSHOT'
+description = 'insur-core-system'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    // API 문서 (Swagger UI: /swagger-ui.html, 명세: /v3/api-docs)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+    compileOnly 'org.projectlombok:lombok'
+    runtimeOnly 'org.postgresql:postgresql'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testCompileOnly 'org.projectlombok:lombok'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    // 운영과 같은 JVM 시간대(Asia/Seoul)에서 테스트한다. (애플리케이션은 main 에서 기본 시간대를 Asia/Seoul 로 맞춘다)
+    systemProperty 'user.timezone', 'Asia/Seoul'
+    // JWT 서명 검증용 비밀키 (운영에서는 환경변수로 주입, 테스트용 고정값)
+    environment 'JWT_SECRET', 'test-only-secret-key-for-hs256-at-least-32-bytes'
+}
