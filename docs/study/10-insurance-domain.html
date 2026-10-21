@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>보험 도메인</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>10 / 10</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 10</span><span class="level">기초</span></div>
+    <h1>보험 도메인</h1>
+    <p class="lead">같은 기술이라도 업무를 이해해야 올바른 코드가 나옵니다. 손해보험 시스템에서 자주 쓰는 용어와 계약의 한살이를 정리합니다.</p>
+  </header>
+
+  <section>
+    <h2>왜 도메인을 알아야 하나</h2>
+    <p>"해지하면 보험료를 얼마 돌려주나", "갱신은 언제부터 가능한가" 같은 질문의 답은 코드가 아니라 업무 규칙에 있습니다. 규칙을 모르고 구현하면 문제없이 돌아가는데 금액이 틀리는 시스템이 됩니다. 백엔드 개발자는 용어를 정확히 알고, 모호한 규칙은 기획자나 업무 담당자에게 되묻는 습관이 필요합니다.</p>
+  </section>
+
+  <section>
+    <h2>핵심 용어</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>용어</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>계약자</td><td>보험 계약을 맺고 보험료를 내는 사람</td></tr>
+        <tr><td>피보험자</td><td>보험의 대상이 되는 사람. 계약자와 같을 수도 다를 수도 있음</td></tr>
+        <tr><td>청약</td><td>"이 조건으로 가입하겠다"는 신청. 보험사가 승낙하기 전 단계</td></tr>
+        <tr><td>증권(번호)</td><td>성립한 계약의 증서, 그 식별 번호</td></tr>
+        <tr><td>보험기간 (시기·종기)</td><td>보장이 시작되는 날(보험시기)부터 끝나는 날(보험종기)까지</td></tr>
+        <tr><td>담보</td><td>보장 항목. 하나의 계약에 여러 담보가 붙음 (예: 대인배상, 건물 화재)</td></tr>
+        <tr><td>가입금액</td><td>담보별로 보장받는 한도 금액</td></tr>
+        <tr><td>보험료</td><td>보장의 대가로 내는 돈. 담보별 보험료의 합이 총보험료</td></tr>
+        <tr><td>요율</td><td>가입금액에 곱해 보험료를 정하는 비율</td></tr>
+        <tr><td>요율 계수(할인·할증)</td><td>운전자 나이, 무사고 할인 등급, 건물 구조 등에 따라 요율을 높이거나 낮추는 배수</td></tr>
+        <tr><td>배서</td><td>계약이 유지되는 동안 계약 내용(계약자·피보험자 등)을 변경하는 것</td></tr>
+        <tr><td>갱신</td><td>만기가 되는 계약을 이어서 새로 계약하는 것</td></tr>
+        <tr><td>해지</td><td>유효한 계약을 중간에 끝내는 것. 남은 기간에 해당하는 보험료를 돌려줄 수 있음(환급)</td></tr>
+        <tr><td>청약취소</td><td>성립 전에 청약을 취소·거절하는 것</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>계약의 한살이: 상태 전이</h2>
+    <p>계약은 정해진 순서로만 상태가 바뀝니다. 이렇게 허용되는 길을 코드로 못 박아 두면, 해지된 계약이 다시 유효가 되는 식의 잘못된 변경을 막을 수 있습니다.</p>
+    <div class="fig">
+      <svg viewBox="0 0 700 190" role="img" aria-label="계약 상태 전이: 청약에서 유효로, 유효에서 해지로, 청약에서 청약취소로">
+        <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker></defs>
+        <g stroke-width="1.3">
+          <rect x="10" y="40" width="150" height="62" rx="6" style="fill:var(--accent-soft);stroke:var(--accent)"/>
+          <rect x="270" y="40" width="150" height="62" rx="6" style="fill:var(--accent-soft);stroke:var(--accent)"/>
+          <rect x="530" y="40" width="150" height="62" rx="6" style="fill:var(--surface);stroke:var(--line)"/>
+          <rect x="270" y="130" width="150" height="50" rx="6" style="fill:var(--surface);stroke:var(--line)"/>
+        </g>
+        <g style="fill:var(--ink)" font-size="15" font-weight="700" text-anchor="middle">
+          <text x="85" y="66">청약</text><text x="345" y="66">유효</text><text x="605" y="66">해지</text><text x="345" y="160">청약취소</text>
+        </g>
+        <g style="fill:var(--muted)" font-size="12" text-anchor="middle" font-family="monospace">
+          <text x="85" y="88">코드 10</text><text x="345" y="88">코드 20</text><text x="605" y="88">코드 30</text>
+        </g>
+        <g style="fill:var(--muted)" font-size="12" text-anchor="middle">
+          <text x="215" y="30">승인</text><text x="475" y="30">해지</text><text x="176" y="148">취소·거절</text>
+        </g>
+        <g style="stroke:var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#a2)">
+          <line x1="160" y1="71" x2="268" y2="71"/>
+          <line x1="420" y1="71" x2="528" y2="71"/>
+          <path d="M85 102 V155 H268"/>
+        </g>
+      </svg>
+    </div>
+    <ul>
+      <li>해지와 청약취소는 <strong>종료 상태</strong>라서 더 이상 바꿀 수 없습니다.</li>
+      <li>상태가 바뀔 때마다 <strong>이력</strong>(언제, 누가, 어떤 상태에서 어떤 상태로)을 남깁니다. 금융·보험에서는 "누가 바꿨는지"를 못 밝히면 감사에서 문제가 됩니다.</li>
+      <li>상태별로 누가 바꿀 수 있는지 권한도 다를 수 있습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>보험료 계산 체험</h2>
+    <p>담보 하나의 보험료는 다음 식으로 계산합니다. 중간에 반올림하지 않고 마지막에 한 번만 원 단위로 반올림합니다(0.5는 올림).</p>
+    <p><code>보험료 = 가입금액 × 연 요율 × 요율 계수 × 보험기간 일수 ÷ 365</code></p>
+    <p>보험기간 일수는 보험시기부터 보험종기까지이고 종기 당일은 포함하지 않습니다. 윤년이어도 분모는 365로 고정이어서, 366일 계약은 1년보다 약간 비쌉니다. 아래 값을 바꿔 보세요. (요율은 설명용 예시이고 실제 요율표가 아닙니다.)</p>
+    <form class="calc" id="calc" onsubmit="return false">
+      <div class="calc-grid">
+        <label>가입금액 (원)<input id="amt" inputmode="numeric" value="100000000"></label>
+        <label>연 요율<input id="rate" inputmode="decimal" value="0.005"></label>
+        <label>요율 계수<input id="fac" inputmode="decimal" value="1.0000"></label>
+        <label>보험시기<input id="from" type="date" value="2026-01-01"></label>
+        <label>보험종기<input id="to" type="date" value="2027-01-01"></label>
+      </div>
+      <output id="out" for="amt rate fac from to" aria-live="polite"></output>
+    </form>
+    <div class="note">
+      <b>해 보면 좋은 것</b>
+      종기를 <code>2028-01-01</code>(730일)로 바꾸면 2년치가 됩니다. 시기 <code>2024-01-01</code>, 종기 <code>2025-01-01</code>이면 366일이라 500,000원이 아니라 501,370원이 됩니다. 계수를 <code>1.5</code>로 바꾸면 할증, <code>0.8</code>이면 할인입니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>업무 규칙이 코드가 되는 곳</h2>
+    <ul>
+      <li><strong>요율은 기간별로 관리</strong>합니다. 요율표를 개정해도 과거 계약은 그때의 요율로 계산돼야 하므로, 행마다 적용 시작·종료일을 두고 보험시기 기준으로 조회합니다. 겹치는 기간은 허용하지 않습니다.</li>
+      <li><strong>클라이언트가 보낸 보험료를 믿지 않고</strong> 서버가 다시 계산해 일치하는지 확인합니다. 화면에서 금액을 바꿔 보내도 막아야 합니다.</li>
+      <li><strong>요율 개정은 감사 이력</strong>을 남깁니다. 누가 언제 어떤 요율을 바꿨는지 추적할 수 있어야 합니다.</li>
+      <li><strong>갱신</strong>은 만기 직전 일정 기간(이 프로젝트는 60일 전~종기)에만 가능하고, 한 계약당 유효한 갱신은 하나만 허용합니다.</li>
+      <li><strong>배서</strong>로 변경한 항목마다 이력을 남깁니다. 변경 전과 후의 값이 모두 있어야 사고 조사나 분쟁에서 쓸 수 있습니다.</li>
+    </ul>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    보험종목은 자동차(<code>01</code>)와 화재(<code>02</code>) 두 가지입니다. 증권번호·청약번호는 <code>POL-CAR-2026-000001</code>처럼 종류·상품·연도·일련번호로 구성되고 연도가 바뀌면 1부터 다시 시작합니다. 요율표의 시드 값은 개발용 샘플이며 실제 요율이 아닙니다. 상태는 청약(10) → 유효(20) → 해지(30), 청약(10) → 청약취소(90)만 허용됩니다. 해지하면 해지일과 남은 기간 비례 환급보험료를 기록합니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>클라이언트가 보낸 보험료를 서버가 다시 계산하는 이유는?</summary><p>요청의 금액은 조작될 수 있습니다. 서버가 요율표로 직접 산출한 값과 비교해야 임의로 낮춘 보험료로 계약이 성립하는 것을 막을 수 있습니다.</p></details>
+      <details><summary>요율표를 개정한 뒤에도 과거 계약의 보험료가 달라지면 안 되는 이유는?</summary><p>계약은 가입 당시 약속한 조건으로 유지돼야 합니다. 그래서 요율을 기간별로 보관하고 보험시기에 해당하는 요율로 조회합니다.</p></details>
+      <details><summary>종료 상태를 둔 이유는?</summary><p>해지·취소된 계약이 되살아나면 보험료와 보장 관계가 꼬입니다. 허용되지 않는 전이를 코드로 막아 계약의 이력을 신뢰할 수 있게 합니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="09-testing-ops.html">← 이전: 테스트와 운영</a><a href="index.html">학습 지도로 →</a></nav>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  // 소수 문자열을 정수(scale 자리)로 바꾼다. 형식이 틀리면 null.
+  function scaled(text, scale) {
+    var m = /^(\d+)(?:\.(\d+))?$/.exec(String(text).trim());
+    if (!m) return null;
+    var frac = (m[2] || '');
+    if (frac.length > scale) return null;
+    return BigInt(m[1] + (frac + '000000000000'.slice(0, scale - frac.length)).slice(0, scale));
+  }
+  function won(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function days(from, to) {
+    if (!from || !to) return null;
+    var a = from.split('-').map(Number), b = to.split('-').map(Number);
+    return Math.round((Date.UTC(b[0], b[1] - 1, b[2]) - Date.UTC(a[0], a[1] - 1, a[2])) / 86400000);
+  }
+  function render() {
+    var out = $('out');
+    var amt = scaled($('amt').value.replace(/,/g, ''), 0);
+    var rate = scaled($('rate').value, 6);
+    var fac = scaled($('fac').value, 4);
+    var d = days($('from').value, $('to').value);
+    if (amt === null || rate === null || fac === null) { out.textContent = '가입금액은 숫자, 요율은 소수 6자리 이하, 계수는 소수 4자리 이하로 입력해 주세요.'; return; }
+    if (d === null || d <= 0) { out.textContent = '보험종기는 보험시기보다 뒤여야 합니다.'; return; }
+    // 가입금액 × 요율 × 계수 × 일수 ÷ 365, 마지막에 한 번만 HALF_UP 반올림
+    var num = amt * rate * fac * BigInt(d);
+    var den = 365n * 1000000n * 10000n;
+    var prem = (2n * num + den) / (2n * den);
+    out.innerHTML = '보험기간 <b>' + d + '</b>일<br>' +
+      won(amt) + ' × ' + $('rate').value + ' × ' + $('fac').value + ' × ' + d + ' ÷ 365<br>' +
+      '보험료 <b>' + won(prem) + '</b>원';
+  }
+  ['amt', 'rate', 'fac', 'from', 'to'].forEach(function (id) { $(id).addEventListener('input', render); });
+  render();
+})();
+</script>
+</body>
+</html>

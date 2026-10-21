@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>인증과 보안</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>8 / 10</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 08</span><span class="level mid">중급</span></div>
+    <h1>인증과 보안</h1>
+    <p class="lead">"누구인가"와 "무엇을 할 수 있는가"를 구분하는 것에서 시작합니다. 보안 사고의 대부분은 어려운 해킹이 아니라 기본기를 빠뜨린 데서 나옵니다.</p>
+  </header>
+
+  <section>
+    <h2>인증과 인가</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>질문</th><th>실패하면</th></tr></thead>
+      <tbody>
+        <tr><td>인증 (Authentication)</td><td>당신은 누구입니까?</td><td>401</td></tr>
+        <tr><td>인가 (Authorization)</td><td>당신은 이 일을 해도 됩니까?</td><td>403</td></tr>
+      </tbody>
+    </table></div>
+    <p>인증을 통과했다고 모든 일이 허용되는 것은 아닙니다. 인가는 모든 요청에서 매번 확인합니다.</p>
+  </section>
+
+  <section>
+    <h2>세션 방식과 토큰 방식</h2>
+    <ul>
+      <li><strong>세션</strong>: 로그인하면 서버가 사용자 정보를 메모리나 저장소에 보관하고, 클라이언트에는 세션 ID(쿠키)만 줍니다. 서버가 상태를 기억합니다. 서버를 여러 대로 늘리면 세션을 공유할 저장소가 필요합니다.</li>
+      <li><strong>토큰</strong>: 서버가 사용자 정보를 담은 토큰을 발급하고, 클라이언트가 요청마다 보냅니다. 서버는 토큰이 진짜인지만 검증하고 상태를 기억하지 않습니다(stateless). 확장이 쉽지만, 한번 발급한 토큰을 즉시 무효화하기 어렵다는 단점이 있어 만료 시간을 짧게 둡니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>JWT 한 장 정리</h2>
+    <p>JWT는 점(<code>.</code>)으로 이어진 세 조각입니다.</p>
+    <figure>
+      <figcaption>구조</figcaption>
+      <pre><code>헤더.페이로드.서명
+{"alg":"HS256"} . {"sub":"E12345","roles":["AGENT"],"exp":1767225600} . (비밀키로 만든 서명)</code></pre>
+    </figure>
+    <ul>
+      <li><strong>페이로드는 암호화가 아니라 단순 인코딩</strong>입니다. 누구나 읽을 수 있으니 비밀번호나 주민번호를 넣지 않습니다.</li>
+      <li><strong>서명</strong>이 위조를 막습니다. 내용을 하나라도 바꾸면 서명이 맞지 않습니다. 서버는 서명과 만료(<code>exp</code>)를 확인합니다.</li>
+      <li><strong>HS256</strong>은 발급자와 검증자가 같은 비밀키를 공유하는 방식, <strong>RS256</strong>은 개인키로 서명하고 공개키로 검증하는 방식입니다. 검증하는 서버가 많거나 발급자가 따로 있으면 RS256이 키 관리에 유리합니다.</li>
+      <li>토큰은 HTTPS로만 주고받고, 클라이언트에 오래 보관하지 않도록 만료를 짧게 둡니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>권한 설계</h2>
+    <ul>
+      <li><strong>역할 기반 접근 제어(RBAC)</strong>: 사용자에게 역할(관리자, 심사자, 설계사 등)을 주고, 기능마다 허용 역할을 정합니다.</li>
+      <li><strong>데이터 단위 권한</strong>: 역할만으로는 부족합니다. "설계사는 자기가 접수한 계약만 볼 수 있다"처럼 <strong>어느 데이터까지</strong>인지를 조회 조건에 반영해야 합니다. 이걸 빠뜨리면 남의 데이터 ID를 입력해 보는 공격(IDOR)에 뚫립니다.</li>
+      <li>최소 권한 원칙: 필요한 만큼만 줍니다. 기본은 거부하고 허용할 것만 엽니다.</li>
+      <li>권한 판단의 근거는 서버가 검증한 값(토큰)이어야 합니다. 요청 바디에 들어온 사번이나 역할을 믿으면 안 됩니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>자주 나오는 취약점</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>공격</th><th>방어</th></tr></thead>
+      <tbody>
+        <tr><td>SQL 인젝션: 입력값이 쿼리로 해석됨</td><td>문자열을 이어 붙이지 말고 파라미터 바인딩(PreparedStatement, JPA)을 쓴다</td></tr>
+        <tr><td>깨진 접근 제어: 남의 자원 접근</td><td>모든 요청에서 서버가 권한과 소유권을 확인한다</td></tr>
+        <tr><td>민감 정보 노출: 로그·응답에 비밀번호, 토큰, 주민번호</td><td>마스킹하고 아예 남기지 않는다. 오류 응답에 내부 정보를 싣지 않는다</td></tr>
+        <tr><td>로그 인젝션: 입력값에 줄바꿈을 넣어 가짜 로그 생성</td><td>사용자 입력을 로그에 남기기 전에 제어문자를 정리한다</td></tr>
+        <tr><td>약한 비밀번호 저장</td><td>평문·단순 해시 금지. bcrypt, argon2 같은 느린 해시에 솔트를 붙여 저장한다</td></tr>
+        <tr><td>의존성 취약점</td><td>라이브러리를 정기적으로 점검·갱신한다</td></tr>
+      </tbody>
+    </table></div>
+    <p>웹 취약점을 정리한 <strong>OWASP Top 10</strong>은 한 번쯤 훑어볼 만합니다. 브라우저에서 쿠키로 인증하는 서비스라면 <strong>CSRF</strong>(사용자 모르게 요청을 보내게 하는 공격)와 <strong>CORS</strong>(어느 출처의 브라우저 요청을 허용할지)도 알아야 합니다. 토큰을 헤더로 보내는 stateless API는 CSRF 위험이 상대적으로 작습니다.</p>
+  </section>
+
+  <section>
+    <h2>비밀 관리</h2>
+    <ul>
+      <li>키, 비밀번호, 토큰을 저장소에 커밋하지 않습니다. 한번 올라간 비밀은 지워도 이력에 남으니 폐기하고 새로 발급해야 합니다.</li>
+      <li>환경변수나 비밀 관리 서비스에서 주입합니다.</li>
+      <li>개발용 키와 운영용 키를 분리합니다. 개발용 키가 운영에서 켜지지 않게 막는 장치도 필요합니다.</li>
+    </ul>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    토큰을 발급하지 않고 외부 인증 서버가 만든 HS256 JWT만 검증합니다. 서명과 만료를 확인하고, 토큰의 <code>sub</code>가 처리 사번이 되며 요청 바디에 담긴 사번은 무시합니다. <code>roles</code> 클레임이 <code>AGENT</code>, <code>UNDERWRITER</code>, <code>OPERATOR</code>, <code>ADMIN</code> 권한이 되고, API별 허용 역할은 보안 설정의 URL 규칙으로 정합니다. 데이터 단위 권한으로 <code>AGENT</code>만 가진 사용자는 자기가 접수한 계약만 조회하며, 범위 밖 계약은 존재하지 않는 것과 똑같이 404로 답합니다. 세션을 만들지 않고(STATELESS) 비밀키는 환경변수로만 받습니다. 인증 실패는 <code>E-AUTH-001</code>(401), 권한 부족은 <code>E-AUTH-002</code>(403)입니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>JWT 페이로드에 주민번호를 넣어도 서명이 있으니 안전한가요?</summary><p>아닙니다. 서명은 위조를 막을 뿐 내용을 숨기지 않습니다. 페이로드는 누구나 디코딩해서 읽을 수 있습니다.</p></details>
+      <details><summary>설계사 A가 URL의 계약 번호만 바꿔 설계사 B의 계약을 조회하게 되는 문제를 뭐라고 부르고 어떻게 막나요?</summary><p>IDOR(안전하지 않은 직접 객체 참조)입니다. 역할 확인에 더해 조회 조건에 "내가 접수한 계약"이라는 소유 범위를 서버에서 반드시 적용해 막습니다.</p></details>
+      <details><summary>요청 바디의 사번을 믿고 처리자로 기록하면 어떤 문제가 있나요?</summary><p>클라이언트가 다른 사람의 사번을 적어 보내 책임을 떠넘길 수 있습니다. 서버가 검증한 토큰의 값을 써야 합니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="07-transaction.html">← 이전: 트랜잭션과 동시성</a><a href="09-testing-ops.html">다음: 테스트와 운영 →</a></nav>
+</main>
+</body>
+</html>

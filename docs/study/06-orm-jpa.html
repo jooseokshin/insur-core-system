@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ORM과 JPA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>6 / 10</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 06</span><span class="level mid">중급</span></div>
+    <h1>ORM과 JPA</h1>
+    <p class="lead">객체와 테이블을 이어 주는 도구입니다. 편리한 만큼 내부에서 일어나는 일을 모르면 성능 문제와 데이터 사고를 만듭니다.</p>
+  </header>
+
+  <section>
+    <h2>왜 ORM인가</h2>
+    <p>자바는 객체로, DB는 테이블로 데이터를 다룹니다. 이 둘을 손으로 변환하는 코드(SQL 작성, 결과를 객체에 담기)는 반복적이고 실수하기 쉽습니다. <strong>ORM</strong>(Object-Relational Mapping)이 이 변환을 자동으로 해 줍니다. 자바의 표준 ORM 규약이 <strong>JPA</strong>이고, 대표 구현체가 <strong>Hibernate</strong>입니다.</p>
+    <ul>
+      <li>장점: 반복 코드가 줄고, 객체 중심으로 도메인을 표현할 수 있습니다.</li>
+      <li>비용: 어떤 SQL이 나가는지 눈에 안 보여서 성능 문제를 놓치기 쉽습니다. 복잡한 통계 쿼리는 SQL이 더 낫기도 합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>엔티티와 리포지토리</h2>
+    <ul>
+      <li><strong>엔티티</strong>: 테이블과 매핑되는 클래스입니다. 필드가 컬럼, 인스턴스가 행입니다. 식별자(<code>@Id</code>)가 필요합니다.</li>
+      <li><strong>Spring Data 리포지토리</strong>: 인터페이스만 선언하면 구현을 스프링이 만들어 줍니다. 메서드 이름으로 쿼리가 정해집니다. 예: <code>findByGlobalTxId(...)</code>는 해당 컬럼으로 조회하는 쿼리가 됩니다.</li>
+      <li>조건이 상황에 따라 달라지는 검색(여러 선택 조건 조합)은 <strong>동적 쿼리</strong>(Specification, QueryDSL 등)로 조합합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>영속성 컨텍스트와 변경 감지</h2>
+    <p>JPA는 트랜잭션 안에서 조회한 엔티티를 <strong>영속성 컨텍스트</strong>라는 작업 공간에 담아 관리합니다. 여기서 중요한 성질이 세 가지 있습니다.</p>
+    <ul>
+      <li><strong>1차 캐시</strong>: 같은 트랜잭션에서 같은 식별자를 다시 조회하면 DB에 가지 않고 이미 가진 객체를 돌려줍니다.</li>
+      <li><strong>변경 감지(dirty checking)</strong>: 조회한 엔티티의 값을 바꾸면, 커밋 시점에 변경분을 비교해 <code>UPDATE</code>를 알아서 보냅니다. 그래서 <code>save()</code>를 따로 부르지 않아도 반영됩니다. 반대로 <strong>트랜잭션 밖에서 바꾼 값은 저장되지 않습니다</strong>.</li>
+      <li><strong>쓰기 지연</strong>: <code>INSERT</code>·<code>UPDATE</code>를 바로 보내지 않고 모아 두었다가 커밋(또는 flush) 때 보냅니다.</li>
+    </ul>
+    <div class="note warn">
+      <b>엔티티를 바꾸는 입구를 좁히세요</b>
+      변경 감지 때문에 엔티티의 값이 바뀌면 곧 DB가 바뀝니다. 아무 데서나 setter로 바꿀 수 있으면 의도하지 않은 저장이 일어납니다. 상태 변경은 규칙을 검사하는 메서드로만 가능하게 만드는 것이 좋습니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>지연 로딩과 N+1 문제</h2>
+    <p>연관된 엔티티(계약의 담보 목록 등)는 실제로 쓸 때까지 조회를 미루는 <strong>지연 로딩</strong>이 기본인 경우가 많습니다. 이때 계약 100건을 가져온 뒤 반복문에서 각 계약의 담보를 접근하면 쿼리가 <strong>1번(목록) + 100번(담보)</strong> 나갑니다. 이것이 <strong>N+1 문제</strong>입니다.</p>
+    <ul>
+      <li>해결: 한 번에 같이 가져오는 <code>fetch join</code>, <code>@EntityGraph</code>, 또는 ID 목록으로 한꺼번에 조회(<code>IN</code>) 후 코드에서 묶기.</li>
+      <li>발견: 개발 중에 SQL 로그를 켜서 쿼리 수를 확인하는 습관을 들이세요.</li>
+      <li>목록 화면에는 엔티티 전체가 아니라 필요한 컬럼만 담은 조회용 DTO를 쓰면 더 가볍습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>스키마와 엔티티를 맞추는 방법</h2>
+    <p><code>ddl-auto</code> 설정으로 엔티티를 보고 테이블을 자동 생성·수정하게 할 수 있지만, 운영에서는 위험합니다. 어떤 변경이 일어나는지 통제할 수 없고 이력도 남지 않습니다. 권장 방식은 스키마를 마이그레이션 도구로 관리하고, JPA는 <code>validate</code>로 "엔티티와 테이블이 일치하는지 기동 때 검사만" 하게 하는 것입니다. 이러면 엔티티를 고치고 마이그레이션을 빼먹었을 때 배포 직후 바로 드러납니다.</p>
+  </section>
+
+  <section>
+    <h2>알아 두면 좋은 함정</h2>
+    <ul>
+      <li><strong>대량 처리</strong>: 수만 건을 엔티티로 하나씩 올려 수정하면 메모리와 시간이 폭증합니다. 배치는 벌크 쿼리나 청크 단위 처리를 씁니다.</li>
+      <li><strong>양방향 연관관계</strong>: 한쪽만 수정해서 불일치가 생기기 쉽고, JSON 직렬화 때 무한 순환이 날 수 있습니다. 꼭 필요한 방향만 둡니다.</li>
+      <li><strong>엔티티를 API 응답으로 직접 반환</strong>하면 내부 구조가 노출되고 지연 로딩이 직렬화 중에 터질 수 있습니다. DTO로 변환하세요.</li>
+      <li><strong>식별자 전략</strong>: 자동 증가 값, 업무 번호, UUID 중 무엇을 PK로 쓸지는 데이터 이동·성능·노출 위험을 같이 보고 정합니다.</li>
+    </ul>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    계약 원장(<code>Contract</code>)은 엔티티이고, 상태 변경은 <code>changeStatus</code>, 해지 정보 기록은 <code>recordTermination</code> 같은 메서드로만 바꿉니다(<code>@Setter</code> 없음). 설정은 <code>ddl-auto=validate</code>라서 엔티티를 바꾸면 마이그레이션이 반드시 필요합니다. 리포지토리는 <code>findByGlobalTxId</code> 같은 파생 쿼리를 쓰고, 목록 조회의 선택 조건은 Specification으로 조합합니다. 요청·응답은 엔티티가 아니라 별도 DTO를 씁니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>엔티티의 값을 바꿨는데 <code>save()</code>를 안 불러도 DB에 반영되는 이유는?</summary><p>트랜잭션 안에서 영속성 컨텍스트가 변경을 감지(dirty checking)하고 커밋 시점에 UPDATE를 보내기 때문입니다.</p></details>
+      <details><summary>N+1 문제란 무엇이고 어떻게 찾나요?</summary><p>목록 1번 조회 뒤 각 항목의 연관 데이터를 N번 더 조회해 쿼리가 폭증하는 문제입니다. SQL 로그의 쿼리 수를 확인해 찾고, fetch join이나 IN 조회로 줄입니다.</p></details>
+      <details><summary>운영에서 <code>ddl-auto=update</code>가 위험한 이유는?</summary><p>어떤 DDL이 언제 실행되는지 통제·기록이 안 되고, 컬럼 삭제나 타입 변경 같은 변경은 처리하지 못해 환경 간 구조가 어긋납니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="05-database.html">← 이전: 데이터베이스</a><a href="07-transaction.html">다음: 트랜잭션과 동시성 →</a></nav>
+</main>
+</body>
+</html>

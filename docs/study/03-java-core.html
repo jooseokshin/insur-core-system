@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>자바 핵심</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>3 / 10</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 03</span><span class="level">기초</span></div>
+    <h1>자바 핵심</h1>
+    <p class="lead">프레임워크를 쓰기 전에 언어 자체의 규칙을 알아야 합니다. 백엔드에서 실제로 사고가 나는 지점을 중심으로 정리합니다.</p>
+  </header>
+
+  <section>
+    <h2>자바는 어떻게 실행되나</h2>
+    <p>소스(<code>.java</code>)를 컴파일하면 바이트코드(<code>.class</code>)가 되고, JVM이 이를 읽어 실행합니다. 같은 바이트코드가 운영체제와 상관없이 돌아가는 이유입니다. JDK는 개발 도구까지 포함한 묶음이고, JRE는 실행에 필요한 부분입니다. 메모리 관리는 <strong>가비지 컬렉터(GC)</strong>가 맡아서, 더 이상 참조되지 않는 객체를 알아서 정리합니다. GC가 일을 하는 동안 응답이 잠깐 느려질 수 있다는 점은 운영에서 알아 두어야 합니다.</p>
+  </section>
+
+  <section>
+    <h2>값과 참조, <code>==</code>와 <code>equals</code></h2>
+    <ul>
+      <li><strong>기본형</strong>(<code>int</code>, <code>long</code>, <code>boolean</code>, <code>double</code> 등)은 값 자체를 담습니다.</li>
+      <li><strong>참조형</strong>(객체, <code>String</code>, 배열)은 객체가 있는 위치를 가리킵니다.</li>
+      <li><code>==</code>는 같은 객체인지(참조 비교), <code>equals()</code>는 내용이 같은지 비교합니다. 문자열과 금액은 반드시 <code>equals()</code>로 비교합니다.</li>
+      <li><code>equals()</code>를 재정의하면 <code>hashCode()</code>도 같이 재정의해야 합니다. 그렇지 않으면 <code>HashMap</code>, <code>HashSet</code>에서 같은 값을 못 찾습니다.</li>
+      <li><code>String</code>은 <strong>불변</strong>입니다. 값을 바꾸는 것처럼 보여도 새 객체가 만들어집니다.</li>
+    </ul>
+    <p>불변 객체는 여러 스레드가 공유해도 안전하고 추적하기 쉬워서, 가능하면 불변으로 설계하는 것이 좋습니다.</p>
+  </section>
+
+  <section>
+    <h2>컬렉션: 어떤 그릇을 고를까</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>종류</th><th>특징</th><th>쓰는 때</th></tr></thead>
+      <tbody>
+        <tr><td><code>List</code> (<code>ArrayList</code>)</td><td>순서 있음, 중복 허용, 인덱스 조회가 빠름</td><td>순서가 의미 있는 목록</td></tr>
+        <tr><td><code>Set</code> (<code>HashSet</code>)</td><td>중복 없음, 포함 여부 확인이 빠름</td><td>중복 제거, 존재 여부 확인</td></tr>
+        <tr><td><code>Map</code> (<code>HashMap</code>)</td><td>키로 값을 찾음, 키는 중복 불가</td><td>코드→이름 매핑, 키 기반 조회</td></tr>
+      </tbody>
+    </table></div>
+    <p>목록 안에서 하나씩 뒤져 찾는 코드(<code>List.contains</code>를 반복문 안에서 호출)는 데이터가 늘수록 급격히 느려집니다. 자주 찾는다면 <code>Map</code>이나 <code>Set</code>으로 바꾸는 것을 먼저 떠올리세요.</p>
+  </section>
+
+  <section>
+    <h2>돈은 <code>double</code>로 계산하지 않는다</h2>
+    <p>컴퓨터는 소수를 2진수로 저장하기 때문에 <code>0.1</code>이나 <code>0.2</code> 같은 값을 정확히 표현하지 못합니다.</p>
+    <figure>
+      <figcaption>예시</figcaption>
+      <pre><code>System.out.println(0.1 + 0.2);                    <span class="c">// 0.30000000000000004</span>
+new BigDecimal("0.1").add(new BigDecimal("0.2"));  <span class="c">// 0.3 (정확)</span></code></pre>
+    </figure>
+    <ul>
+      <li>금액, 비율, 요율은 <code>BigDecimal</code>로 다룹니다.</li>
+      <li><code>BigDecimal</code>은 <strong>문자열로</strong> 만듭니다. <code>new BigDecimal(0.1)</code>은 이미 부정확한 값을 담습니다.</li>
+      <li>나눗셈에는 소수 자릿수와 <strong>반올림 방식</strong>(<code>RoundingMode</code>)을 반드시 지정합니다. 안 하면 나누어떨어지지 않을 때 예외가 납니다.</li>
+      <li>값 비교는 <code>equals()</code>가 아니라 <code>compareTo()</code>로 합니다. <code>2.0</code>과 <code>2.00</code>은 <code>equals()</code>로는 다릅니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>날짜와 시간</h2>
+    <p>옛 <code>Date</code>와 <code>Calendar</code>는 쓰지 않고 <code>java.time</code>을 씁니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>타입</th><th>담는 것</th><th>예</th></tr></thead>
+      <tbody>
+        <tr><td><code>LocalDate</code></td><td>날짜만</td><td>보험 시작일, 생년월일</td></tr>
+        <tr><td><code>LocalDateTime</code></td><td>날짜+시각, 시간대 정보 없음</td><td>등록 일시</td></tr>
+        <tr><td><code>ZonedDateTime</code> / <code>Instant</code></td><td>시간대 포함 / 절대 시각</td><td>국가·서버가 다른 시스템 간 교환</td></tr>
+      </tbody>
+    </table></div>
+    <p>"지금 시각"을 코드에서 직접 <code>now()</code>로 부르면 테스트하기 어렵고 시간대가 숨어 있습니다. <code>Clock</code>을 주입받아 쓰는 방식이 좋습니다. 개념 09에서 다시 나옵니다.</p>
+  </section>
+
+  <section>
+    <h2>예외 처리</h2>
+    <ul>
+      <li><strong>체크 예외</strong>(<code>IOException</code> 등): 컴파일러가 처리를 강제합니다.</li>
+      <li><strong>언체크 예외</strong>(<code>RuntimeException</code> 하위): 강제하지 않습니다. 스프링 애플리케이션은 보통 업무 오류를 언체크 예외로 던지고, 한곳에서 모아 응답으로 바꿉니다.</li>
+      <li>예외를 삼키지 않습니다. 빈 <code>catch</code> 블록은 문제를 숨겨서 나중에 원인을 찾기 훨씬 어렵게 만듭니다.</li>
+      <li>잡았다면 로그를 남기거나 의미 있는 예외로 감싸 던집니다. 원인 예외(<code>cause</code>)를 함께 넘기세요.</li>
+      <li>업무 오류(입력 잘못, 상태 불일치)와 시스템 오류(DB 다운, 버그)를 구분합니다. 앞은 4xx, 뒤는 5xx로 응답합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>객체지향의 쓸모</h2>
+    <ul>
+      <li><strong>캡슐화</strong>: 내부 상태는 숨기고 규칙을 지키는 메서드로만 바꾸게 합니다. 값을 마음대로 바꿀 수 있는 <code>setter</code>를 남발하면 규칙이 우회됩니다.</li>
+      <li><strong>인터페이스와 다형성</strong>: 구체 구현이 아닌 약속(인터페이스)에 의존하면 구현을 바꾸거나 테스트용 가짜로 대체하기 쉽습니다.</li>
+      <li><strong>단일 책임</strong>: 한 클래스는 바뀌는 이유가 하나만 되도록 만듭니다.</li>
+      <li><strong>상속보다 조합</strong>: 코드 재사용을 위해 상속을 쓰면 결합이 강해집니다. 필요한 기능을 가진 객체를 가져다 쓰는 쪽이 유연합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>제네릭, 람다, 스트림, Optional</h2>
+    <ul>
+      <li><strong>제네릭</strong>(<code>List&lt;String&gt;</code>)은 타입을 컴파일 시점에 검사해 형변환 사고를 막습니다.</li>
+      <li><strong>람다와 스트림</strong>은 목록을 걸러 내고(<code>filter</code>), 바꾸고(<code>map</code>), 모으는(<code>collect</code>) 코드를 짧게 씁니다. 단, 복잡한 로직을 한 줄 체인에 몰아넣으면 오히려 읽기 어렵습니다.</li>
+      <li><strong>Optional</strong>은 "값이 없을 수 있음"을 반환 타입으로 드러냅니다. 반환값으로만 쓰고, 필드나 파라미터에는 쓰지 않습니다. 값이 없을 때의 처리는 <code>orElseThrow</code>로 명시합니다.</li>
+      <li><code>null</code>은 가장 흔한 버그 원인입니다. 경계(입력)에서 걸러 내고 안쪽에서는 null이 없다고 가정할 수 있게 만드세요.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>스레드를 알아야 하는 이유</h2>
+    <p>웹 서버는 요청을 여러 스레드에서 동시에 처리합니다. 그래서 여러 요청이 <strong>같은 객체의 값을 함께 바꾸면</strong> 결과가 뒤섞입니다. 이를 경쟁 상태(race condition)라고 합니다. 서비스 객체는 하나만 만들어 모든 요청이 공유하므로(싱글톤), 서비스 클래스의 필드에 요청별 데이터를 저장하면 안 됩니다. 요청별 값은 메서드의 지역 변수나 파라미터로 다루세요. 데이터베이스 수준의 동시성은 개념 07에서 다룹니다.</p>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    금액·요율 계산은 모두 <code>BigDecimal</code>이고, 보험료는 마지막에 한 번만 원 단위로 <code>HALF_UP</code> 반올림합니다. 계약 상태는 <code>enum</code>으로 정의하고 허용되는 전이를 <code>switch</code> 식으로 표현합니다. 날짜는 <code>LocalDate</code>(보험 시작·종료일), 등록 일시는 <code>Clock</code>을 주입받아 계산합니다. 업무 오류는 <code>RuntimeException</code>을 상속한 <code>BusinessException</code>으로 던지고 한곳에서 응답으로 바꿉니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary><code>new BigDecimal(0.1)</code>이 위험한 이유는?</summary><p>이미 2진수로 부정확하게 저장된 <code>double</code> 값을 그대로 가져오기 때문입니다. <code>new BigDecimal("0.1")</code>처럼 문자열로 만들어야 정확합니다.</p></details>
+      <details><summary><code>equals()</code>를 재정의했는데 <code>hashCode()</code>를 안 하면?</summary><p><code>HashMap</code>, <code>HashSet</code>은 먼저 해시값으로 위치를 찾기 때문에, 내용이 같아도 다른 칸에 들어가 같은 값을 찾지 못합니다.</p></details>
+      <details><summary>서비스 클래스의 필드에 현재 사용자 ID를 저장하면 왜 안 되나요?</summary><p>서비스는 하나의 객체를 모든 요청 스레드가 공유합니다. 필드에 요청별 값을 두면 다른 요청이 덮어써서 엉뚱한 사용자의 값이 섞입니다.</p></details>
+      <details><summary>빈 <code>catch</code> 블록은 왜 나쁜가요?</summary><p>오류가 조용히 사라져 데이터가 틀어져도 알 수 없고, 나중에 원인을 추적할 단서가 남지 않습니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="02-http-rest.html">← 이전: HTTP와 REST</a><a href="04-spring.html">다음: 스프링 핵심 →</a></nav>
+</main>
+</body>
+</html>

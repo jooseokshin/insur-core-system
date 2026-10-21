@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>백엔드 학습 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="eyebrow"><span>insur-core-system</span><span>자바 백엔드 개념 10편</span></div>
+    <h1>백엔드 학습 지도</h1>
+    <p class="lead">자바 백엔드 개발자가 기초에서 중급까지 알아야 할 개념을 주제별로 정리했습니다. 문법보다 "왜 그렇게 하는가"에 무게를 두었고, 각 편 끝에는 이 프로젝트에서 그 개념이 어떻게 쓰이는지와 스스로 점검 문제를 붙였습니다.</p>
+  </header>
+
+  <section class="track">
+    <h2>기초</h2>
+    <div class="cards">
+      <a class="card" href="01-backend-overview.html"><span class="num">01</span><h3>백엔드의 큰 그림</h3><span class="desc">요청의 여정, 계층 구조, stateless, 비기능 요건</span></a>
+      <a class="card" href="02-http-rest.html"><span class="num">02</span><h3>HTTP와 REST</h3><span class="desc">메서드와 멱등성, 상태코드, API 설계 습관</span></a>
+      <a class="card" href="03-java-core.html"><span class="num">03</span><h3>자바 핵심</h3><span class="desc">값과 참조, 컬렉션, BigDecimal, 예외, 스레드</span></a>
+      <a class="card" href="04-spring.html"><span class="num">04</span><h3>스프링 핵심</h3><span class="desc">IoC/DI, 빈, 설정 외부화, 프록시와 AOP</span></a>
+      <a class="card" href="05-database.html"><span class="num">05</span><h3>데이터베이스</h3><span class="desc">관계형 모델, 제약, 인덱스, 마이그레이션, 채번</span></a>
+      <a class="card" href="10-insurance-domain.html"><span class="num">10</span><h3>보험 도메인</h3><span class="desc">용어, 계약 상태 전이, 보험료 계산 체험</span></a>
+    </div>
+  </section>
+
+  <section class="track">
+    <h2>중급</h2>
+    <div class="cards">
+      <a class="card" href="06-orm-jpa.html"><span class="num">06</span><h3>ORM과 JPA</h3><span class="desc">영속성 컨텍스트, 변경 감지, N+1, 스키마 관리</span></a>
+      <a class="card" href="07-transaction.html"><span class="num">07</span><h3>트랜잭션과 동시성</h3><span class="desc">ACID, 격리 수준, 락, 멱등성, 분산 환경</span></a>
+      <a class="card" href="08-security.html"><span class="num">08</span><h3>인증과 보안</h3><span class="desc">세션과 토큰, JWT, 권한 설계, 취약점, 비밀 관리</span></a>
+      <a class="card" href="09-testing-ops.html"><span class="num">09</span><h3>테스트와 운영</h3><span class="desc">테스트 피라미드, 로깅, 모니터링, 배포, 캐시</span></a>
+    </div>
+  </section>
+
+  <section>
+    <h2>읽는 순서</h2>
+    <ol>
+      <li>01부터 05까지를 순서대로 읽습니다. 뒤 편이 앞 편의 개념을 가정합니다.</li>
+      <li>보험 업무가 낯설다면 10을 먼저 훑어보세요. 용어를 알면 나머지 예시가 쉽게 읽힙니다.</li>
+      <li>06부터 09는 필요한 주제부터 읽어도 됩니다. 실무 사고가 가장 많이 나는 곳은 07(트랜잭션과 동시성)입니다.</li>
+      <li>각 편의 "스스로 점검"은 답을 보기 전에 먼저 말로 설명해 보세요.</li>
+    </ol>
+    <div class="note">
+      <b>읽을 때 참고</b>
+      이 문서의 "이 프로젝트에서는" 상자는 현재 저장소의 코드와 <code>CLAUDE.md</code>를 기준으로 작성했습니다. 코드가 바뀌면 내용이 달라질 수 있으니, 구체적인 동작은 코드와 테스트로 확인하세요. 시스템 전체 구조는 <a href="../architecture.html">청약 아키텍처 문서</a>를 함께 보세요.
+    </div>
+  </section>
+</main>
+</body>
+</html>

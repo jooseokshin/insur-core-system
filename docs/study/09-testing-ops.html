@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>테스트와 운영</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>9 / 10</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 09</span><span class="level mid">중급</span></div>
+    <h1>테스트와 운영</h1>
+    <p class="lead">코드는 배포하면 끝이 아닙니다. 바꿀 때 깨지지 않게 하는 테스트, 문제가 생겼을 때 원인을 찾는 로그와 지표, 그리고 안전하게 내보내는 배포까지가 백엔드 개발자의 일입니다.</p>
+  </header>
+
+  <section>
+    <h2>테스트의 층</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>종류</th><th>범위</th><th>속도</th><th>잡는 문제</th></tr></thead>
+      <tbody>
+        <tr><td>단위 테스트</td><td>클래스·메서드 하나</td><td>매우 빠름</td><td>계산, 규칙, 경계값</td></tr>
+        <tr><td>통합 테스트</td><td>여러 계층 + 실제 DB</td><td>느림</td><td>매핑, 쿼리, 트랜잭션, 설정</td></tr>
+        <tr><td>E2E / 인수 테스트</td><td>실행 중인 앱 전체</td><td>가장 느림</td><td>배포된 환경의 핵심 흐름</td></tr>
+      </tbody>
+    </table></div>
+    <p>빠르고 많은 단위 테스트를 바닥에 두고, 통합 테스트는 핵심 경로에, E2E는 가장 적게 두는 <strong>테스트 피라미드</strong>가 기본 지침입니다. 모든 걸 E2E로 검증하면 느리고, 실패했을 때 원인을 찾기 어렵습니다.</p>
+  </section>
+
+  <section>
+    <h2>좋은 테스트의 습관</h2>
+    <ul>
+      <li><strong>준비 → 실행 → 검증</strong>(Arrange·Act·Assert) 순서로 한 가지 행동만 검증합니다.</li>
+      <li><strong>경계값</strong>을 테스트합니다. 0, 1, 최대값, 날짜가 바뀌는 순간, 반올림이 갈리는 값 같은 곳에서 버그가 납니다.</li>
+      <li><strong>실패 경로</strong>도 검증합니다. 권한 없음, 중복 요청, 잘못된 입력에서 올바른 오류가 나오는지 봅니다.</li>
+      <li><strong>결정적(deterministic)</strong>이어야 합니다. 현재 시각, 난수, 실행 순서에 따라 결과가 달라지면 안 됩니다. 시각은 <code>Clock</code>으로 주입해 고정할 수 있게 합니다.</li>
+      <li>테스트 이름은 <strong>무엇을 보장하는지</strong> 문장으로 씁니다. 실패 메시지만 봐도 무엇이 깨졌는지 알 수 있어야 합니다.</li>
+      <li>모의 객체(Mock)는 외부 시스템처럼 통제하기 어려운 것에만 씁니다. 모든 걸 가짜로 바꾸면 실제로는 안 돌아도 테스트는 통과합니다.</li>
+      <li>동시성 문제는 한 스레드 테스트로는 안 잡힙니다. 여러 스레드를 동시에 출발시켜 재현합니다.</li>
+    </ul>
+    <p>테스트를 짜면서 코드가 쓰기 어렵다고 느껴지면 설계 신호입니다. 의존성이 너무 많거나 한 메서드가 너무 많은 일을 하고 있을 수 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>로그는 미래의 나를 위한 기록</h2>
+    <ul>
+      <li><strong>수준</strong>: ERROR(즉시 조치 필요), WARN(이상하지만 처리됨), INFO(주요 업무 사건), DEBUG(개발 중 상세). 운영에서는 보통 INFO 이상을 봅니다.</li>
+      <li><strong>무엇을 남길까</strong>: 어떤 업무를 누가 어떤 식별자로 처리했는지, 실패 이유. 반대로 <strong>비밀번호, 토큰, 주민번호 같은 민감 정보</strong>는 절대 남기지 않습니다.</li>
+      <li><strong>상관 ID</strong>: 요청 하나에서 나온 모든 로그에 같은 거래 ID를 붙이면, 로그 수백만 줄 중에서 그 요청의 흐름만 뽑아낼 수 있습니다. 스레드별 저장소(MDC)에 넣어 모든 로그에 자동으로 붙입니다. 서버는 스레드를 재사용하므로 요청이 끝나면 반드시 지워야 합니다.</li>
+      <li>예외는 한 번만 기록합니다. 던질 때도 찍고 잡을 때도 찍으면 같은 오류가 여러 번 쌓여 읽기 어렵습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>모니터링: 로그, 지표, 추적</h2>
+    <p>운영 중인 서비스의 상태를 보는 세 가지 눈입니다.</p>
+    <ul>
+      <li><strong>로그</strong>: 무슨 일이 있었는지 (사건 기록)</li>
+      <li><strong>지표(metrics)</strong>: 숫자의 추이. 요청 수, 오류율, 응답 시간, 메모리, DB 연결 수</li>
+      <li><strong>추적(tracing)</strong>: 요청 하나가 여러 서비스를 거치는 경로와 각 구간 소요 시간</li>
+    </ul>
+    <p>평균 응답 시간만 보면 일부 느린 요청이 가려집니다. 상위 1%, 5%가 얼마나 걸리는지(p95, p99)를 함께 봅니다. 스프링 부트는 Actuator로 상태 확인(헬스 체크)과 지표를 노출할 수 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>설정과 환경</h2>
+    <ul>
+      <li>코드는 한 벌, 환경(로컬·개발·운영)별 차이는 설정으로 주입합니다. 12-factor 앱의 원칙입니다.</li>
+      <li>로컬에서 DB 같은 의존 시스템은 <strong>도커 컴포즈</strong>로 한 줄에 띄워서, 모든 개발자가 같은 환경에서 시작하게 합니다.</li>
+      <li>"내 PC에서는 되는데"를 줄이려고 서버 시간대, 문자 인코딩, 자바 버전을 명시합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>빌드와 배포</h2>
+    <ul>
+      <li><strong>CI</strong>: 코드를 올릴 때마다 자동으로 빌드하고 테스트를 돌려, 깨진 코드가 합쳐지는 것을 막습니다.</li>
+      <li><strong>CD</strong>: 통과한 결과를 자동(또는 승인 후)으로 환경에 배포합니다.</li>
+      <li>배포 방식: 롤링(조금씩 교체), 블루그린(새 환경을 만들어 한 번에 전환), 카나리(일부 사용자에게만 먼저). 문제가 생기면 <strong>빠르게 되돌릴 수 있는 것</strong>이 핵심입니다.</li>
+      <li>DB 변경이 있는 배포는 구버전과 신버전이 잠시 함께 돌 수 있다는 점을 고려해, 하위 호환되게 나눠서 적용합니다.</li>
+      <li>컨테이너(도커)는 실행 환경을 이미지로 묶어서 어디서나 같은 방식으로 돌게 합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>캐시는 마지막에</h2>
+    <p>자주 읽고 거의 안 바뀌는 데이터는 캐시(Redis, 로컬 메모리)에 두어 DB 부하를 줄일 수 있습니다. 하지만 캐시는 "원본과 달라질 수 있다"는 새 문제를 가져옵니다. 언제 지울지(만료·무효화)가 어렵고 버그의 원인이 되기 쉬워서, 먼저 쿼리와 인덱스를 고친 뒤 정말 필요할 때 도입합니다.</p>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    JUnit 5와 AssertJ로 테스트하며 테스트 이름이 한글 문장입니다. 보험료 계산식·환급 계산처럼 순수한 로직은 DB 없이 단위 테스트하고, 청약·갱신·관리자 API는 실제 PostgreSQL에 붙는 통합 테스트로 검증합니다(도커 컴포즈로 DB 기동). 같은 거래 UUID를 스레드 6개가 동시에 보내는 동시성 테스트도 있습니다. 시각은 주입되는 <code>Clock</code>으로, 로그에는 MDC의 <code>globalTxId</code>가 모든 줄에 붙고 <code>MdcClearFilter</code>가 요청 뒤에 지웁니다. <code>scripts/e2e-check.sh</code>는 실행 중인 앱에 대한 E2E 점검이고, 개발 DB에 실제 행을 쓰기 때문에 <code>--cleanup</code>으로 정리합니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>현재 시각을 <code>LocalDate.now()</code>로 직접 부르면 왜 테스트가 어려워지나요?</summary><p>실행하는 날마다 결과가 달라지고, 특정 날짜(월말, 윤년 등)의 동작을 재현할 수 없습니다. <code>Clock</code>을 주입하면 시각을 고정할 수 있습니다.</p></details>
+      <details><summary>MDC를 요청이 끝날 때 지워야 하는 이유는?</summary><p>서버는 스레드를 풀에서 재사용합니다. 지우지 않으면 다음 요청의 로그에 이전 요청의 거래 ID가 붙어 추적이 틀어집니다.</p></details>
+      <details><summary>모든 의존성을 Mock으로 바꾼 단위 테스트의 한계는?</summary><p>SQL, 매핑, 트랜잭션, 제약조건 같은 실제 연결 부분이 검증되지 않아서, 테스트는 통과해도 실제 환경에서 실패할 수 있습니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="08-security.html">← 이전: 인증과 보안</a><a href="10-insurance-domain.html">다음: 보험 도메인 →</a></nav>
+</main>
+</body>
+</html>
