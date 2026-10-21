@@ -9,6 +9,7 @@ import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.service.contract.ContractAccessPolicy;
 import com.insur.insurcoresystem.service.contract.ContractEndorsementService;
 import com.insur.insurcoresystem.service.contract.ContractInquiryService;
+import com.insur.insurcoresystem.service.contract.ContractPaymentService;
 import com.insur.insurcoresystem.service.contract.ContractRenewalService;
 import com.insur.insurcoresystem.service.contract.ContractService;
 import com.insur.insurcoresystem.service.contract.ContractStatusService;
@@ -27,6 +28,10 @@ import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeReques
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryPageResponse;
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryResponse;
+import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryInquiryRequest;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryPageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -52,6 +57,7 @@ public class ContractController {
     private final ContractStatusService statusService;
     private final ContractEndorsementService endorsementService;
     private final ContractRenewalService renewalService;
+    private final ContractPaymentService paymentService;
 
     /**
      * 계약 청약을 접수한다. (POST /api/contract/apply)
@@ -69,6 +75,42 @@ public class ContractController {
         CommonHeader reqHeader = request.getHeader();
 
         return success(reqHeader, contractService.applyContract(reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+    }
+
+    /**
+     * 청약 상태 계약의 보험료 납입(수납)을 접수한다. (POST /api/contract/payment)
+     * 나누어 낼 수 있고, 낸 합계가 총보험료에 이르면 승인(유효)할 수 있다. 계약 관리 담당과 ADMIN 만 할 수 있다.
+     *
+     * @param request 납입 요청 전문 (헤더 + 증권번호, 납입 금액, 납부 방법)
+     * @return 이번 납입과 납입 현황(낸 합계, 남은 보험료, 완납 여부)을 담은 응답 전문
+     * @throws BusinessException 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 납입 오류(E-CTR-007~011, 015, 019, 026, 027, 029)
+     */
+    @Operation(summary = "청약 상태 계약의 보험료 납입(수납)을 접수한다", description = "나누어 낼 수 있고, 낸 합계가 총보험료에 이르면 승인(유효)할 수 있다. 계약 관리 담당과 ADMIN 만 할 수 있다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 납입 오류(E-CTR-007~011, 015, 019, 026, 027, 029)")
+    @PostMapping("/payment")
+    public CommonMessage<PaymentResponse> payment(@RequestBody CommonMessage<PaymentRequest> request) {
+        PaymentRequest body = requireBody(request);
+        CommonHeader reqHeader = request.getHeader();
+
+        return success(reqHeader, paymentService.pay(reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+    }
+
+    /**
+     * 계약의 납입 내역을 페이지 단위로 조회한다. (POST /api/contract/payment-history)
+     * 청약 접수 담당(AGENT)만 가진 사용자는 본인이 접수한 계약만 조회할 수 있다.
+     *
+     * @param request        조회 요청 전문 (헤더 + 증권번호, 페이지 번호, 페이지 크기)
+     * @param authentication 인증된 사용자 (JWT)
+     * @return 납입 항목 한 페이지와 납입 현황을 담은 응답 전문
+     * @throws BusinessException 요청 바디가 없는 경우(E-CMN-001), 증권번호 누락(E-CTR-009), 페이징 값 오류(E-CTR-016), 계약 없음 또는 조회 권한 밖(E-CTR-010)
+     */
+    @Operation(summary = "계약의 납입 내역을 페이지 단위로 조회한다", description = "청약 접수 담당(AGENT)만 가진 사용자는 본인이 접수한 계약만 조회할 수 있다. 낸 합계와 남은 보험료는 페이지와 무관하게 전체 기준이다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001), 증권번호 누락(E-CTR-009), 페이징 값 오류(E-CTR-016), 계약 없음 또는 조회 권한 밖(E-CTR-010)")
+    @PostMapping("/payment-history")
+    public CommonMessage<PaymentHistoryResponse> paymentHistory(
+            @RequestBody CommonMessage<PaymentHistoryRequest> request, Authentication authentication) {
+        PaymentHistoryRequest body = requireBody(request);
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
+
+        return success(request.getHeader(), paymentService.history(ownerEmpId, body));
     }
 
     /**

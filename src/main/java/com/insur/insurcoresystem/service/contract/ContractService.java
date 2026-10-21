@@ -2,6 +2,7 @@ package com.insur.insurcoresystem.service.contract;
 
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
+import static com.insur.insurcoresystem.service.contract.ContractSupport.isConstraintViolation;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
@@ -237,16 +238,6 @@ public class ContractService {
      */
     private static boolean isGlobalTxIdConflict(DataIntegrityViolationException e) {
         return isConstraintViolation(e, GLOBAL_TX_ID_CONSTRAINT);
-    }
-
-    /** 데이터 무결성 오류가 이름이 {@code constraint} 로 끝나는 제약 위반인지 판단한다. (비교 규칙은 위 설명과 같다) */
-    private static boolean isConstraintViolation(DataIntegrityViolationException e, String constraint) {
-        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ConstraintViolationException violation && violation.getConstraintName() != null) {
-                return violation.getConstraintName().toLowerCase().endsWith(constraint);
-            }
-        }
-        return false;
     }
 
     /** 계약 원장과 담보 건수로 청약 응답 바디를 만든다. 신규 접수와 재전송 응답이 같은 형태를 갖도록 공통으로 사용한다. */

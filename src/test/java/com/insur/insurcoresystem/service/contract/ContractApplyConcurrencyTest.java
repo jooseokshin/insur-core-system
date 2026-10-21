@@ -4,12 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
+import com.insur.insurcoresystem.domain.contract.ContractPayment;
+import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
 import com.insur.insurcoresystem.domain.contract.CoverageRepository;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
@@ -44,6 +48,10 @@ class ContractApplyConcurrencyTest {
     ContractRenewalService renewalService;
     @Autowired
     ContractStatusService statusService;
+    @Autowired
+    ContractPaymentRepository paymentRepository;
+    @Autowired
+    ContractPaymentService paymentService;
     @Autowired
     ContractRepository contractRepository;
     @Autowired
@@ -101,6 +109,8 @@ class ContractApplyConcurrencyTest {
         CountDownLatch go = new CountDownLatch(1);
         try {
             String contractNo = contractService.applyContract(txId, "E12345", request()).getContractNo();
+            paymentRepository.save(ContractPayment.builder().contractNo(contractNo).payAmt(new BigDecimal("500000"))
+                    .payMethod("CASH").empId("E12345").globalTxId(txId + "-pay").paidDt(java.time.LocalDateTime.now()).build());
 
             List<Future<Object>> futures = new ArrayList<>();
             for (String target : List.of("20", "90")) {   // 청약 -> 유효, 청약 -> 청약취소 (서로 배타적)
@@ -132,6 +142,48 @@ class ContractApplyConcurrencyTest {
             assertThat(succeeded.get(0).getBeforeCtrStatCd()).isEqualTo("10");
             assertThat(contractRepository.findById(contractNo).orElseThrow().getCtrStatCd())
                     .isEqualTo(succeeded.get(0).getAfterCtrStatCd());
+        } finally {
+            pool.shutdownNow();
+            cleanup(txId);
+        }
+    }
+
+    @Test
+    void 같은_계약에_전액_납입이_서로_다른_거래로_동시에_들어오면_하나만_성공하고_나머지는_초과_납입으로_거절한다() throws Exception {
+        String txId = "tx-conc-pay-" + UUID.randomUUID();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        String contractNo = contractService.applyContract(txId, "E12345", request()).getContractNo();
+        try {
+            List<Future<Object>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                String payTx = txId + "-" + i;
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    try {
+                        return paymentService.pay(payTx, "O400", PaymentRequest.builder().contractNo(contractNo)
+                                .payAmt(new BigDecimal("500000")).payMethod("CASH").build());
+                    } catch (BusinessException e) {
+                        return e;
+                    }
+                }));
+            }
+            ready.await();
+            go.countDown();
+
+            int succeeded = 0;
+            for (Future<Object> future : futures) {
+                Object result = future.get();
+                if (result instanceof PaymentResponse) {
+                    succeeded++;
+                } else {
+                    assertThat(((BusinessException) result).getErrorCode()).isEqualTo("E-CTR-027");
+                }
+            }
+            assertThat(succeeded).isEqualTo(1);
+            assertThat(paymentRepository.sumPaid(contractNo)).isEqualByComparingTo("500000");   // 초과 납입이 없다
         } finally {
             pool.shutdownNow();
             cleanup(txId);
@@ -195,6 +247,8 @@ class ContractApplyConcurrencyTest {
     /** 테스트가 커밋한 계약과 담보를 지운다. */
     private void cleanup(String txId) {
         contractRepository.findByGlobalTxId(txId).ifPresent(contract -> {
+            paymentRepository.deleteAll(
+                    paymentRepository.findByContractNo(contract.getContractNo(), Pageable.unpaged()).getContent());
             historyRepository.deleteAll(
                     historyRepository.findByContractNo(contract.getContractNo(), Pageable.unpaged()).getContent());
             coverageRepository.deleteAll(coverageRepository.findByContractContractNo(contract.getContractNo()));

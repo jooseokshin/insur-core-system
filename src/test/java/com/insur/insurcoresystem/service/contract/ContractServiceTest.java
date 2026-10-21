@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
+import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.Coverage;
 import com.insur.insurcoresystem.domain.contract.CoverageRepository;
@@ -75,6 +76,8 @@ class ContractServiceTest {
     @Mock
     ContractStatusHistoryRepository historyRepository;
     @Mock
+    ContractPaymentRepository paymentRepository;
+    @Mock
     PremiumRateRepository premiumRateRepository;
     @Mock
     PremiumFactorRepository premiumFactorRepository;
@@ -96,11 +99,13 @@ class ContractServiceTest {
                         .map(code -> PremiumRate.builder().insrClsCd(inv.getArgument(0)).cvrgCd(code).cvrgNm(code)
                                 .annualRate(new BigDecimal("0.005")).build())
                         .toList());
+        // 승인(유효) 규칙의 납입 합계는 기본적으로 어떤 총보험료든 채우는 값이다. 미납 검증은 ContractPaymentServiceTest 에서 한다.
+        lenient().when(paymentRepository.sumPaid(any())).thenReturn(new BigDecimal("999999999999"));
         ContractHistoryRecorder historyRecorder = new ContractHistoryRecorder(historyRepository, SEOUL_CLOCK);
         contractService = new ContractService(contractNumberGenerator, contractRepository, coverageRepository,
                 historyRecorder, new PremiumService(premiumRateRepository, premiumFactorRepository, premiumFactorPolicyRepository), SEOUL_CLOCK);
         inquiryService = new ContractInquiryService(contractRepository, coverageRepository, historyRepository);
-        statusService = new ContractStatusService(contractRepository, historyRepository, historyRecorder, SEOUL_CLOCK);
+        statusService = new ContractStatusService(contractRepository, historyRepository, paymentRepository, historyRecorder, SEOUL_CLOCK);
     }
 
     @Test

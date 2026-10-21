@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
+import com.insur.insurcoresystem.domain.contract.ContractPayment;
+import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.Coverage;
 import com.insur.insurcoresystem.domain.contract.CoverageRepository;
@@ -51,6 +53,8 @@ class ContractApplyIntegrationTest {
     ContractRepository contractRepository;
     @Autowired
     CoverageRepository coverageRepository;
+    @Autowired
+    ContractPaymentRepository paymentRepository;
     @Autowired
     org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired
@@ -400,8 +404,24 @@ class ContractApplyIntegrationTest {
         return changeStatus(java.util.UUID.randomUUID().toString(), contractNo, ctrStatCd);
     }
 
+    /** 승인(20)을 시험하는 테스트가 납입 규칙에 걸리지 않도록, 승인 전에 남은 보험료를 모두 납입한 것으로 저장해 둔다. */
+    private void payInFullBeforeApproval(String contractNo, String ctrStatCd) {
+        if (!"20".equals(ctrStatCd)) {
+            return;
+        }
+        contractRepository.findById(contractNo).ifPresent(contract -> {
+            java.math.BigDecimal remaining = contract.getTotalPremium().subtract(paymentRepository.sumPaid(contractNo));
+            if (remaining.signum() > 0) {
+                paymentRepository.saveAndFlush(ContractPayment.builder().contractNo(contractNo).payAmt(remaining)
+                        .payMethod("CASH").empId("E100").globalTxId("pay-" + java.util.UUID.randomUUID())
+                        .paidDt(java.time.LocalDateTime.now()).build());
+            }
+        });
+    }
+
     private org.springframework.test.web.servlet.ResultActions changeStatus(String txId, String contractNo, String ctrStatCd)
             throws Exception {
+        payInFullBeforeApproval(contractNo, ctrStatCd);
         return mockMvc.perform(post("/api/contract/status-change").with(TestAuth.emp())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{ \"header\": { \"globalTxId\": \"" + txId + "\" }, \"body\": { \"contractNo\": \""

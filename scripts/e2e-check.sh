@@ -138,6 +138,28 @@ call "OPERATOR 는 승인(20) 불가 → 403" 403 "$OP" status-change "$(ST 20 b
 call "UNDERWRITER 가 해지(30) 시도 → 403" 403 "$UW" status-change "$(ST 30 c)"
 call "청약 → 해지 직행은 ADMIN 도 → 409" 409 "$ADM" status-change "$(ST 30 d)"
 check "  오류코드 E-CTR-014" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-014"
+PY() { echo "{\"header\":{\"globalTxId\":\"$RUN-pay-$4\"},\"body\":{\"contractNo\":\"$CNO\",\"payAmt\":$1,\"payMethod\":\"$2\"}}"; }   # 인자: 금액 납부방법 (미사용) 거래식별
+call "납입 전 승인 → 409 (미납)" 409 "$UW" status-change "$(ST 20 np)"
+check "  오류코드 E-CTR-028" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-028"
+call "AGENT 는 납입 불가 → 403" 403 "$AGENT1" payment "$(PY 1000 CASH x a)"
+call "UNDERWRITER 는 납입 불가 → 403" 403 "$UW" payment "$(PY 1000 CASH x b)"
+call "OPERATOR 가 일부 납입(300000, 현금) → 200" 200 "$OP" payment "$(PY 300000 CASH x c)"
+check "  낸 합계 300000, 남은 보험료 550000, 완납 아님" "$(jq -r '"\(.body.paidPremium) \(.body.remainingPremium) \(.body.fullyPaid)"' <<<"$RESP")" "300000 550000 false"
+call "같은 거래 UUID 재전송 → 200 (두 번 더해지지 않음)" 200 "$OP" payment "$(PY 300000 CASH x c)"
+check "  낸 합계 그대로 300000" "$(jq -r '.body.paidPremium' <<<"$RESP")" "300000"
+call "같은 거래 UUID + 다른 금액 → 409" 409 "$OP" payment "$(PY 100000 CASH x c)"
+check "  오류코드 E-CTR-019" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-019"
+call "남은 보험료를 넘는 납입 → 409" 409 "$OP" payment "$(PY 550001 CARD x d)"
+check "  오류코드 E-CTR-027" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-027"
+call "지원하지 않는 납부 방법 → 400" 400 "$OP" payment "$(PY 1000 GOLD x e)"
+check "  오류코드 E-CTR-029" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-029"
+call "일부만 납입한 상태에서 승인 → 409" 409 "$UW" status-change "$(ST 20 np2)"
+check "  오류코드 E-CTR-028" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-028"
+call "OPERATOR 가 나머지 납입(550000, 카드) → 200" 200 "$OP" payment "$(PY 550000 CARD x f)"
+check "  완납" "$(jq -r '.body.fullyPaid' <<<"$RESP")" "true"
+call "납입 내역 조회(접수자 본인 AGENT) → 200" 200 "$AGENT1" payment-history "{\"header\":{},\"body\":{\"contractNo\":\"$CNO\"}}"
+check "  2건, 합계 850000, 남은 0" "$(jq -r '"\(.body.totalElements) \(.body.paidPremium) \(.body.remainingPremium)"' <<<"$RESP")" "2 850000 0"
+call "다른 AGENT 의 납입 내역 조회 → 404" 404 "$AGENT2" payment-history "{\"header\":{},\"body\":{\"contractNo\":\"$CNO\"}}"
 call "UNDERWRITER 승인(10→20) → 200" 200 "$UW" status-change "$(ST 20 e)"
 check "  변경 전/후" "$(jq -r '"\(.body.beforeCtrStatCd)->\(.body.afterCtrStatCd)"' <<<"$RESP")" "10->20"
 call "응답을 못 받아 같은 거래 UUID 로 승인 재전송 → 200 (처음 결과)" 200 "$UW" status-change "$(ST 20 e)"
@@ -306,6 +328,7 @@ RNST() { echo "{\"header\":{\"globalTxId\":\"$RUN-rn-st$2\"},\"body\":{\"contrac
 RN() { echo "{\"header\":{\"globalTxId\":\"$RUN-rn-$2\"},\"body\":{\"contractNo\":\"$1\"}}"; }
 call "유효가 아닌(청약) 계약 갱신 → 409" 409 "$AGENT1" renew "$(RN "$RNO" a)"
 check "  오류코드 E-CTR-023" "$(jq -r '.header.responseCode' <<<"$RESP")" "E-CTR-023"
+call "갱신 대상 계약 전액 납입 → 200" 200 "$OP" payment "{\"header\":{\"globalTxId\":\"$RUN-pay-rn\"},\"body\":{\"contractNo\":\"$RNO\",\"payAmt\":$RN_TOT,\"payMethod\":\"TRANSFER\"}}"
 call "갱신 대상 계약 승인(10→20) → 200" 200 "$UW" status-change "$(RNST 20 1)"
 call "UNDERWRITER 는 갱신 불가 → 403" 403 "$UW" renew "$(RN "$RNO" b)"
 call "다른 AGENT 의 갱신 → 404 (남의 계약)" 404 "$AGENT2" renew "$(RN "$RNO" c)"
@@ -345,6 +368,7 @@ if [ "$CLEANUP" = 1 ]; then
     delete from tb_prm_factor_policy where insr_cls_cd = '01' and factor_type = 'DRIVER_AGE' and eff_from > date '2000-01-01';
     update tb_prm_factor_policy set eff_to = null where insr_cls_cd = '01' and factor_type = 'DRIVER_AGE';
     delete from tb_prm_audit     where global_tx_id like '$RUN-%';
+    delete from tb_ctr_payment   where contract_no in (select contract_no from tb_ctr_lgd where global_tx_id like '$RUN-%');
     delete from tb_ctr_endorse   where contract_no in (select contract_no from tb_ctr_lgd where global_tx_id like '$RUN-%');
     delete from tb_ctr_stat_hist where contract_no in (select contract_no from tb_ctr_lgd where global_tx_id like '$RUN-%');
     delete from tb_ctr_cvrg      where contract_no in (select contract_no from tb_ctr_lgd where global_tx_id like '$RUN-%');

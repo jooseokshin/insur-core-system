@@ -4,6 +4,8 @@ import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCo
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -32,6 +34,20 @@ public final class ContractSupport {
     /** 접수자 제한이 없거나(null) 계약의 접수 사번이 제한 사번과 같으면 조회할 수 있다. */
     public static boolean isReadable(Contract contract, String ownerEmpId) {
         return ownerEmpId == null || normalizeEmpId(ownerEmpId).equals(contract.getRegEmpId());
+    }
+
+    /**
+     * 데이터 무결성 오류가 이름이 {@code constraint} 로 끝나는 제약 위반인지 판단한다. 오류 메시지 문장이 아니라 Hibernate 가 DB 오류에서
+     * 뽑아 둔 제약명({@link ConstraintViolationException#getConstraintName()})을 소문자로 바꿔 끝부분만 비교하므로(스키마가 붙을 수 있다)
+     * DB 메시지 형식이나 언어 설정에 영향받지 않는다. 제약명을 알 수 없으면 false 다.
+     */
+    public static boolean isConstraintViolation(DataIntegrityViolationException e, String constraint) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation && violation.getConstraintName() != null) {
+                return violation.getConstraintName().toLowerCase().endsWith(constraint);
+            }
+        }
+        return false;
     }
 
     /** 계약이 없을 때와 조회 권한 밖일 때 똑같이 쓰는 404 오류. 계약의 존재 여부를 구분할 수 없게 한다. */

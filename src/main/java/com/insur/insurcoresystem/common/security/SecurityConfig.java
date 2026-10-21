@@ -70,6 +70,11 @@ public class SecurityConfig {
                         .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse-history")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
+                        // 납입(수납)은 계약 관리 담당과 ADMIN, 납입 내역 조회는 모든 역할(AGENT 는 본인 접수 계약만)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/payment")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/payment-history")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-history")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         // 상태 변경은 여기서 심사/관리 담당자만 통과시키고, 변경할 상태별 세부 권한은 ContractAccessPolicy 가 확인한다.
