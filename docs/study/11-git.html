@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Git과 협업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>11 / 13</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>실무 도구 11</span><span class="level">기초</span></div>
+    <h1>Git과 협업</h1>
+    <p class="lead">Git은 코드의 변경 이력을 남기고, 여러 사람이 같은 코드를 동시에 고칠 수 있게 해 주는 도구입니다. 명령어를 외우기보다 커밋과 브랜치가 무엇인지 그림으로 이해하는 것이 먼저입니다.</p>
+  </header>
+
+  <section>
+    <h2>세 개의 공간</h2>
+    <p>Git에서 파일은 세 곳 중 하나에 있습니다. 대부분의 혼란은 지금 변경이 어디에 있는지 모를 때 생깁니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>공간</th><th>뜻</th><th>옮기는 명령</th></tr></thead>
+      <tbody>
+        <tr><td>작업 디렉터리</td><td>지금 편집 중인 파일</td><td><code>git add</code>로 스테이징에 올림</td></tr>
+        <tr><td>스테이징 영역</td><td>다음 커밋에 넣기로 고른 변경</td><td><code>git commit</code>으로 저장소에 기록</td></tr>
+        <tr><td>저장소(로컬)</td><td>커밋으로 기록된 이력</td><td><code>git push</code>로 원격에 올림</td></tr>
+      </tbody>
+    </table></div>
+    <p><code>git status</code>는 지금 어떤 파일이 어느 공간에 있는지 보여 줍니다. 무언가 하기 전에 습관처럼 확인하세요. <code>git diff</code>는 아직 스테이징하지 않은 변경을, <code>git diff --staged</code>는 커밋될 변경을 보여 줍니다.</p>
+  </section>
+
+  <section>
+    <h2>커밋: 이력의 한 칸</h2>
+    <ul>
+      <li>커밋은 "그 시점의 전체 파일 상태"에 대한 스냅샷과, 누가 언제 왜 바꿨는지에 대한 메시지입니다. 각 커밋은 부모 커밋을 가리켜 이력이 사슬처럼 이어집니다.</li>
+      <li>커밋마다 고유한 해시(<code>dab0d59...</code>)가 붙습니다. 내용이 하나라도 다르면 해시가 달라집니다.</li>
+      <li><strong>한 커밋에는 한 가지 목적</strong>만 담습니다. 기능 추가와 포매팅 정리를 섞으면 리뷰도 되돌리기도 어려워집니다.</li>
+      <li>커밋 메시지 첫 줄은 짧게 "무엇을 왜"를 씁니다. 필요하면 한 줄 비우고 자세한 이유를 적습니다. 나중에 이력을 읽는 사람은 미래의 나입니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>브랜치: 갈라진 작업 줄기</h2>
+    <p>브랜치는 특정 커밋을 가리키는 이름표일 뿐이라 만들고 지우는 비용이 거의 없습니다. 기능 하나, 버그 하나마다 브랜치를 따서 작업하고, 끝나면 기본 브랜치(<code>main</code>)에 합칩니다.</p>
+    <div class="fig">
+      <svg viewBox="0 0 640 150" role="img" aria-label="main 브랜치에서 feature 브랜치가 갈라졌다가 다시 합쳐지는 그림">
+        <g style="stroke:var(--line)" stroke-width="2.5" fill="none">
+          <line x1="40" y1="45" x2="600" y2="45"/>
+          <path d="M160 45 C200 45 200 110 240 110 H400 C440 110 440 45 480 45"/>
+        </g>
+        <g style="fill:var(--surface);stroke:var(--accent)" stroke-width="2.5">
+          <circle cx="60" cy="45" r="9"/><circle cx="160" cy="45" r="9"/><circle cx="330" cy="45" r="9"/><circle cx="480" cy="45" r="9"/>
+        </g>
+        <g style="fill:var(--accent-soft);stroke:var(--warn)" stroke-width="2.5">
+          <circle cx="260" cy="110" r="9"/><circle cx="380" cy="110" r="9"/>
+        </g>
+        <g font-size="13" font-weight="600">
+          <text x="560" y="34" style="fill:var(--accent)" text-anchor="middle">main</text>
+          <text x="320" y="138" style="fill:var(--warn)" text-anchor="middle">feature 브랜치</text>
+        </g>
+        <g font-size="11.5" style="fill:var(--muted)" text-anchor="middle">
+          <text x="160" y="25">분기</text><text x="480" y="25">머지</text><text x="330" y="25">다른 사람 커밋</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>원격 저장소와 동기화</h2>
+    <ul>
+      <li><code>git clone</code>: 원격 저장소 전체를 처음 가져옵니다.</li>
+      <li><code>git fetch</code>: 원격의 새 커밋을 가져오기만 하고 내 브랜치는 건드리지 않습니다. 안전하게 "무엇이 바뀌었나" 볼 때 씁니다.</li>
+      <li><code>git pull</code>: <code>fetch</code> 후 내 브랜치에 합칩니다. 합치는 방식(merge 또는 rebase)을 팀에서 정해 두세요.</li>
+      <li><code>git push</code>: 내 커밋을 원격에 올립니다. 원격에 내가 모르는 커밋이 있으면 거부되고, 먼저 받아서 합쳐야 합니다.</li>
+      <li><code>origin</code>은 원격 저장소의 기본 별칭입니다. <code>origin/main</code>은 "마지막으로 받아 왔을 때의 원격 main"이라 실제 원격과 다를 수 있습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>merge와 rebase</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>merge</th><th>rebase</th></tr></thead>
+      <tbody>
+        <tr><td>하는 일</td><td>두 줄기를 합치는 새 커밋(머지 커밋)을 만든다</td><td>내 커밋들을 대상 브랜치 끝으로 옮겨 다시 쌓는다</td></tr>
+        <tr><td>이력 모양</td><td>갈라지고 합쳐진 흔적이 그대로 남음</td><td>한 줄로 깔끔함</td></tr>
+        <tr><td>커밋 해시</td><td>유지</td><td>새로 만들어짐(바뀜)</td></tr>
+        <tr><td>주의</td><td>머지 커밋이 많으면 이력이 복잡해 보임</td><td><strong>이미 공유한 커밋은 rebase하지 않는다</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p>rebase는 커밋을 새로 만들기 때문에, 다른 사람이 이미 받아 간 커밋을 rebase한 뒤 강제로 push하면 그 사람의 이력과 어긋납니다. 혼자 쓰는 브랜치를 정리할 때만 쓰고, 강제 push가 필요하면 <code>--force</code> 대신 원격이 내가 아는 상태일 때만 덮어쓰는 <code>--force-with-lease</code>를 씁니다.</p>
+  </section>
+
+  <section>
+    <h2>충돌 해결</h2>
+    <p>두 브랜치가 같은 파일의 같은 부분을 다르게 고치면 Git이 자동으로 합치지 못하고 사람에게 묻습니다. 파일에 <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code>, <code>=======</code>, <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> 표시가 생깁니다.</p>
+    <ol>
+      <li>양쪽 변경의 <strong>의도</strong>를 이해합니다. 한쪽을 무작정 고르면 남의 수정을 날립니다.</li>
+      <li>최종 내용으로 고치고 표시를 지웁니다.</li>
+      <li>빌드와 테스트를 돌려 합친 결과가 실제로 동작하는지 확인합니다.</li>
+      <li><code>git add</code> 후 머지나 rebase를 이어서 진행합니다.</li>
+    </ol>
+    <p>충돌을 줄이는 가장 좋은 방법은 브랜치를 오래 끌지 않고 작게 자주 합치는 것입니다.</p>
+  </section>
+
+  <section>
+    <h2>되돌리기</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>상황</th><th>명령</th><th>특징</th></tr></thead>
+      <tbody>
+        <tr><td>파일 수정을 버리고 싶다</td><td><code>git restore 파일</code></td><td>저장 안 한 변경이 사라짐</td></tr>
+        <tr><td>스테이징만 취소</td><td><code>git restore --staged 파일</code></td><td>수정 내용은 남음</td></tr>
+        <tr><td>이미 push한 커밋을 취소</td><td><code>git revert 커밋</code></td><td>반대 내용의 새 커밋을 만듦. 이력이 안전하게 남음</td></tr>
+        <tr><td>push 전 로컬 커밋을 지우기</td><td><code>git reset</code></td><td>이력을 바꿈. 공유한 브랜치에서는 쓰지 않음</td></tr>
+        <tr><td>날아간 커밋 찾기</td><td><code>git reflog</code></td><td>최근 HEAD 이동 기록에서 해시를 찾아 복구</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note warn">
+      <b>공유된 이력은 바꾸지 않는다</b>
+      <code>main</code>처럼 여러 명이 쓰는 브랜치에서는 <code>reset</code>과 강제 push 대신 <code>revert</code>를 씁니다. 대부분의 팀은 브랜치 보호 규칙으로 강제 push를 아예 막아 둡니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>PR과 코드 리뷰</h2>
+    <ul>
+      <li><strong>Pull Request(PR)</strong>는 "내 브랜치를 main에 합쳐 달라"는 요청이자 리뷰하는 자리입니다. 무엇을, 왜 바꿨는지, 어떻게 확인했는지를 설명에 씁니다.</li>
+      <li>PR은 <strong>작게</strong> 만듭니다. 변경이 수천 줄이면 아무도 제대로 보지 못합니다.</li>
+      <li>리뷰는 사람을 평가하는 게 아니라 코드를 함께 개선하는 일입니다. 버그, 보안, 읽기 쉬움, 테스트 누락을 봅니다.</li>
+      <li>CI가 PR마다 빌드와 테스트를 돌려 통과해야만 머지되도록 설정하는 게 일반적입니다. (실무 도구 13)</li>
+      <li>머지 방식: 머지 커밋, 스쿼시(커밋을 하나로 합침), rebase 머지. 팀 규칙을 따릅니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>브랜치 전략</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>전략</th><th>방식</th><th>어울리는 곳</th></tr></thead>
+      <tbody>
+        <tr><td>GitHub Flow</td><td>main 하나 + 짧은 작업 브랜치, PR로 합치고 바로 배포</td><td>자주 배포하는 웹 서비스</td></tr>
+        <tr><td>Git Flow</td><td>main, develop, feature, release, hotfix 브랜치를 나눔</td><td>정해진 주기로 버전을 내는 제품</td></tr>
+        <tr><td>트렁크 기반</td><td>모두가 main에 아주 작게 자주 합치고, 미완성 기능은 기능 플래그로 숨김</td><td>CI/CD가 잘 갖춰진 팀</td></tr>
+      </tbody>
+    </table></div>
+    <p>릴리스한 버전에는 <strong>태그</strong>(<code>v1.2.0</code>)를 붙여 어떤 커밋이 운영에 나갔는지 바로 찾을 수 있게 합니다.</p>
+  </section>
+
+  <section>
+    <h2>저장소에 넣지 말아야 할 것</h2>
+    <ul>
+      <li><strong>비밀</strong>: 비밀번호, API 키, 인증서. 한 번 커밋되면 지워도 이력에 남습니다. 올렸다면 즉시 폐기하고 새로 발급하세요.</li>
+      <li><strong>빌드 결과물</strong>: <code>build/</code>, <code>.gradle/</code> 같은 생성 파일. 소스에서 다시 만들 수 있습니다.</li>
+      <li><strong>개인 환경 파일</strong>: IDE 설정, OS가 만드는 파일.</li>
+      <li>이런 것은 <code>.gitignore</code>에 적어 Git이 무시하게 합니다.</li>
+    </ul>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    기본 브랜치는 <code>main</code>이고, 이 학습 문서는 <code>claude/study-docs</code> 브랜치에 따로 올려 두었습니다. PR로 리뷰한 뒤 main에 합치는 흐름을 연습해 보기 좋습니다. <code>.gitignore</code>는 <code>build/</code>, <code>.gradle</code>, IDE 설정을 제외하고, <code>.gitattributes</code>는 줄바꿈을 파일별로 고정합니다(<code>gradlew</code>는 LF, <code>*.bat</code>는 CRLF). 윈도우에서 CRLF로 바뀐 <code>gradlew</code>는 리눅스 CI에서 실행되지 않기 때문입니다. 비밀키(<code>JWT_SECRET</code>)는 저장소에 없고 환경변수로만 받습니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary><code>fetch</code>와 <code>pull</code>의 차이는?</summary><p><code>fetch</code>는 원격 커밋을 받아 오기만 하고 내 브랜치는 그대로 둡니다. <code>pull</code>은 받아 온 뒤 내 브랜치에 합칩니다.</p></details>
+      <details><summary>이미 push한 커밋에 버그가 있으면 <code>reset</code>과 <code>revert</code> 중 무엇을 쓰나요?</summary><p><code>revert</code>입니다. 반대 내용의 새 커밋을 추가하므로 다른 사람의 이력과 어긋나지 않습니다. <code>reset</code> 후 강제 push는 공유 이력을 망가뜨립니다.</p></details>
+      <details><summary>비밀번호를 실수로 커밋하고 바로 다음 커밋에서 지웠다면 안전한가요?</summary><p>아닙니다. 이전 커밋에 그대로 남아 누구나 볼 수 있습니다. 해당 비밀번호를 즉시 폐기하고 새로 발급해야 합니다.</p></details>
+      <details><summary>PR을 작게 만들어야 하는 이유는?</summary><p>리뷰어가 변경을 제대로 이해할 수 있고, 충돌이 줄고, 문제가 생겼을 때 원인을 찾고 되돌리기 쉽습니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="10-insurance-domain.html">← 이전: 보험 도메인</a><a href="12-database-practice.html">다음: DB 실무 심화 →</a></nav>
+</main>
+</body>
+</html>
