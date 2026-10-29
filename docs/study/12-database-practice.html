@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>DB 실무 심화</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>12 / 13</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>실무 도구 12</span><span class="level mid">중급</span></div>
+    <h1>DB 실무 심화</h1>
+    <p class="lead">개념 05가 "데이터베이스가 무엇인가"였다면, 이 편은 "운영 중인 데이터베이스를 어떻게 다루는가"입니다. SQL을 직접 쓰고, 느린 쿼리를 찾고, 데이터를 잃지 않는 법을 다룹니다.</p>
+  </header>
+
+  <section>
+    <h2>SQL은 직접 쓸 줄 알아야 한다</h2>
+    <p>ORM을 쓰더라도 장애 조사, 데이터 보정, 통계는 결국 SQL로 합니다. 아래 정도는 막힘없이 쓸 수 있어야 합니다.</p>
+    <figure>
+      <figcaption>예시: 보험종목별 유효 계약 수와 보험료 합계</figcaption>
+      <pre><code>SELECT c.insr_cls_cd,
+       COUNT(*)              AS contracts,
+       SUM(c.total_premium)  AS premium_sum
+  FROM tb_ctr_lgd c
+ WHERE c.ctr_stat_cd = '20'
+   AND c.start_date &gt;= DATE '2026-01-01'
+ GROUP BY c.insr_cls_cd
+HAVING COUNT(*) &gt; 10
+ ORDER BY premium_sum DESC;</code></pre>
+    </figure>
+    <ul>
+      <li><code>WHERE</code>는 묶기 전에 행을 거르고, <code>HAVING</code>은 묶은 뒤 그룹을 거릅니다.</li>
+      <li><strong>서브쿼리와 <code>EXISTS</code></strong>: "담보가 하나도 없는 계약"처럼 다른 테이블에 있는지 없는지로 거를 때 씁니다.</li>
+      <li><strong>윈도우 함수</strong>(<code>ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)</code>): 그룹별 최신 한 건, 누적 합계처럼 행을 줄이지 않고 순위·집계를 붙일 때 씁니다.</li>
+      <li><strong>CTE</strong>(<code>WITH ... AS</code>): 긴 쿼리를 이름 붙인 단계로 나눠 읽기 쉽게 만듭니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>NULL은 값이 아니다</h2>
+    <p>SQL에서 <code>NULL</code>은 "모름"이라서 비교 결과도 참·거짓이 아닌 "모름"이 됩니다. 자주 틀리는 지점입니다.</p>
+    <ul>
+      <li><code>col = NULL</code>은 항상 결과가 없습니다. <code>col IS NULL</code>로 씁니다.</li>
+      <li><code>col &lt;&gt; '90'</code>은 <code>col</code>이 NULL인 행을 포함하지 않습니다.</li>
+      <li><code>COUNT(*)</code>는 모든 행, <code>COUNT(col)</code>은 NULL이 아닌 행만 셉니다.</li>
+      <li><code>NOT IN (서브쿼리)</code>에 NULL이 하나라도 섞이면 결과가 통째로 비어 버립니다. <code>NOT EXISTS</code>가 안전합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>실행계획 읽기</h2>
+    <p>쿼리가 느리면 추측하지 말고 DB에게 물어봅니다. PostgreSQL은 <code>EXPLAIN</code>이 계획을, <code>EXPLAIN ANALYZE</code>가 실제로 실행한 결과와 시간을 보여 줍니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>보이는 말</th><th>뜻</th><th>판단</th></tr></thead>
+      <tbody>
+        <tr><td><code>Seq Scan</code></td><td>테이블 전체를 읽음</td><td>큰 테이블에서 몇 건만 찾는데 나오면 인덱스를 의심</td></tr>
+        <tr><td><code>Index Scan</code></td><td>인덱스로 찾고 테이블에서 행을 읽음</td><td>대체로 좋음</td></tr>
+        <tr><td><code>Index Only Scan</code></td><td>인덱스만으로 답을 냄</td><td>가장 빠름</td></tr>
+        <tr><td><code>Nested Loop</code> / <code>Hash Join</code></td><td>조인 방식</td><td>예상 행 수가 실제와 크게 다르면 통계가 낡았을 수 있음</td></tr>
+        <tr><td><code>rows=</code> / <code>actual rows=</code></td><td>예상 건수 / 실제 건수</td><td>차이가 크면 잘못된 계획이 선택되기 쉬움</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note warn">
+      <b><code>EXPLAIN ANALYZE</code>는 쿼리를 실제로 실행합니다</b>
+      <code>UPDATE</code>나 <code>DELETE</code>에 쓰면 데이터가 바뀝니다. 수정 쿼리를 분석할 때는 트랜잭션을 열고 실행한 뒤 <code>ROLLBACK</code>합니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>커넥션 풀</h2>
+    <p>DB 연결을 맺는 일은 비쌉니다. 그래서 애플리케이션은 연결을 미리 몇 개 만들어 두고 빌려 쓰고 돌려줍니다. 스프링 부트의 기본 커넥션 풀은 <strong>HikariCP</strong>입니다.</p>
+    <ul>
+      <li>풀 크기는 클수록 좋은 게 아닙니다. DB가 동시에 처리할 수 있는 양은 한정돼 있어서, 너무 크면 DB 쪽이 오히려 느려집니다.</li>
+      <li>트랜잭션을 오래 잡고 있으면 연결을 돌려주지 않아 풀이 바닥납니다. 그러면 다른 요청은 연결을 기다리다 시간 초과로 실패합니다. "갑자기 모든 API가 느려짐"의 흔한 원인입니다.</li>
+      <li>서버 대수 × 서버당 풀 크기가 DB의 최대 연결 수를 넘지 않게 계산합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>느린 쿼리 찾고 고치기</h2>
+    <ol>
+      <li><strong>찾기</strong>: 슬로우 쿼리 로그(일정 시간 넘는 쿼리 기록)나 PostgreSQL의 <code>pg_stat_statements</code>로 가장 오래 걸리거나 가장 자주 도는 쿼리를 찾습니다.</li>
+      <li><strong>분석</strong>: <code>EXPLAIN ANALYZE</code>로 어디서 시간을 쓰는지 봅니다.</li>
+      <li><strong>고치기</strong>: 인덱스 추가, 필요한 컬럼만 조회, N+1 제거, 조건 수정 순으로 시도합니다.</li>
+      <li><strong>확인</strong>: 운영과 비슷한 데이터 양에서 다시 측정합니다. 데이터가 100건인 개발 DB에서는 어떤 쿼리든 빠릅니다.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>운영 DB를 만질 때의 수칙</h2>
+    <ul>
+      <li><strong>조회부터</strong>: <code>UPDATE</code>, <code>DELETE</code> 전에 같은 <code>WHERE</code>로 <code>SELECT</code>해서 대상 건수를 확인합니다.</li>
+      <li><strong>트랜잭션 안에서</strong>: <code>BEGIN</code> 후 실행하고 영향받은 건수가 예상과 같을 때만 <code>COMMIT</code>합니다.</li>
+      <li><strong><code>WHERE</code> 없는 수정은 금지</strong>: 테이블 전체가 바뀝니다.</li>
+      <li><strong>기록과 승인</strong>: 운영 데이터 보정은 쿼리와 이유를 남기고 다른 사람의 확인을 받습니다. 보험·금융에서는 감사 대상입니다.</li>
+      <li><strong>권한 분리</strong>: 애플리케이션 계정, 조회 전용 계정, 관리자 계정을 나누고 필요한 권한만 줍니다.</li>
+      <li><strong>개인정보</strong>: 운영 데이터를 개발 환경으로 그대로 복사하지 않습니다. 필요하면 가명 처리합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>백업, 복구, 복제</h2>
+    <ul>
+      <li><strong>백업</strong>: 전체 덤프(<code>pg_dump</code>)와 변경 로그(WAL)를 계속 보관하는 방식이 있습니다. WAL을 보관하면 "어제 오후 3시 12분 직전"처럼 특정 시점으로 되돌릴 수 있습니다(PITR).</li>
+      <li><strong>복구 훈련</strong>: 백업은 복구해 봐야 의미가 있습니다. 실제로 복원되는지 정기적으로 확인하지 않은 백업은 없는 것과 같습니다.</li>
+      <li><strong>복제</strong>: 주 DB의 변경을 읽기 전용 복제본에 실시간으로 보냅니다. 장애 시 복제본으로 전환하고, 조회 부하를 나눌 수 있습니다.</li>
+      <li><strong>복제 지연</strong>: 복제본은 잠깐 늦을 수 있어서, 방금 저장한 값을 바로 복제본에서 읽으면 안 보일 수 있습니다. 저장 직후 조회는 주 DB에서 합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>스키마 변경을 안전하게</h2>
+    <p>운영 중인 테이블을 바꾸는 일은 코드 배포보다 위험합니다. 되돌리기 어렵고 잠금으로 서비스가 멈출 수 있습니다.</p>
+    <ul>
+      <li><strong>나눠서 배포</strong>: 컬럼 이름을 바꾸려면 "새 컬럼 추가 → 양쪽에 쓰기 → 데이터 옮기기 → 새 컬럼만 읽기 → 옛 컬럼 삭제"처럼 여러 번에 나눕니다. 구버전 서버가 잠깐 함께 돌아도 깨지지 않습니다.</li>
+      <li><strong>큰 테이블의 인덱스</strong>: PostgreSQL은 <code>CREATE INDEX CONCURRENTLY</code>로 쓰기를 막지 않고 만들 수 있습니다. 단, 트랜잭션 블록 안에서는 쓸 수 없습니다.</li>
+      <li><strong><code>NOT NULL</code> 컬럼 추가</strong>: 기존 행에 넣을 값을 먼저 정해야 합니다.</li>
+      <li><strong>롤백 계획</strong>: 배포 전에 "실패하면 어떻게 되돌리나"를 적어 둡니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>개발 DB는 컨테이너로</h2>
+    <p>개발자마다 DB를 직접 설치하면 버전과 설정이 제각각이 됩니다. 도커 컴포즈 파일로 DB 버전, 계정, 시간대를 고정해 두면 누구나 <code>docker compose up -d</code> 한 줄로 같은 환경을 얻습니다. 데이터는 볼륨에 남으니, 처음부터 다시 시작하려면 볼륨까지 지워야 합니다(<code>docker compose down -v</code>, 데이터가 사라지니 주의).</p>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    <code>docker-compose.yml</code>이 PostgreSQL 16(<code>postgres:16-alpine</code>)을 띄우고, DB 시간대를 <code>Asia/Seoul</code>로 고정합니다. Hibernate의 <code>jdbc.time_zone</code>과 JVM 기본 시간대도 같은 값이라 저장 시각이 어긋나지 않습니다. 접속 정보는 <code>DB_URL</code>, <code>DB_USERNAME</code>, <code>DB_PASSWORD</code> 환경변수로 덮어쓸 수 있고, 기본값은 로컬 개발용입니다. 목록 조회용 인덱스는 <code>V5</code> 마이그레이션에, 요율 기간 중복을 막는 트리거는 <code>V13</code>에 있습니다. 동시 상태 변경은 <code>SELECT ... FOR UPDATE</code>로 막습니다. 통합 테스트와 <code>scripts/e2e-check.sh</code>는 실제 DB에 쓰므로 개발 DB에 행이 쌓일 수 있습니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary><code>WHERE ctr_stat_cd &lt;&gt; '90'</code>은 상태가 NULL인 행도 포함하나요?</summary><p>포함하지 않습니다. NULL과의 비교는 참이 아니라 "모름"이 되어 걸러집니다. 포함하려면 <code>OR ctr_stat_cd IS NULL</code>을 붙여야 합니다.</p></details>
+      <details><summary>모든 API가 갑자기 느려지고 "커넥션을 얻지 못함" 오류가 난다면 무엇을 의심하나요?</summary><p>커넥션 풀 고갈입니다. 오래 걸리는 쿼리, 길게 열린 트랜잭션, 트랜잭션 안의 외부 API 호출이 연결을 붙잡고 있는지 확인합니다.</p></details>
+      <details><summary>운영 DB에서 잘못된 데이터 100건을 고쳐야 한다면 순서는?</summary><p>같은 조건으로 SELECT해서 100건인지 확인하고, 쿼리와 이유를 기록해 확인을 받고, 트랜잭션 안에서 실행해 영향 건수가 100건일 때만 커밋합니다.</p></details>
+      <details><summary>백업만 해 두면 충분한가요?</summary><p>아닙니다. 실제로 복원해 보는 훈련을 해야 백업이 쓸 수 있는 상태인지, 복구에 얼마나 걸리는지 알 수 있습니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="11-git.html">← 이전: Git과 협업</a><a href="13-cicd.html">다음: CI/CD와 배포 →</a></nav>
+</main>
+</body>
+</html>

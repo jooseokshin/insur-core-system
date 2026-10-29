@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>CI/CD와 배포</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>13 / 13</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>실무 도구 13</span><span class="level mid">중급</span></div>
+    <h1>CI/CD와 배포</h1>
+    <p class="lead">사람이 손으로 빌드하고 서버에 올리면 언젠가 실수가 납니다. CI/CD는 코드가 합쳐지고 운영에 나가기까지의 과정을 자동화해서, 매번 같은 절차로 검증하고 배포하게 만드는 일입니다.</p>
+  </header>
+
+  <section>
+    <h2>CI와 CD</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>뜻</th><th>목표</th></tr></thead>
+      <tbody>
+        <tr><td>CI (지속적 통합)</td><td>코드를 올릴 때마다 자동으로 빌드하고 테스트한다</td><td>깨진 코드가 main에 들어오지 않게 한다</td></tr>
+        <tr><td>CD (지속적 전달)</td><td>통과한 결과물을 언제든 배포할 수 있는 상태로 만든다. 운영 배포는 사람이 승인</td><td>배포를 버튼 하나로 만든다</td></tr>
+        <tr><td>CD (지속적 배포)</td><td>통과하면 운영까지 자동으로 나간다</td><td>사람 손을 완전히 뺀다</td></tr>
+      </tbody>
+    </table></div>
+    <p>핵심은 "같은 일을 매번 똑같이"입니다. 빌드가 개발자 PC에서만 되는 상태라면 그 PC가 사라지는 날 배포도 멈춥니다.</p>
+  </section>
+
+  <section>
+    <h2>파이프라인의 단계</h2>
+    <div class="fig">
+      <svg viewBox="0 0 760 120" role="img" aria-label="파이프라인: 코드 푸시, 빌드, 테스트, 검사, 패키징, 배포 순서">
+        <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker></defs>
+        <g style="fill:var(--surface);stroke:var(--line)" stroke-width="1.2">
+          <rect x="6" y="30" width="100" height="50" rx="5"/><rect x="136" y="30" width="100" height="50" rx="5"/><rect x="266" y="30" width="100" height="50" rx="5"/><rect x="396" y="30" width="100" height="50" rx="5"/><rect x="526" y="30" width="100" height="50" rx="5"/>
+        </g>
+        <rect x="656" y="30" width="98" height="50" rx="5" style="fill:var(--accent-soft);stroke:var(--accent)" stroke-width="1.2"/>
+        <g style="fill:var(--ink)" font-size="14" font-weight="600" text-anchor="middle">
+          <text x="56" y="60">푸시·PR</text><text x="186" y="60">빌드</text><text x="316" y="60">테스트</text><text x="446" y="60">검사</text><text x="576" y="60">패키징</text><text x="705" y="60">배포</text>
+        </g>
+        <g style="fill:var(--muted)" font-size="11.5" text-anchor="middle">
+          <text x="186" y="102">컴파일</text><text x="316" y="102">단위·통합</text><text x="446" y="102">정적 분석·취약점</text><text x="576" y="102">JAR·이미지</text><text x="705" y="102">개발→운영</text>
+        </g>
+        <g style="stroke:var(--muted)" stroke-width="1.4" marker-end="url(#a3)">
+          <line x1="106" y1="55" x2="134" y2="55"/><line x1="236" y1="55" x2="264" y2="55"/><line x1="366" y1="55" x2="394" y2="55"/><line x1="496" y1="55" x2="524" y2="55"/><line x1="626" y1="55" x2="654" y2="55"/>
+        </g>
+      </svg>
+    </div>
+    <ul>
+      <li>앞 단계가 실패하면 뒤로 가지 않습니다. 빠르고 싼 검사를 앞에 둡니다.</li>
+      <li><strong>한 번 빌드한 결과물을 끝까지 씁니다.</strong> 개발 환경에 올린 JAR(또는 이미지)과 운영에 올릴 것이 같아야, 개발에서 검증한 게 운영에서도 의미가 있습니다. 환경마다 다시 빌드하지 않습니다.</li>
+      <li>결과물에는 버전이나 커밋 해시를 붙여 "운영에 지금 무엇이 떠 있는지" 바로 알 수 있게 합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>예시: GitHub Actions로 테스트 돌리기</h2>
+    <p>GitHub Actions는 저장소의 <code>.github/workflows/</code> 아래 YAML 파일로 파이프라인을 정의합니다. 아래는 이 프로젝트에 맞춰 쓴 <strong>예시</strong>입니다. 이 프로젝트의 테스트는 실제 PostgreSQL이 필요해서, CI에서도 DB 컨테이너(서비스 컨테이너)를 함께 띄웁니다.</p>
+    <figure>
+      <figcaption>.github/workflows/ci.yml (예시, 저장소에는 아직 없음)</figcaption>
+      <pre><code>name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine          <span class="c"># docker-compose.yml 과 같은 버전</span>
+        env:
+          POSTGRES_DB: insur_core_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      <span class="c"># 로컬 DB와 같은 시간대로 맞춘다 (docker-compose 는 timezone=Asia/Seoul)</span>
+      - run: psql -h localhost -U postgres -d insur_core_db -c "ALTER DATABASE insur_core_db SET timezone TO 'Asia/Seoul'"
+        env:
+          PGPASSWORD: postgrespassword
+      <span class="c"># JWT_SECRET 은 build.gradle 의 test 태스크가 테스트용 값을 넣는다</span>
+      - run: ./gradlew test</code></pre>
+    </figure>
+    <div class="note warn">
+      <b>그대로 쓰기 전에</b>
+      이 YAML은 설명용이고 실제로 실행해 보지 않았습니다. 액션 버전과 DB 설정은 도입할 때 확인하세요. CI용 DB 비밀번호는 테스트 전용 값이라 예시에 그대로 적었지만, 운영 비밀값은 절대 YAML에 쓰지 않고 저장소의 Secrets 설정에 넣어 <code>${{ secrets.이름 }}</code>으로 읽습니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>머지를 지키는 장치</h2>
+    <ul>
+      <li><strong>브랜치 보호</strong>: main에 직접 push를 막고, PR과 리뷰 승인, CI 통과를 머지 조건으로 겁니다.</li>
+      <li><strong>필수 검사</strong>: 테스트, 빌드, 정적 분석(코드 품질), 의존성 취약점 검사를 필수 체크로 지정합니다.</li>
+      <li><strong>빠른 피드백</strong>: CI가 30분씩 걸리면 아무도 기다리지 않습니다. 캐시(Gradle 의존성 캐시)를 쓰고, 느린 테스트는 분리합니다.</li>
+      <li><strong>불안정한 테스트</strong>: 가끔 실패하는 테스트를 "다시 돌리면 되겠지"로 넘기면 CI를 아무도 믿지 않게 됩니다. 원인을 찾아 고칩니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>배포 방식</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>방식</th><th>방법</th><th>장점</th><th>비용</th></tr></thead>
+      <tbody>
+        <tr><td>롤링</td><td>서버를 한 대씩 새 버전으로 교체</td><td>추가 자원이 거의 없음</td><td>교체 중 구·신 버전이 섞여 돎</td></tr>
+        <tr><td>블루그린</td><td>새 환경을 통째로 띄우고 트래픽을 한 번에 전환</td><td>되돌리기가 즉시 가능</td><td>잠시 자원이 두 배</td></tr>
+        <tr><td>카나리</td><td>일부 사용자에게만 먼저 새 버전을 보내고 지표를 보며 늘림</td><td>문제를 작은 범위에서 발견</td><td>트래픽 분배와 모니터링 장치가 필요</td></tr>
+      </tbody>
+    </table></div>
+    <p>어떤 방식이든 <strong>헬스 체크</strong>(새 서버가 정상인지 확인하는 주소)가 있어야 트래픽을 넘길지 판단할 수 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>DB 마이그레이션과 배포 순서</h2>
+    <ul>
+      <li>Flyway처럼 앱이 기동할 때 마이그레이션을 실행하면 편하지만, 서버 여러 대가 동시에 기동하면 누가 먼저 실행할지 신경 써야 합니다. Flyway는 DB 잠금으로 한 번만 실행되게 합니다.</li>
+      <li>롤링 배포 중에는 구버전 서버가 새 스키마 위에서 잠시 돕니다. 그래서 스키마 변경은 <strong>구버전 코드와도 호환되게</strong> 만듭니다. (실무 도구 12의 "나눠서 배포")</li>
+      <li>코드는 롤백할 수 있어도 이미 실행된 마이그레이션은 자동으로 되돌아가지 않습니다. 되돌리는 SQL을 미리 준비하거나, 되돌릴 필요가 없는 추가형 변경으로 설계합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>컨테이너와 환경</h2>
+    <ul>
+      <li><strong>도커 이미지</strong>는 앱과 실행 환경(자바 버전, OS 라이브러리)을 한 묶음으로 만들어, 어디서든 같은 방식으로 돌게 합니다. 스프링 부트는 실행 가능한 JAR(<code>bootJar</code>)을 만들고, 이를 이미지에 담습니다.</li>
+      <li><strong>설정은 이미지 밖에서</strong>: 같은 이미지를 개발·운영에 쓰고, 차이는 환경변수와 비밀 관리 서비스로 주입합니다.</li>
+      <li><strong>환경 단계</strong>: 로컬 → 개발 → 스테이징(운영과 최대한 같은 환경) → 운영. 운영에 가까울수록 배포 승인이 엄격해집니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>배포 후에 할 일</h2>
+    <ol>
+      <li>헬스 체크와 오류율, 응답 시간 지표를 확인합니다. 배포 직후가 문제가 가장 잘 드러나는 때입니다.</li>
+      <li>이상이 보이면 고치려 하기 전에 먼저 <strong>되돌립니다</strong>. 원인 분석은 서비스를 살린 뒤에 합니다.</li>
+      <li>배포한 버전과 변경 내용을 기록합니다(릴리스 노트, Git 태그). 다음 장애 때 "언제부터 이랬나"를 찾는 단서가 됩니다.</li>
+    </ol>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    아직 CI 설정(<code>.github/workflows/</code>)이 없습니다. 빌드는 Gradle 래퍼(<code>./gradlew</code>)로 하고, 테스트 태스크가 테스트 전용 <code>JWT_SECRET</code>과 <code>Asia/Seoul</code> 시간대를 직접 넣습니다. 그래서 CI에서 따로 챙길 것은 PostgreSQL만 남습니다. 운영 <code>JWT_SECRET</code>은 기본값이 없어 설정하지 않으면 기동에 실패하므로, 배포 환경에서 비밀 설정이 빠지면 바로 드러납니다. API 문서(Swagger)는 기본으로 꺼져 있어 운영에서 실수로 열리지 않습니다. 스키마는 앱 기동 시 Flyway가 적용합니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>개발 환경과 운영 환경에 올리는 JAR을 각각 따로 빌드하면 어떤 문제가 있나요?</summary><p>빌드 시점의 의존성이나 소스가 달라질 수 있어서, 개발에서 검증한 것과 운영에 나간 것이 같다고 보장할 수 없습니다. 한 번 빌드한 결과물을 승격시켜 씁니다.</p></details>
+      <details><summary>배포 직후 오류율이 치솟았다면 먼저 할 일은?</summary><p>이전 버전으로 되돌려 서비스를 살리는 것입니다. 원인 분석은 그다음입니다.</p></details>
+      <details><summary>롤링 배포에서 컬럼 이름을 한 번에 바꾸면 왜 위험한가요?</summary><p>교체 중에 아직 남은 구버전 서버가 옛 컬럼 이름으로 쿼리해서 실패합니다. 새 컬럼 추가부터 옛 컬럼 삭제까지 여러 번에 나눠 배포해야 합니다.</p></details>
+      <details><summary>운영 비밀번호를 CI YAML에 적으면 안 되는 이유는?</summary><p>YAML은 저장소에 커밋되어 이력에 영원히 남고, 저장소에 접근하는 누구나 볼 수 있습니다. 저장소의 Secrets 설정을 씁니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="12-database-practice.html">← 이전: DB 실무 심화</a><a href="index.html">학습 지도로 →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>데이터베이스</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>5 / 13</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 05</span><span class="level">기초</span></div>
+    <h1>데이터베이스</h1>
+    <p class="lead">서버는 꺼져도 데이터는 남아야 합니다. 백엔드 성능 문제의 대부분은 결국 데이터베이스에서 나오므로, 관계형 모델과 인덱스는 가장 투자 효과가 큰 공부입니다.</p>
+  </header>
+
+  <section>
+    <h2>관계형 모델</h2>
+    <p>데이터를 <strong>테이블</strong>(행과 열)에 담고, 테이블 사이의 <strong>관계</strong>를 키로 연결합니다. 예를 들어 계약 하나에 담보가 여러 개 있다면, 계약 테이블과 담보 테이블을 따로 두고 담보 쪽에 계약 번호를 적어 연결합니다.</p>
+    <ul>
+      <li><strong>기본키(PK)</strong>: 행을 유일하게 식별합니다.</li>
+      <li><strong>외래키(FK)</strong>: 다른 테이블의 기본키를 가리켜 관계를 표현하고, 존재하지 않는 대상을 가리키지 못하게 막습니다.</li>
+      <li><strong>정규화</strong>: 같은 정보를 여러 곳에 중복 저장하지 않도록 테이블을 나누는 설계입니다. 수정할 곳이 한 군데라 모순이 생기지 않습니다. 조회가 느려질 때는 일부러 중복을 허용(비정규화)하기도 합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>제약조건은 마지막 방어선</h2>
+    <p>애플리케이션 코드가 아무리 꼼꼼해도 버그, 동시 요청, 다른 시스템의 직접 쓰기로 잘못된 데이터가 들어올 수 있습니다. DB 제약조건은 어떤 경로로든 규칙을 강제합니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>제약</th><th>막아 주는 것</th></tr></thead>
+      <tbody>
+        <tr><td><code>NOT NULL</code></td><td>빈 값</td></tr>
+        <tr><td><code>UNIQUE</code></td><td>중복 (같은 요청 ID가 두 번 저장됨)</td></tr>
+        <tr><td><code>PRIMARY KEY</code></td><td>식별 불가능한 행</td></tr>
+        <tr><td><code>FOREIGN KEY</code></td><td>존재하지 않는 대상 참조</td></tr>
+        <tr><td><code>CHECK</code></td><td>범위를 벗어난 값 (예: 금액이 음수)</td></tr>
+      </tbody>
+    </table></div>
+    <p>"한 가지 조건일 때만 유일해야 한다"처럼 조건부 유일성이 필요할 땐 PostgreSQL의 <strong>부분(partial) 유니크 인덱스</strong>를 씁니다.</p>
+  </section>
+
+  <section>
+    <h2>인덱스: 책의 색인</h2>
+    <p>인덱스가 없으면 DB는 조건에 맞는 행을 찾으려고 테이블 전체를 읽습니다(풀 스캔). 인덱스는 특정 컬럼을 정렬된 구조(주로 B-Tree)로 따로 저장해 빠르게 찾게 합니다.</p>
+    <ul>
+      <li><strong>조회는 빨라지고 쓰기는 느려집니다.</strong> 행을 넣거나 바꿀 때 인덱스도 갱신해야 하기 때문에, 많이 만든다고 좋은 게 아닙니다.</li>
+      <li><strong>복합 인덱스는 순서가 중요합니다.</strong> <code>(상태, 등록일)</code> 인덱스는 "상태로 찾기"와 "상태로 찾고 등록일 정렬"에는 쓰이지만, "등록일만으로 찾기"에는 효율이 떨어집니다. 왼쪽 컬럼부터 쓰여야 합니다.</li>
+      <li>값의 종류가 거의 없는 컬럼(성별 같은)은 인덱스 효과가 작습니다.</li>
+      <li>컬럼에 함수를 씌우거나(<code>WHERE DATE(reg_dt) = ...</code>) 앞에 와일드카드를 붙이면(<code>LIKE '%abc'</code>) 인덱스를 못 탈 수 있습니다.</li>
+      <li>기본키와 유니크 제약은 자동으로 인덱스를 만듭니다. 외래키 컬럼은 자동이 아니니 조인과 조회에 쓰인다면 직접 만듭니다. (DB 종류마다 다름)</li>
+    </ul>
+    <div class="note">
+      <b>실행계획으로 확인하세요</b>
+      느린 쿼리는 짐작하지 말고 <code>EXPLAIN</code>(PostgreSQL)으로 DB가 실제로 인덱스를 쓰는지 봅니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>조인과 집계</h2>
+    <ul>
+      <li><strong>INNER JOIN</strong>: 양쪽에 모두 있는 행만. <strong>LEFT JOIN</strong>: 왼쪽은 모두 남기고 오른쪽이 없으면 비워 둡니다.</li>
+      <li><code>GROUP BY</code>와 <code>COUNT</code>, <code>SUM</code> 같은 집계로 통계를 냅니다.</li>
+      <li>목록 조회에서 "한 건 가져오고, 그 안에서 또 한 건씩 가져오는" 패턴은 쿼리 수가 폭증합니다. 개념 06의 N+1 문제입니다.</li>
+      <li><code>OFFSET</code> 기반 페이징은 뒤 페이지로 갈수록 느려집니다. 대용량에서는 마지막으로 본 키 이후를 읽는 방식(키셋 페이징)을 고려합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>돈과 시간의 컬럼 타입</h2>
+    <ul>
+      <li>금액은 <code>NUMERIC(정밀도, 소수자릿수)</code>로 저장합니다. <code>FLOAT</code>/<code>DOUBLE</code>은 오차가 생깁니다.</li>
+      <li>날짜만 필요하면 <code>DATE</code>, 시각이 필요하면 <code>TIMESTAMP</code>입니다. 시간대를 의식해서 저장 기준을 정해 두어야, 서버와 DB의 시간대가 다를 때 몇 시간씩 어긋나는 사고를 막습니다.</li>
+      <li>상태나 구분은 코드값(예: <code>10</code>, <code>20</code>)으로 두고 의미는 코드 표나 enum으로 관리합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>스키마 변경은 마이그레이션으로</h2>
+    <p>운영 DB의 테이블 구조를 사람이 직접 수정하면 환경마다 구조가 달라집니다. <strong>마이그레이션 도구</strong>(Flyway, Liquibase)는 변경 SQL을 번호 붙은 파일로 저장소에 두고, 아직 적용되지 않은 것만 순서대로 실행해 모든 환경을 같은 구조로 맞춥니다.</p>
+    <ul>
+      <li>이미 적용된 파일은 <strong>절대 수정하지 않고</strong> 새 파일을 추가합니다. 수정하면 환경마다 이력이 달라집니다.</li>
+      <li>컬럼 추가는 쉽지만, 컬럼 삭제와 타입 변경은 배포 순서(구버전 서버가 아직 돌고 있을 때)를 고려해야 합니다.</li>
+      <li>대용량 테이블의 변경은 잠금 때문에 서비스가 멈출 수 있어 별도 계획이 필요합니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>번호 채번</h2>
+    <p>증권번호 같은 업무 번호는 "순서대로 중복 없이" 발급해야 합니다. 동시에 여러 요청이 와도 같은 번호가 나가면 안 됩니다. 애플리케이션에서 "마지막 번호 + 1"을 계산하면 두 요청이 같은 값을 읽어 중복됩니다. DB의 시퀀스나 한 문장으로 증가시키는 UPSERT처럼 <strong>DB가 원자적으로 증가시키게</strong> 맡깁니다.</p>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    PostgreSQL을 쓰고 Flyway로 스키마를 관리합니다. 마이그레이션이 <code>V1</code>부터 <code>V17</code>까지 쌓여 있고, 기존 파일은 고치지 않습니다. 금액은 <code>NUMERIC(15, 0)</code>, 같은 거래 요청 ID(<code>GLOBAL_TX_ID</code>)에는 유니크 제약이 있습니다. 갱신 계약은 원 계약당 하나만 허용하려고 "청약취소가 아닌 것에 한해 유일한" 부분 유니크 인덱스(<code>V17</code>)를 씁니다. 증권번호는 <code>INSERT ... ON CONFLICT DO UPDATE</code> 한 문장으로 일련번호를 올리는 방식으로 채번합니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>인덱스를 모든 컬럼에 만들면 안 되는 이유는?</summary><p>인덱스는 저장 공간을 쓰고, 행을 넣거나 바꿀 때마다 함께 갱신해야 해서 쓰기가 느려집니다. 실제로 자주 조회하는 조건에만 만듭니다.</p></details>
+      <details><summary><code>(상태, 등록일)</code> 복합 인덱스는 <code>등록일</code>만으로 조회할 때 잘 쓰일까요?</summary><p>일반적으로 잘 쓰이지 않습니다. 복합 인덱스는 왼쪽 컬럼부터 사용되기 때문입니다.</p></details>
+      <details><summary>애플리케이션에서 중복을 검사하는데도 DB에 UNIQUE 제약이 필요한 이유는?</summary><p>두 요청이 동시에 "없음"을 확인하고 둘 다 저장하는 경쟁 상태를 코드만으로는 막을 수 없습니다. DB 제약이 최종적으로 한 건만 통과시킵니다.</p></details>
+      <details><summary>이미 적용된 마이그레이션 파일을 고치면 어떻게 되나요?</summary><p>이미 적용한 환경과 새로 적용하는 환경의 구조가 달라지고, 도구가 변경을 감지해 오류를 내기도 합니다. 항상 새 번호의 파일을 추가합니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="04-spring.html">← 이전: 스프링 핵심</a><a href="06-orm-jpa.html">다음: ORM과 JPA →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>HTTP와 REST</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="study.css">
+</head>
+<body>
+<main class="page">
+  <nav class="crumb"><a href="index.html">← 학습 지도</a><span>2 / 13</span></nav>
+
+  <header>
+    <div class="eyebrow"><span>개념 02</span><span class="level">기초</span></div>
+    <h1>HTTP와 REST</h1>
+    <p class="lead">API는 서버가 세상과 맺는 약속입니다. HTTP가 어떻게 말하는지, 좋은 API는 어떤 모양인지, 실패는 어떻게 알려야 하는지를 다룹니다.</p>
+  </header>
+
+  <section>
+    <h2>HTTP 요청과 응답</h2>
+    <p>HTTP는 요청과 응답으로만 이루어진 단순한 프로토콜입니다. 요청은 네 부분으로 구성됩니다.</p>
+    <ul>
+      <li><strong>메서드</strong>: 무엇을 하려는지 (GET, POST, PUT, PATCH, DELETE)</li>
+      <li><strong>경로</strong>: 어떤 대상인지 (<code>/api/contract/apply</code>)</li>
+      <li><strong>헤더</strong>: 부가 정보. 인증 토큰(<code>Authorization</code>), 본문 형식(<code>Content-Type</code>) 등</li>
+      <li><strong>바디</strong>: 보내는 데이터. 보통 JSON</li>
+    </ul>
+    <p>응답은 <strong>상태코드</strong>, 헤더, 바디로 이루어집니다. 클라이언트는 상태코드만 보고도 성공인지 실패인지, 누구 잘못인지 알 수 있어야 합니다.</p>
+  </section>
+
+  <section>
+    <h2>메서드의 의미: 안전성과 멱등성</h2>
+    <p>메서드마다 약속된 성질이 있습니다. 이 성질을 알면 재시도를 안전하게 설계할 수 있습니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>메서드</th><th>쓰임</th><th>안전(데이터를 안 바꿈)</th><th>멱등(여러 번 해도 결과 같음)</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td>조회</td><td>예</td><td>예</td></tr>
+        <tr><td>PUT</td><td>전체 교체</td><td>아니오</td><td>예</td></tr>
+        <tr><td>PATCH</td><td>일부 수정</td><td>아니오</td><td>구현에 따라 다름</td></tr>
+        <tr><td>DELETE</td><td>삭제</td><td>아니오</td><td>예</td></tr>
+        <tr><td>POST</td><td>생성, 처리 실행</td><td>아니오</td><td>아니오</td></tr>
+      </tbody>
+    </table></div>
+    <p>POST는 기본적으로 멱등하지 않아서, 네트워크가 끊겨 재전송하면 같은 주문이나 계약이 두 번 만들어질 수 있습니다. 그래서 결제나 계약처럼 중요한 POST에는 <strong>멱등성 키</strong>를 둡니다. 요청마다 고유한 ID를 실어 보내고, 서버가 같은 ID를 이미 처리했는지 확인해 한 번만 실행하는 방식입니다. 개념 07에서 이어서 다룹니다.</p>
+  </section>
+
+  <section>
+    <h2>상태코드로 말하기</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>코드</th><th>의미</th><th>언제 쓰나</th></tr></thead>
+      <tbody>
+        <tr><td><code>200</code> / <code>201</code></td><td>성공 / 생성됨</td><td>정상 처리</td></tr>
+        <tr><td><code>400</code></td><td>잘못된 요청</td><td>값 형식·범위 오류, 검증 실패</td></tr>
+        <tr><td><code>401</code></td><td>인증 안 됨</td><td>토큰이 없거나 만료·위조</td></tr>
+        <tr><td><code>403</code></td><td>권한 없음</td><td>로그인은 했지만 그 일을 할 수 없음</td></tr>
+        <tr><td><code>404</code></td><td>대상 없음</td><td>존재하지 않는 자원</td></tr>
+        <tr><td><code>409</code></td><td>충돌</td><td>현재 상태와 맞지 않음, 중복 요청</td></tr>
+        <tr><td><code>429</code></td><td>너무 많은 요청</td><td>호출 한도 초과</td></tr>
+        <tr><td><code>500</code></td><td>서버 오류</td><td>서버 쪽 결함, 예상 못 한 예외</td></tr>
+        <tr><td><code>503</code></td><td>일시적 이용 불가</td><td>점검, 과부하</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note warn">
+      <b>401과 403을 헷갈리지 마세요</b>
+      401은 "누구인지 모르겠다", 403은 "누구인지는 알지만 허용되지 않는다"입니다. 4xx는 클라이언트가 고칠 수 있는 오류, 5xx는 서버가 책임져야 하는 오류입니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>REST 스타일 설계</h2>
+    <p>REST는 "자원(명사)을 URL로 표현하고, 행위는 HTTP 메서드로 표현한다"는 설계 방식입니다.</p>
+    <ul>
+      <li>좋은 예: <code>GET /contracts/123</code>, <code>POST /contracts</code>, <code>DELETE /contracts/123</code></li>
+      <li>피할 예: <code>/getContract</code>, <code>/deleteContract</code> (동사가 경로에 들어감)</li>
+      <li>컬렉션은 복수형, 목록은 필터와 페이지로 좁힙니다. <code>GET /contracts?status=20&amp;page=0&amp;size=20</code></li>
+      <li>하위 자원은 경로로 표현합니다. <code>/contracts/123/coverages</code></li>
+    </ul>
+    <p>현실에서는 REST를 엄격히 지키지 않는 곳도 많습니다. "계약을 해지한다"처럼 자원 하나의 수정으로 딱 떨어지지 않는 업무 행위는 <code>POST /contracts/123/terminate</code> 같은 동작형 경로로 두기도 합니다. 중요한 것은 팀 안에서 일관되게 쓰는 것입니다.</p>
+  </section>
+
+  <section>
+    <h2>좋은 API의 습관</h2>
+    <ul>
+      <li><strong>일관된 오류 응답</strong>: 성공이든 실패든 같은 모양으로 오류코드와 메시지를 내려 클라이언트가 한 가지 방식으로 처리하게 합니다.</li>
+      <li><strong>내부 사정 숨기기</strong>: 스택 트레이스나 SQL 오류를 응답에 노출하지 않습니다. 자세한 내용은 로그에만 남깁니다.</li>
+      <li><strong>페이징</strong>: 목록은 항상 상한이 있어야 합니다. 수백만 건을 한 번에 돌려주면 서버와 네트워크가 먼저 무너집니다.</li>
+      <li><strong>버전 관리</strong>: 응답 모양을 바꿀 때 기존 클라이언트가 깨지지 않도록 <code>/v1/</code> 같은 버전이나 하위 호환 규칙을 둡니다.</li>
+      <li><strong>DTO 분리</strong>: DB 엔티티를 그대로 내보내면 내부 구조가 외부 계약이 되어 바꾸기 어려워집니다. 요청과 응답 전용 객체를 따로 둡니다.</li>
+      <li><strong>문서화</strong>: OpenAPI(Swagger)로 명세를 자동 생성하면 문서와 코드가 어긋나지 않습니다.</li>
+    </ul>
+  </section>
+
+  <div class="note">
+    <b>이 프로젝트에서는</b>
+    모든 API가 <code>POST</code>이고, 요청과 응답이 <code>header</code>(거래 UUID, 사번, 응답코드)와 <code>body</code>로 이루어진 "공통 전문" 형태입니다. 금융·보험 시스템에서 흔한 방식입니다. 오류는 <code>E-CTR-010</code> 같은 업무 오류코드와 함께 400·404·409·500 상태코드로 내려가고, 인증 실패는 <code>E-AUTH-001</code>(401), 권한 부족은 <code>E-AUTH-002</code>(403)입니다. Swagger UI로 API 명세를 볼 수 있습니다.
+  </div>
+
+  <section>
+    <h2>스스로 점검</h2>
+    <div class="check">
+      <details><summary>같은 POST를 두 번 보내면 왜 문제가 되고, 어떻게 막나요?</summary><p>POST는 멱등하지 않아 재전송 시 같은 처리가 두 번 일어날 수 있습니다. 요청마다 고유한 멱등성 키를 보내고, 서버가 이미 처리한 키는 새로 실행하지 않고 첫 결과를 돌려줍니다.</p></details>
+      <details><summary>다른 사람의 계약을 조회했을 때 403과 404 중 무엇이 나을까요?</summary><p>403은 "그 계약이 존재한다"는 사실을 알려 줍니다. 존재 여부 자체를 숨기고 싶다면 없는 것과 똑같이 404로 답하는 편이 안전합니다. 이 프로젝트가 택한 방식입니다.</p></details>
+      <details><summary>목록 API에 페이징이 꼭 필요한 이유는?</summary><p>데이터가 늘어나면 한 번에 모두 내려주는 순간 메모리, DB, 네트워크가 한계에 닿기 때문입니다. 상한을 두어 응답 크기를 예측 가능하게 만듭니다.</p></details>
+    </div>
+  </section>
+
+  <nav class="pager"><a href="01-backend-overview.html">← 이전: 백엔드의 큰 그림</a><a href="03-java-core.html">다음: 자바 핵심 →</a></nav>
+</main>
+</body>
+</html>
