@@ -53,6 +53,9 @@ public class SecurityConfig {
                         // 갱신은 새 청약을 만드는 일이라 청약 접수와 같은 역할
                         .requestMatchers(HttpMethod.POST, "/api/contract/renew", "/api/contract/renew-quote")
                         .hasAnyRole(Roles.AGENT, Roles.ADMIN)
+                        // 업무 현황·할 일함·갱신 대상은 모든 업무 역할이 본다. 할 일 유형별 권한과 AGENT 의 본인 계약 제한은 서비스에서 적용한다.
+                        .requestMatchers(HttpMethod.POST, "/api/work/dashboard", "/api/work/todo", "/api/work/renewal-targets")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/inquiry")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         // 요율/계수 관리: 조회는 심사·계약 관리·ADMIN, 개정과 신규 등록은 ADMIN 만

@@ -59,7 +59,7 @@ public final class ContractAccessPolicy {
     }
 
     /** 인증 객체의 권한에서 ROLE_ 접두사를 뗀 역할 이름 목록 */
-    private static Set<String> roles(Authentication authentication) {
+    public static Set<String> roles(Authentication authentication) {
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .map(authority -> authority.replaceFirst("^ROLE_", ""))
