@@ -161,7 +161,7 @@
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    기본 브랜치는 <code>main</code>이고, 이 학습 문서는 <code>claude/study-docs</code> 브랜치에 따로 올려 두었습니다. PR로 리뷰한 뒤 main에 합치는 흐름을 연습해 보기 좋습니다. <code>.gitignore</code>는 <code>build/</code>, <code>.gradle</code>, IDE 설정을 제외하고, <code>.gitattributes</code>는 줄바꿈을 파일별로 고정합니다(<code>gradlew</code>는 LF, <code>*.bat</code>는 CRLF). 윈도우에서 CRLF로 바뀐 <code>gradlew</code>는 리눅스 CI에서 실행되지 않기 때문입니다. 비밀키(<code>JWT_SECRET</code>)는 저장소에 없고 환경변수로만 받습니다.
+    기본 브랜치는 <code>main</code>이고, 개발은 <code>develop</code> 브랜치에서 합니다. 이 학습 문서는 <code>claude/study-docs</code> 브랜치에서 PR로 main에 합쳤고, 현업 화면·인증 서버 작업은 develop에서 기능별로 커밋 4개(업무 API, 인증 서버, 화면, 배포 구성)로 나눠 PR로 합쳤습니다. 두 PR 모두 머지 커밋 방식이라 이력에서 어떤 작업이 언제 들어왔는지 보입니다. <code>.gitignore</code>는 <code>build/</code>, <code>.gradle</code>, IDE 설정을, <code>frontend/.gitignore</code>는 <code>node_modules</code>와 <code>dist</code>를 제외하고, <code>package-lock.json</code>은 커밋해 모두 같은 버전을 설치하게 합니다. <code>.gitattributes</code>는 <code>gradlew</code>를 LF로 고정합니다. 비밀키(<code>JWT_SECRET</code>)는 저장소에 없고 환경변수로만 받습니다.
   </div>
 
   <section>

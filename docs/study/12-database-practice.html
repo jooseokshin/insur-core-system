@@ -133,7 +133,7 @@ HAVING COUNT(*) &gt; 10
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    <code>docker-compose.yml</code>이 PostgreSQL 16(<code>postgres:16-alpine</code>)을 띄우고, DB 시간대를 <code>Asia/Seoul</code>로 고정합니다. Hibernate의 <code>jdbc.time_zone</code>과 JVM 기본 시간대도 같은 값이라 저장 시각이 어긋나지 않습니다. 접속 정보는 <code>DB_URL</code>, <code>DB_USERNAME</code>, <code>DB_PASSWORD</code> 환경변수로 덮어쓸 수 있고, 기본값은 로컬 개발용입니다. 목록 조회용 인덱스는 <code>V5</code> 마이그레이션에, 요율 기간 중복을 막는 트리거는 <code>V13</code>에 있습니다. 동시 상태 변경은 <code>SELECT ... FOR UPDATE</code>로 막습니다. 통합 테스트와 <code>scripts/e2e-check.sh</code>는 실제 DB에 쓰므로 개발 DB에 행이 쌓일 수 있습니다.
+    <code>docker-compose.yml</code>이 PostgreSQL 16을 띄우고 DB 시간대를 <code>Asia/Seoul</code>로 고정합니다. Hibernate의 <code>jdbc.time_zone</code>과 JVM 기본 시간대도 같은 값이라 저장 시각이 어긋나지 않습니다. 코어는 <code>public</code> 스키마, 인증 서버는 <code>auth</code> 스키마를 써서 한 DB 안에서 소유를 나눕니다. 업무 현황은 상태별 <code>GROUP BY</code>와 스칼라 서브쿼리로 오늘 실적을 한 번에 세고, 할 일함은 납입 합계를 <code>LEFT JOIN (SELECT ... GROUP BY)</code>로 붙여 완납 여부를 판단하며, 갱신 대상은 <code>NOT EXISTS</code>로 "아직 갱신하지 않은 계약"을 고릅니다. 이 조회들을 받치는 인덱스는 <code>V19</code>에, 목록 조회용 인덱스는 <code>V5</code>에 있습니다. 통합 테스트와 <code>scripts/e2e-check.sh</code>는 실제 DB에 쓰므로 개발 DB에 행이 쌓일 수 있습니다.
   </div>
 
   <section>

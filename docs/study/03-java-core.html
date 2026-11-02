@@ -118,7 +118,7 @@ new BigDecimal("0.1").add(new BigDecimal("0.2"));  <span class="c">// 0.3 (정�
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    금액·요율 계산은 모두 <code>BigDecimal</code>이고, 보험료는 마지막에 한 번만 원 단위로 <code>HALF_UP</code> 반올림합니다. 계약 상태는 <code>enum</code>으로 정의하고 허용되는 전이를 <code>switch</code> 식으로 표현합니다. 날짜는 <code>LocalDate</code>(보험 시작·종료일), 등록 일시는 <code>Clock</code>을 주입받아 계산합니다. 업무 오류는 <code>RuntimeException</code>을 상속한 <code>BusinessException</code>으로 던지고 한곳에서 응답으로 바꿉니다.
+    금액·요율 계산은 모두 <code>BigDecimal</code>이고, 보험료는 마지막에 한 번만 원 단위로 <code>HALF_UP</code> 반올림합니다. 계약 상태와 할 일 유형(<code>TodoType</code>)은 <code>enum</code>으로 정의하고, 허용되는 상태 전이와 유형별 처리 역할을 enum 안에 둡니다. 날짜는 <code>LocalDate</code>, 일시는 주입받은 <code>Clock</code>으로 계산합니다. 업무 오류는 <code>RuntimeException</code>을 상속한 <code>BusinessException</code>으로 던지고 한곳에서 응답으로 바꿉니다. 인증 서버의 임시 비밀번호는 예측할 수 없도록 <code>SecureRandom</code>으로 만듭니다.
   </div>
 
   <section>

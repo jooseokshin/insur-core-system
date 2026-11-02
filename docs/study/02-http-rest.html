@@ -96,7 +96,7 @@
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    모든 API가 <code>POST</code>이고, 요청과 응답이 <code>header</code>(거래 UUID, 사번, 응답코드)와 <code>body</code>로 이루어진 "공통 전문" 형태입니다. 금융·보험 시스템에서 흔한 방식입니다. 오류는 <code>E-CTR-010</code> 같은 업무 오류코드와 함께 400·404·409·500 상태코드로 내려가고, 인증 실패는 <code>E-AUTH-001</code>(401), 권한 부족은 <code>E-AUTH-002</code>(403)입니다. Swagger UI로 API 명세를 볼 수 있습니다.
+    모든 API가 <code>POST</code>이고, 요청과 응답이 <code>header</code>(거래 UUID, 사번, 응답코드)와 <code>body</code>로 이루어진 "공통 전문" 형태입니다. 금융·보험 시스템에서 흔한 방식이고, 인증 서버도 같은 규약을 씁니다. 오류는 <code>E-CTR-010</code>, <code>E-WRK-001</code> 같은 업무 오류코드와 함께 400·404·409·500 상태코드로 내려가고, 인증 실패는 <code>E-AUTH-001</code>(401), 권한 부족은 <code>E-AUTH-002</code>(403)입니다. 화면과 두 서버는 nginx(개발 중에는 Vite 프록시) 덕분에 같은 출처라서 CORS 설정이 없습니다. 화면의 <code>api/http.js</code>가 전문을 감싸고 응답코드가 <code>0000</code>이 아니면 오류코드·메시지·거래 ID를 담은 오류로 바꿔 화면에 보여 줍니다.
   </div>
 
   <section>

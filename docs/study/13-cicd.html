@@ -157,7 +157,7 @@ jobs:
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    아직 CI 설정(<code>.github/workflows/</code>)이 없습니다. 빌드는 Gradle 래퍼(<code>./gradlew</code>)로 하고, 테스트 태스크가 테스트 전용 <code>JWT_SECRET</code>과 <code>Asia/Seoul</code> 시간대를 직접 넣습니다. 그래서 CI에서 따로 챙길 것은 PostgreSQL만 남습니다. 운영 <code>JWT_SECRET</code>은 기본값이 없어 설정하지 않으면 기동에 실패하므로, 배포 환경에서 비밀 설정이 빠지면 바로 드러납니다. API 문서(Swagger)는 기본으로 꺼져 있어 운영에서 실수로 열리지 않습니다. 스키마는 앱 기동 시 Flyway가 적용합니다.
+    아직 CI 설정(<code>.github/workflows/</code>)은 없지만 배포 단위는 갖춰져 있습니다. 코어, 인증 서버, 화면이 각각 Dockerfile을 갖고, 앞의 둘은 JDK로 빌드한 뒤 JRE 이미지에 JAR만 담는 멀티 스테이지 빌드, 화면은 Node로 빌드한 정적 파일을 nginx 이미지에 담습니다. nginx가 화면을 서빙하면서 <code>/api</code>, <code>/auth</code>를 내부 서비스로 넘기므로 밖으로 여는 포트는 하나입니다. <code>docker compose --profile app up -d --build</code>로 전체를 띄우고, 운영 비밀값(<code>JWT_SECRET</code>, 초기 관리자 비밀번호)은 환경변수로만 넣습니다. 두 서버 모두 비밀키가 없으면 기동에 실패하므로 설정 누락이 배포 즉시 드러납니다. 스키마는 각 앱이 기동할 때 Flyway가 적용합니다.
   </div>
 
   <section>
