@@ -1,1 +1,4 @@
 rootProject.name = 'insur-core-system'
+
+// 인증 서버: 사원 로그인과 JWT 발급을 맡는 별도 애플리케이션 (./gradlew :auth-server:bootRun)
+include 'auth-server'

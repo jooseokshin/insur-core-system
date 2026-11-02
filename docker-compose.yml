@@ -16,6 +16,62 @@ services:
       - "postgres"
       - "-c"
       - "timezone=Asia/Seoul"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d insur_core_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── 아래 서비스는 app 프로필에서만 뜬다. `docker compose up -d` 는 지금처럼 DB 만 띄운다. ──
+  # 전체 기동: JWT_SECRET=<32바이트 이상> docker compose --profile app up -d --build  →  http://localhost:8088
+  # 개발용 사원 계정(admin01 등)까지 만들려면 AUTH_PROFILES=local 을 함께 준다.
+
+  # 코어 백엔드 (계약·보험료·업무 API)
+  core:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres-db:5432/insur_core_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgrespassword
+      JWT_SECRET: ${JWT_SECRET:-}
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 인증 서버 (로그인·JWT 발급·사원 관리). 코어와 같은 JWT_SECRET 을 써야 한다.
+  auth:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: auth-server/Dockerfile
+    environment:
+      AUTH_DB_URL: jdbc:postgresql://postgres-db:5432/insur_core_db?currentSchema=auth
+      AUTH_DB_USERNAME: postgres
+      AUTH_DB_PASSWORD: postgrespassword
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
+      SPRING_PROFILES_ACTIVE: ${AUTH_PROFILES:-}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 현업 화면 (nginx: 정적 파일 + /api, /auth 프록시). 외부에 여는 포트는 이것 하나다.
+  web:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+    ports:
+      - "8088:80"
+    depends_on:
+      - core
+      - auth
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -1,0 +1,47 @@
+// 인증 서버. 플러그인 버전은 루트 build.gradle 의 선언을 따른다.
+plugins {
+    id 'java'
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+}
+
+group = 'com.insur'
+version = '0.0.1-SNAPSHOT'
+description = 'insur-auth-server'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    // JWT 발급(NimbusJwtEncoder)과 검증(관리 API 의 Bearer 토큰)
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    compileOnly 'org.projectlombok:lombok'
+    runtimeOnly 'org.postgresql:postgresql'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testCompileOnly 'org.projectlombok:lombok'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    // 코어와 같은 업무 시간대(Asia/Seoul)에서 테스트한다.
+    systemProperty 'user.timezone', 'Asia/Seoul'
+    // JWT 서명 비밀키 (운영에서는 환경변수로 주입, 테스트용 고정값)
+    environment 'JWT_SECRET', 'test-only-secret-key-for-hs256-at-least-32-bytes'
+}
