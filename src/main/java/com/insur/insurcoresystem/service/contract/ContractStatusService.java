@@ -3,6 +3,8 @@ package com.insur.insurcoresystem.service.contract;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.domain.claim.ClaimRepository;
+import com.insur.insurcoresystem.domain.claim.ClaimStatus;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
@@ -15,6 +17,7 @@ import com.insur.insurcoresystem.service.premium.RefundCalculator;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +40,8 @@ public class ContractStatusService {
     private final ContractPaymentRepository paymentRepository;
     /** 상태 변경 이력 기록 */
     private final ContractHistoryRecorder historyRecorder;
+    /** 진행 중인 사고가 있는 계약의 해지를 막는 데 쓴다 */
+    private final ClaimRepository claimRepository;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -56,7 +61,7 @@ public class ContractStatusService {
      * @return 증권번호와 변경 전/후 계약상태코드
      * @throws BusinessException 증권번호/상태코드 누락(E-CTR-012), 지원하지 않는 상태코드(E-CTR-013),
      *                           거래 UUID 오류(E-CTR-008), 계약 없음(E-CTR-010, 404), 허용되지 않는 상태 변경(E-CTR-014, 409),
-     *                           납입이 끝나지 않은 승인(E-CTR-028, 409),
+     *                           납입이 끝나지 않은 승인(E-CTR-028, 409), 진행 중인 사고가 있는 계약의 해지(E-CTR-030, 409),
      *                           같은 거래 UUID 로 다른 상태 요청(E-CTR-019, 409)
      */
     @Transactional
@@ -105,6 +110,12 @@ public class ContractStatusService {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-028", "보험료 납입이 끝나야 승인(유효)할 수 있습니다. (납입 "
                         + paid.toPlainString() + "원 / 총보험료 " + contract.getTotalPremium().toPlainString() + "원)");
             }
+        }
+
+        if (next == ContractStatus.TERMINATED && claimRepository.existsByContractNoAndClmStatCdIn(contract.getContractNo(),
+                List.of(ClaimStatus.REPORTED.getCode(), ClaimStatus.ASSESSED.getCode()))) {
+            throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-030",
+                    "진행 중인 사고(접수·손해사정)가 있어 해지할 수 없습니다. 사고를 종결한 뒤 해지해 주세요.");
         }
 
         contract.changeStatus(next);

@@ -36,6 +36,35 @@ public class DashboardResponse {
     /** 갱신 가능 기간(보험종기 60일 전~종기)에 들어왔지만 아직 갱신하지 않은 유효 계약 건수 */
     @Schema(description = "갱신 가능 기간(보험종기 60일 전~종기)에 들어왔지만 아직 갱신하지 않은 유효 계약 건수")
     private long renewalDueCount;
+    /** 보상 현황. 보상을 다루는 역할(설계사·보상 담당·ADMIN)에게만 담고, 그 외에는 null */
+    @Schema(description = "보상 현황. 보상을 다루는 역할(설계사·보상 담당·ADMIN)에게만 담고, 그 외에는 null")
+    private Claims claims;
+
+    /** 보상 현황 */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Claims {
+        /** 접수(손해사정 전) 건수 */
+        @Schema(description = "접수(손해사정 전) 건수")
+        private long reportedCount;
+        /** 손해사정 완료(지급 대기) 건수 */
+        @Schema(description = "손해사정 완료(지급 대기) 건수")
+        private long assessedCount;
+        /** 지급 대기 중 고액(관리자 승인 필요) 건수 */
+        @Schema(description = "지급 대기 중 고액(관리자 승인 필요) 건수")
+        private long highValuePendingCount;
+        /** 오늘 접수한 사고 건수 */
+        @Schema(description = "오늘 접수한 사고 건수")
+        private long todayReportedCount;
+        /** 오늘 지급한 건수 */
+        @Schema(description = "오늘 지급한 건수")
+        private long todayPaidCount;
+        /** 오늘 지급한 보험금 합계 */
+        @Schema(description = "오늘 지급한 보험금 합계")
+        private BigDecimal todayPaidAmount;
+    }
 
     /** 계약상태별 집계 */
     @Getter

@@ -79,6 +79,7 @@ public class AccountBootstrap implements ApplicationRunner {
             create("agent02", "박설계", "부산지점", Set.of(Roles.AGENT));
             create("uw01", "최심사", "언더라이팅팀", Set.of(Roles.UNDERWRITER));
             create("op01", "정관리", "계약관리팀", Set.of(Roles.OPERATOR));
+            create("clm01", "한보상", "보상팀", Set.of(Roles.CLAIM));
         }
 
         private void create(String empId, String empNm, String deptNm, Set<String> roles) {

@@ -211,6 +211,11 @@ class AuthIntegrationTest {
         call(post("/auth/admin/emp-create").with(admin()),
                 "{ \"empId\": \"x" + newId + "\", \"empNm\": \"역할오류\", \"roles\": [\"BOSS\"] }")
                 .andExpect(jsonPath("$.header.responseCode").value("E-EMP-005"));
+        // 보상 담당(CLAIM) 역할도 부여할 수 있다 (V2)
+        call(post("/auth/admin/emp-create").with(admin()),
+                "{ \"empId\": \"c" + newId + "\", \"empNm\": \"보상\", \"roles\": [\"CLAIM\"] }")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body.employee.roles[0]").value("CLAIM"));
         call(post("/auth/admin/emp-create").with(admin()),
                 "{ \"empId\": \"a b\", \"empNm\": \"사번오류\", \"roles\": [\"AGENT\"] }")
                 .andExpect(jsonPath("$.header.responseCode").value("E-EMP-001"));

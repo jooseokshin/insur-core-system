@@ -10,10 +10,11 @@ public final class Roles {
     public static final String AGENT = "AGENT";
     public static final String UNDERWRITER = "UNDERWRITER";
     public static final String OPERATOR = "OPERATOR";
+    public static final String CLAIM = "CLAIM";
     public static final String ADMIN = "ADMIN";
 
     /** 부여할 수 있는 모든 역할 */
-    public static final Set<String> ALL = Set.of(AGENT, UNDERWRITER, OPERATOR, ADMIN);
+    public static final Set<String> ALL = Set.of(AGENT, UNDERWRITER, OPERATOR, CLAIM, ADMIN);
 
     private Roles() {
     }

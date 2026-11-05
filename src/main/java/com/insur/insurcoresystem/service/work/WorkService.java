@@ -4,7 +4,9 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
+import com.insur.insurcoresystem.service.claim.ClaimService;
 import com.insur.insurcoresystem.service.contract.ContractRenewalService;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import com.insur.insurcoresystem.service.work.dto.DashboardResponse;
@@ -40,6 +42,9 @@ import org.springframework.util.StringUtils;
 @Service
 @RequiredArgsConstructor
 public class WorkService {
+
+    /** 업무 현황에서 보상 현황을 보는 역할 */
+    private static final Set<String> CLAIM_VIEWERS = Set.of(Roles.AGENT, Roles.CLAIM, Roles.ADMIN);
 
     /** 접수 후 이 일수 이상 청약 상태로 남으면 장기 미처리로 본다 */
     public static final int STALE_DAYS = 7;
@@ -127,6 +132,10 @@ public class WorkService {
         long renewalDue = count("SELECT COUNT(*) FROM TB_CTR_LGD C WHERE " + renewalCondition() + owner,
                 params.addValue("dueTo", today.plusDays(ContractRenewalService.RENEWAL_WINDOW_DAYS)));
 
+        DashboardResponse.Claims claims = roles.stream().anyMatch(CLAIM_VIEWERS::contains)
+                ? claimCounts(params.addValue("threshold", BigDecimal.valueOf(ClaimService.HIGH_VALUE_THRESHOLD)), owner)
+                : null;
+
         log.info("업무 현황 조회: 기준일={}, 본인 계약만={}", today, ownerEmpId != null);
         return DashboardResponse.builder()
                 .baseDate(today)
@@ -135,6 +144,7 @@ public class WorkService {
                 .today(todayStats)
                 .todoCounts(todoCounts)
                 .renewalDueCount(renewalDue)
+                .claims(claims)
                 .build();
     }
 
@@ -257,6 +267,27 @@ public class WorkService {
                 .totalPages(totalPages(total, pageable.getPageSize()))
                 .items(items)
                 .build();
+    }
+
+    /** 보상 현황을 세는 SQL. 설계사는 본인이 접수한 계약의 사고만 센다 */
+    private DashboardResponse.Claims claimCounts(MapSqlParameterSource params, String owner) {
+        String from = " FROM TB_CLM X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO WHERE 1 = 1" + owner;
+        return jdbc.queryForObject("SELECT "
+                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '10') AS REPORTED, "
+                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '20') AS ASSESSED, "
+                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '20' AND X.TOTAL_PAY_AMT > :threshold) AS HIGH_VALUE, "
+                + "(SELECT COUNT(*)" + from + " AND X.RPT_DT >= :dayStart AND X.RPT_DT < :dayEnd) AS TODAY_REPORTED, "
+                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '40' AND X.DECIDE_DT >= :dayStart AND X.DECIDE_DT < :dayEnd) AS TODAY_PAID, "
+                + "(SELECT COALESCE(SUM(X.TOTAL_PAY_AMT), 0)" + from
+                + " AND X.CLM_STAT_CD = '40' AND X.DECIDE_DT >= :dayStart AND X.DECIDE_DT < :dayEnd) AS TODAY_PAID_AMT",
+                params, (rs, i) -> DashboardResponse.Claims.builder()
+                        .reportedCount(rs.getLong("REPORTED"))
+                        .assessedCount(rs.getLong("ASSESSED"))
+                        .highValuePendingCount(rs.getLong("HIGH_VALUE"))
+                        .todayReportedCount(rs.getLong("TODAY_REPORTED"))
+                        .todayPaidCount(rs.getLong("TODAY_PAID"))
+                        .todayPaidAmount(rs.getBigDecimal("TODAY_PAID_AMT"))
+                        .build());
     }
 
     /** 오늘의 시작·끝 시각, 장기 미처리 기준 시각, 접수자 제한 사번을 담은 공통 파라미터 */

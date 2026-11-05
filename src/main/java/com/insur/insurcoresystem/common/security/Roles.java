@@ -6,6 +6,7 @@ package com.insur.insurcoresystem.common.security;
  *     <li>AGENT: 청약 접수와 계약 조회</li>
  *     <li>UNDERWRITER: 청약 심사 (승인, 청약취소)와 계약 조회</li>
  *     <li>OPERATOR: 계약 관리 (해지)와 계약 조회</li>
+ *     <li>CLAIM: 보상 (손해사정, 지급·면책)과 계약 조회</li>
  *     <li>ADMIN: 모든 업무</li>
  * </ul>
  */
@@ -14,6 +15,7 @@ public final class Roles {
     public static final String AGENT = "AGENT";
     public static final String UNDERWRITER = "UNDERWRITER";
     public static final String OPERATOR = "OPERATOR";
+    public static final String CLAIM = "CLAIM";
     public static final String ADMIN = "ADMIN";
 
     private Roles() {

@@ -49,6 +49,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import com.insur.insurcoresystem.domain.claim.ClaimRepository;
 import com.insur.insurcoresystem.domain.product.ProductRepository;
 import com.insur.insurcoresystem.service.product.ProductService;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,6 +91,9 @@ class ContractServiceTest {
     ProductService productService;
     @Mock
     ProductRepository productRepository;
+    /** 진행 중 사고 확인. 기본값(false)이라 해지가 막히지 않는다 (사고 규칙은 ClaimIntegrationTest) */
+    @Mock
+    ClaimRepository claimRepository;
     ContractService contractService;
     ContractInquiryService inquiryService;
     ContractStatusService statusService;
@@ -113,7 +117,8 @@ class ContractServiceTest {
                 historyRecorder, new PremiumService(premiumRateRepository, premiumFactorRepository, premiumFactorPolicyRepository, productService),
                 SEOUL_CLOCK, productService);
         inquiryService = new ContractInquiryService(contractRepository, coverageRepository, historyRepository, productRepository);
-        statusService = new ContractStatusService(contractRepository, historyRepository, paymentRepository, historyRecorder, SEOUL_CLOCK);
+        statusService = new ContractStatusService(contractRepository, historyRepository, paymentRepository, historyRecorder,
+                claimRepository, SEOUL_CLOCK);
     }
 
     @Test
