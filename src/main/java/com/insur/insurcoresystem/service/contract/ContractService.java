@@ -17,6 +17,7 @@ import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
 import com.insur.insurcoresystem.service.premium.PremiumService;
+import com.insur.insurcoresystem.service.product.ProductService;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest.QuoteCoverageRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse.QuoteCoverageResponse;
@@ -38,6 +39,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 계약 청약 접수 서비스. 조회는 {@link ContractInquiryService}, 상태 변경은 {@link ContractStatusService},
@@ -69,6 +71,9 @@ public class ContractService {
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
+    /** 상품을 지정한 새 청약의 판매 기간 확인 */
+    private final ProductService productService;
+
     /**
      * 계약 청약을 처리한다. 하나의 트랜잭션으로 아래 순서로 수행하며, 중간에 실패하면 채번을 포함해 전체가 롤백된다.
      * <ol>
@@ -95,7 +100,7 @@ public class ContractService {
      *                           동일 거래 동시 접수 충돌(E-CTR-011, 409), 다른 사용자의 거래 UUID(E-CTR-015, 409),
      *                           같은 거래 UUID 로 다른 내용의 재전송(E-CTR-019, 409),
      *                           요율표에 없는 담보/담보코드 중복/요율 계수 오류(E-PRM-001~004), 산출 보험료와 불일치(E-CTR-020),
-     *                           채번 한도 초과(E-SEQ-002)
+     *                           채번 한도 초과(E-SEQ-002), 상품을 지정한 경우 상품 오류(E-PRD-001~006)
      */
     @Transactional
     public ContractApplyResponse applyContract(String globalTxId, String empId, ContractApplyRequest request) {
@@ -140,6 +145,10 @@ public class ContractService {
             return toResponse(contract, coverageRepository.findByContractContractNo(contract.getContractNo()).size());
         }
 
+        // 새 청약은 오늘 판매 중인 상품이어야 한다. 갱신은 원 계약의 상품을 이어받으므로 판매 기간을 보지 않는다(구성 검증은 산출에서 한다)
+        if (renewedFrom == null && StringUtils.hasText(request.getPrdCd())) {
+            productService.requireOnSale(request.getPrdCd(), request.getInsrClsCd());
+        }
         verifyAgainstTariff(request);
 
         ContractNumbers numbers = contractNumberGenerator.generate(productType);
@@ -149,6 +158,7 @@ public class ContractService {
                 .applNo(numbers.applNo())
                 .globalTxId(globalTxId)
                 .insrClsCd(request.getInsrClsCd())
+                .prdCd(StringUtils.hasText(request.getPrdCd()) ? request.getPrdCd() : null)
                 .ctrStatCd(Contract.CTR_STAT_APPLIED)
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
@@ -190,6 +200,7 @@ public class ContractService {
     private void verifyAgainstTariff(ContractApplyRequest request) {
         PremiumQuoteResponse quote = premiumService.quote(PremiumQuoteRequest.builder()
                 .insrClsCd(request.getInsrClsCd())
+                .prdCd(StringUtils.hasText(request.getPrdCd()) ? request.getPrdCd() : null)
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .rating(request.getRating())

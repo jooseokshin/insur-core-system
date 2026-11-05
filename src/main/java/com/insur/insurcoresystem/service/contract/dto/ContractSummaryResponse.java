@@ -27,6 +27,9 @@ public class ContractSummaryResponse {
     /** 보험종목코드 (01:자동차, 02:화재) */
     @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
     private String insrClsCd;
+    /** 상품코드 (상품 없이 접수한 계약은 null) */
+    @Schema(description = "상품코드 (상품 없이 접수한 계약은 null)")
+    private String prdCd;
     /** 계약상태코드 (10:청약, 20:유효, 30:해지, 90:청약취소) */
     @Schema(description = "계약상태코드 (10:청약, 20:유효, 30:해지, 90:청약취소)")
     private String ctrStatCd;

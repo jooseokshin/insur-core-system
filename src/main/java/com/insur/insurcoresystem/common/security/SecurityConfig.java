@@ -65,6 +65,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/admin/premium/rate-revise", "/api/admin/premium/factor-revise",
                                 "/api/admin/premium/policy-revise")
                         .hasRole(Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/product/list")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/premium/quote")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/list")

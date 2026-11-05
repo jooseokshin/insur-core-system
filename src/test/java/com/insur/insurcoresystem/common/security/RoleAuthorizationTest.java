@@ -108,13 +108,13 @@ class RoleAuthorizationTest {
 
     @Test
     void 보험료_산출은_모든_업무_역할이_가능하고_역할이_없으면_거절된다() throws Exception {
-        given(premiumService.quote(any())).willReturn(PremiumQuoteResponse.builder().build());
+        given(premiumService.quoteNewBusiness(any())).willReturn(PremiumQuoteResponse.builder().build());
 
         for (String role : new String[] {Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN}) {
             call("/api/premium/quote", "{}", TestAuth.withRoles(role)).andExpect(status().isOk());
         }
         denied(call("/api/premium/quote", "{}", TestAuth.withRoles()));
-        verify(premiumService, times(4)).quote(any());
+        verify(premiumService, times(4)).quoteNewBusiness(any());
     }
 
     @Test

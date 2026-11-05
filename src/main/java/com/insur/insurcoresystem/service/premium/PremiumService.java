@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.service.premium;
 
+import com.insur.insurcoresystem.service.product.ProductService;
+import org.springframework.util.StringUtils;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 
@@ -48,6 +50,20 @@ public class PremiumService {
     private final PremiumRateRepository premiumRateRepository;
     private final PremiumFactorRepository premiumFactorRepository;
     private final PremiumFactorPolicyRepository premiumFactorPolicyRepository;
+    private final ProductService productService;
+
+    /**
+     * 새 청약을 위한 보험료 산출 (보험료 산출 API). 상품을 지정했으면 오늘 판매 중인 상품이어야 한다. 나머지는 {@link #quote} 와 같다.
+     *
+     * @throws BusinessException {@link #quote} 의 오류와 판매 기간이 아닌 상품(E-PRD-003)
+     */
+    @Transactional(readOnly = true)
+    public PremiumQuoteResponse quoteNewBusiness(PremiumQuoteRequest request) {
+        if (StringUtils.hasText(request.getPrdCd())) {
+            productService.requireOnSale(request.getPrdCd(), request.getInsrClsCd());
+        }
+        return quote(request);
+    }
 
     /**
      * 가입금액과 보험기간, 요율 계수로 담보별 보험료와 총보험료를 산출한다. 요율과 계수는 보험시기에 적용되는 것을 쓴다. 담보별 보험료는 원 단위로 반올림하고,
@@ -58,7 +74,7 @@ public class PremiumService {
      * @throws BusinessException 지원하지 않는 보험종목(E-SEQ-001), 보험기간 오류(E-CTR-004), 담보 목록/코드/금액 오류
      *                           (E-CTR-001, E-CTR-006, E-CTR-007), 담보코드 중복(E-PRM-002), 요율표에 없는 담보(E-PRM-001),
      *                           보험종목에 쓰지 않는 요율 계수 입력(E-PRM-003), 계수표에 없는 입력값(E-PRM-004),
-     *                           보험시기에 필수인 요율 계수 미입력(E-PRM-005)
+     *                           보험시기에 필수인 요율 계수 미입력(E-PRM-005), 상품을 지정한 경우 상품 구성 위반(E-PRD-001~006, 판매 기간 제외)
      */
     @Transactional(readOnly = true)
     public PremiumQuoteResponse quote(PremiumQuoteRequest request) {
@@ -69,6 +85,10 @@ public class PremiumService {
         }
         List<QuoteCoverageRequest> coverages = request.getCoverages();
         validateCoverages(coverages);
+        if (StringUtils.hasText(request.getPrdCd())) {
+            productService.validateComposition(request.getPrdCd(), request.getInsrClsCd(), coverages.stream()
+                    .map(c -> new ProductService.CoverageAmount(c.getCvrgCd(), c.getIsrdAmt())).toList());
+        }
 
         Map<String, PremiumRate> rates = premiumRateRepository
                 .findEffective(request.getInsrClsCd(),

@@ -22,6 +22,9 @@ public class PremiumQuoteRequest {
     /** 보험종목코드 (01:자동차, 02:화재) */
     @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
     private String insrClsCd;
+    /** 상품코드 (선택). 지정하면 담보 구성을 상품 규칙(필수 담보, 가입금액 한도)으로 검증한다 */
+    @Schema(description = "상품코드 (선택). 지정하면 담보 구성을 상품 규칙(필수 담보, 가입금액 한도)으로 검증한다")
+    private String prdCd;
     /** 보험시기 */
     @Schema(description = "보험시기")
     private LocalDate startDate;

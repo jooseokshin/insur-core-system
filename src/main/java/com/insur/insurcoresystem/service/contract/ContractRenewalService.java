@@ -95,7 +95,7 @@ public class ContractRenewalService {
         PremiumQuoteResponse quote = plan.quote();
 
         ContractApplyResponse applied = contractService.applyContract(globalTxId, empId, ContractApplyRequest.builder()
-                .insrClsCd(source.getInsrClsCd()).startDate(startDate).endDate(endDate)
+                .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate)
                 .policyholderId(source.getPolicyholderId()).insuredId(source.getInsuredId())
                 .totalPremium(quote.getTotalPremium()).rating(rating)
                 .coverages(quote.getCoverages().stream().map(c -> CoverageRequest.builder()
@@ -156,7 +156,7 @@ public class ContractRenewalService {
         List<Coverage> sourceCoverages = coverageRepository.findByContractContractNo(source.getContractNo());
 
         PremiumQuoteResponse quote = premiumService.quote(PremiumQuoteRequest.builder()
-                .insrClsCd(source.getInsrClsCd()).startDate(startDate).endDate(endDate).rating(rating)
+                .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate).rating(rating)
                 .coverages(sourceCoverages.stream().map(c -> PremiumQuoteRequest.QuoteCoverageRequest.builder()
                         .cvrgCd(c.getCvrgCd()).isrdAmt(c.getIsrdAmt()).build()).toList())
                 .build());

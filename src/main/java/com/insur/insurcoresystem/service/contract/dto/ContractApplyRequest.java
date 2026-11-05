@@ -24,6 +24,10 @@ public class ContractApplyRequest {
     /** 보험종목코드 (01:자동차, 02:화재) */
     @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
     private String insrClsCd;
+
+    /** 상품코드 (선택). 지정하면 오늘 판매 중인 상품이어야 하고 담보 구성을 상품 규칙으로 검증한다. 생략하면 상품 없이(기존 연계 채널 방식) 접수한다 */
+    @Schema(description = "상품코드 (선택). 지정하면 오늘 판매 중인 상품이어야 하고 담보 구성을 상품 규칙으로 검증한다. 생략하면 상품 없이(기존 연계 채널 방식) 접수한다")
+    private String prdCd;
     /** 보험시기 (보험 개시일) */
     @Schema(description = "보험시기 (보험 개시일)")
     private LocalDate startDate;
