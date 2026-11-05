@@ -10,11 +10,14 @@ import { ContractListPage } from './pages/contract/ContractListPage';
 import { ContractDetailPage } from './pages/contract/ContractDetailPage';
 import { ApplyPage } from './pages/contract/ApplyPage';
 import { QuotePage } from './pages/contract/QuotePage';
+import { ProductPage } from './pages/contract/ProductPage';
+import { ClaimDetailPage, ClaimListPage } from './pages/claim/ClaimPages';
 import { FactorPage, PolicyPage, RatePage, TariffAuditPage } from './pages/admin/TariffPages';
 import { EmployeePage, LoginHistoryPage } from './pages/admin/EmployeePages';
 import { useAuth } from './auth/AuthProvider';
 
 const TARIFF = ['UNDERWRITER', 'OPERATOR', 'ADMIN'];
+const CLAIM_USERS = ['AGENT', 'CLAIM', 'ADMIN'];
 
 /**
  * 비밀번호 변경이 필요한 사원만 쓰는 메뉴 없는 단독 화면. 변경을 마치면 세션이 바뀌면서 바로 업무 현황으로 간다.
@@ -39,6 +42,9 @@ export function App() {
         <Route path="contracts/apply" element={<RequireRole roles={['AGENT', 'ADMIN']}><ApplyPage /></RequireRole>} />
         <Route path="contracts/:contractNo" element={<ContractDetailPage />} />
         <Route path="quote" element={<QuotePage />} />
+        <Route path="products" element={<ProductPage />} />
+        <Route path="claims" element={<RequireRole roles={CLAIM_USERS}><ClaimListPage /></RequireRole>} />
+        <Route path="claims/:clmNo" element={<RequireRole roles={CLAIM_USERS}><ClaimDetailPage /></RequireRole>} />
         <Route path="tariff/rates" element={<RequireRole roles={TARIFF}><RatePage /></RequireRole>} />
         <Route path="tariff/factors" element={<RequireRole roles={TARIFF}><FactorPage /></RequireRole>} />
         <Route path="tariff/policies" element={<RequireRole roles={TARIFF}><PolicyPage /></RequireRole>} />

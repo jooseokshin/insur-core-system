@@ -197,6 +197,9 @@ input:disabled, select:disabled { background: var(--bg); color: var(--muted); }
 .todo-count { font-size: 20px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
 .todo-count.has { color: var(--danger); }
 
+/* ── 보상 ── */
+.claim-desc { margin: 0; display: flex; gap: 10px; align-items: baseline; }
+
 /* ── 보험료 산출 결과 ── */
 .quote-result { display: grid; gap: 10px; }
 .quote-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 14px; background: var(--blue-soft); border-radius: 3px; }

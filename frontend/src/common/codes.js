@@ -74,6 +74,7 @@ export const ROLES = [
   { code: 'AGENT', name: '설계사', desc: '청약 접수, 본인 계약 조회·갱신' },
   { code: 'UNDERWRITER', name: '심사', desc: '청약 승인·취소, 배서' },
   { code: 'OPERATOR', name: '계약관리', desc: '수납, 해지, 배서' },
+  { code: 'CLAIM', name: '보상', desc: '손해사정, 보험금 지급·면책' },
   { code: 'ADMIN', name: '관리자', desc: '모든 업무, 요율·사원 관리' },
 ];
 
@@ -81,6 +82,19 @@ export const TODO_TYPES = [
   { code: 'PENDING_APPROVAL', name: '승인 대기', desc: '보험료를 완납해 승인할 수 있는 청약' },
   { code: 'UNPAID', name: '미납 청약', desc: '아직 보험료를 다 내지 않은 청약' },
   { code: 'STALE_APPLICATION', name: '장기 미처리', desc: '접수 후 7일 이상 청약 상태인 건' },
+];
+
+export const CLM_STAT = [
+  { code: '10', name: '접수', tone: 'info' },
+  { code: '20', name: '지급 대기', tone: 'warn' },
+  { code: '40', name: '지급 완료', tone: 'ok' },
+  { code: '80', name: '면책', tone: 'danger' },
+  { code: '90', name: '접수 취소', tone: 'muted' },
+];
+
+export const CVRG_TYPES = [
+  { code: 'MAIN', name: '주계약', tone: 'info' },
+  { code: 'RIDER', name: '특약', tone: 'muted' },
 ];
 
 export const LOGIN_RESULTS = [

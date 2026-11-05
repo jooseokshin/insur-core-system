@@ -1,29 +1,55 @@
-import { COVERAGES, INSR_CLS, RATING_FIELDS } from '../common/codes';
+import { useEffect } from 'react';
+import { productApi } from '../api/endpoints';
+import { CVRG_TYPES, INSR_CLS, RATING_FIELDS, nameOf } from '../common/codes';
 import { addYears, daysBetween, money, parseAmount, seoulDate } from '../common/format';
-import { Field, Select } from './ui';
+import { Badge, Field, Select, useLoad } from './ui';
+
+// 보험료 입력: 상품을 고르면 그 상품의 주계약(필수)·특약(선택) 담보와 가입금액 한도가 입력 표가 된다.
+// 서버도 같은 규칙(E-PRD-004~006)으로 다시 검사하므로, 여기 검증은 입력을 돕는 용도다.
+
+/** 판매 중인 상품 목록 (보험종목별) */
+export function useProducts() {
+  return useLoad(() => productApi.list({ onSaleOnly: true }), []);
+}
+
+function neutralRating(insrClsCd) {
+  return insrClsCd === '01' ? { driverAge: '35', discountGrade: '3' } : { structureGrade: '' };
+}
+
+/** 상품을 고른 직후의 가입금액: 필수 담보는 최소 한도, 특약은 미가입 */
+function defaultAmounts(product) {
+  return Object.fromEntries((product?.coverages ?? []).map((c) => [c.cvrgCd, c.required ? money(c.minIsrdAmt) : '']));
+}
 
 /** 보험료 입력값의 기본 상태: 내일 시작 1년 계약, 요율 계수는 중립값(만 35세, 3등급) */
-export function initialPremiumInput(insrClsCd = '01') {
+export function initialPremiumInput(insrClsCd = '01', product = null) {
   const start = seoulDate(1);
   return {
     insrClsCd,
+    prdCd: product?.prdCd ?? '',
     startDate: start,
     endDate: addYears(start, 1),
-    rating: insrClsCd === '01' ? { driverAge: '35', discountGrade: '3' } : { structureGrade: '' },
-    amounts: Object.fromEntries(COVERAGES[insrClsCd].map((c, i) => [c.code, i === 0 ? '100,000,000' : ''])),
+    rating: neutralRating(insrClsCd),
+    amounts: defaultAmounts(product),
   };
 }
 
 /** 입력값을 산출 API 요청으로 바꾼다. 가입금액을 넣은 담보만 보낸다. 오류가 있으면 문자열로 돌려준다. */
-export function toQuoteRequest(input) {
+export function toQuoteRequest(input, product) {
+  if (!product) return { error: '상품을 선택해 주세요.' };
   const coverages = [];
-  for (const c of COVERAGES[input.insrClsCd]) {
-    const amount = parseAmount(input.amounts[c.code]);
-    if (amount === null) continue;
-    if (Number.isNaN(amount) || amount <= 0) return { error: `${c.name}의 가입금액은 0보다 큰 숫자여야 합니다.` };
-    coverages.push({ cvrgCd: c.code, isrdAmt: amount });
+  for (const c of product.coverages) {
+    const amount = parseAmount(input.amounts[c.cvrgCd]);
+    const label = c.cvrgNm ?? c.cvrgCd;
+    if (amount === null) {
+      if (c.required) return { error: `${label}은(는) 필수 담보입니다. 가입금액을 입력해 주세요.` };
+      continue;
+    }
+    if (Number.isNaN(amount) || amount < Number(c.minIsrdAmt) || amount > Number(c.maxIsrdAmt)) {
+      return { error: `${label}의 가입금액은 ${money(c.minIsrdAmt)}~${money(c.maxIsrdAmt)}원이어야 합니다.` };
+    }
+    coverages.push({ cvrgCd: c.cvrgCd, isrdAmt: amount });
   }
-  if (coverages.length === 0) return { error: '가입할 담보의 가입금액을 하나 이상 입력해 주세요.' };
   const days = daysBetween(input.startDate, input.endDate);
   if (!days || days <= 0) return { error: '보험종기는 보험시기 이후여야 합니다.' };
   const rating = {};
@@ -34,6 +60,7 @@ export function toQuoteRequest(input) {
   return {
     request: {
       insrClsCd: input.insrClsCd,
+      prdCd: input.prdCd,
       startDate: input.startDate,
       endDate: input.endDate,
       rating: Object.keys(rating).length ? rating : null,
@@ -42,18 +69,39 @@ export function toQuoteRequest(input) {
   };
 }
 
-/** 보험종목, 보험기간, 요율 계수, 담보별 가입금액 입력 */
-export function PremiumInputs({ value, onChange, disabled }) {
+/** 보험종목·상품, 보험기간, 요율 계수, 담보별 가입금액 입력 */
+export function PremiumInputs({ value, onChange, products, disabled }) {
   const set = (patch) => onChange({ ...value, ...patch });
   const days = daysBetween(value.startDate, value.endDate);
+  const ofClass = (products ?? []).filter((p) => p.insrClsCd === value.insrClsCd);
+  const product = ofClass.find((p) => p.prdCd === value.prdCd);
+
+  // 상품 목록이 늦게 오거나 종목을 바꾸면 그 종목의 첫 상품을 고른다
+  useEffect(() => {
+    if (!product && ofClass.length > 0) {
+      onChange({ ...value, prdCd: ofClass[0].prdCd, amounts: defaultAmounts(ofClass[0]) });
+    }
+  }, [product, ofClass, value, onChange]);
+
+  const chooseClass = (code) => {
+    const first = (products ?? []).find((p) => p.insrClsCd === code);
+    onChange({ ...initialPremiumInput(code, first), startDate: value.startDate, endDate: value.endDate });
+  };
+  const chooseProduct = (prdCd) => {
+    const next = ofClass.find((p) => p.prdCd === prdCd);
+    set({ prdCd, amounts: defaultAmounts(next) });
+  };
 
   return (
     <div className="premium-inputs">
       <div className="form-grid">
         <Field label="보험종목" required>
-          <Select id="insr-cls" value={value.insrClsCd} disabled={disabled}
-                  onChange={(code) => onChange({ ...initialPremiumInput(code), startDate: value.startDate, endDate: value.endDate })}
-                  options={INSR_CLS} />
+          <Select id="insr-cls" value={value.insrClsCd} disabled={disabled} onChange={chooseClass} options={INSR_CLS} />
+        </Field>
+        <Field label="상품" required wide>
+          <Select id="product" value={value.prdCd} disabled={disabled || ofClass.length === 0} onChange={chooseProduct}
+                  options={ofClass.map((p) => ({ code: p.prdCd, name: `${p.prdNm} (${p.prdCd})` }))}
+                  placeholder={ofClass.length === 0 ? '판매 중인 상품이 없습니다' : undefined} />
         </Field>
         <Field label="보험시기" required>
           <input id="start-date" type="date" value={value.startDate} disabled={disabled}
@@ -74,30 +122,45 @@ export function PremiumInputs({ value, onChange, disabled }) {
           </Field>
         ))}
       </div>
+      {product?.prdDesc && <p className="muted small">{product.prdDesc}</p>}
       <table className="grid compact coverage-input">
         <thead>
           <tr>
+            <th>구분</th>
             <th>담보</th>
+            <th style={{ textAlign: 'right' }}>가입 한도 (원)</th>
+            <th style={{ textAlign: 'right' }}>자기부담금</th>
             <th style={{ textAlign: 'right' }}>가입금액 (원)</th>
           </tr>
         </thead>
         <tbody>
-          {COVERAGES[value.insrClsCd].map((c) => (
-            <tr key={c.code}>
+          {(product?.coverages ?? []).map((c) => (
+            <tr key={c.cvrgCd}>
               <td>
-                <span className="mono muted">{c.code}</span> {c.name}
+                <Badge tone={CVRG_TYPES.find((t) => t.code === c.cvrgType)?.tone}>{nameOf(CVRG_TYPES, c.cvrgType)}</Badge>
               </td>
+              <td>
+                <span className="mono muted">{c.cvrgCd}</span> {c.cvrgNm}
+                {c.required && <em className="req">*</em>}
+              </td>
+              <td className="num muted small">{money(c.minIsrdAmt)} ~ {money(c.maxIsrdAmt)}</td>
+              <td className="num muted small">{Number(c.deductibleAmt) > 0 ? money(c.deductibleAmt) : '-'}</td>
               <td style={{ textAlign: 'right' }}>
-                <input id={`amt-${c.code}`} className="num-input" inputMode="numeric" placeholder="미가입" disabled={disabled}
-                       value={value.amounts[c.code] ?? ''}
-                       onChange={(e) => set({ amounts: { ...value.amounts, [c.code]: e.target.value } })}
+                <input id={`amt-${c.cvrgCd}`} className="num-input" inputMode="numeric" placeholder={c.required ? '필수' : '미가입'}
+                       disabled={disabled} value={value.amounts[c.cvrgCd] ?? ''}
+                       onChange={(e) => set({ amounts: { ...value.amounts, [c.cvrgCd]: e.target.value } })}
                        onBlur={(e) => {
                          const n = parseAmount(e.target.value);
-                         if (n && !Number.isNaN(n)) set({ amounts: { ...value.amounts, [c.code]: money(n) } });
+                         if (n && !Number.isNaN(n)) set({ amounts: { ...value.amounts, [c.cvrgCd]: money(n) } });
                        }} />
               </td>
             </tr>
           ))}
+          {!product && (
+            <tr>
+              <td colSpan={5} className="grid-empty">상품을 불러오는 중이거나 선택할 상품이 없습니다.</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

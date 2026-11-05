@@ -3,18 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { premiumApi } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthProvider';
 import { ErrorBox, PageHeader, Panel } from '../../components/ui';
-import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest } from '../../components/PremiumInputs';
+import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest, useProducts } from '../../components/PremiumInputs';
 
 export function QuotePage() {
   const navigate = useNavigate();
   const { hasAny } = useAuth();
+  const products = useProducts();
   const [input, setInput] = useState(() => initialPremiumInput());
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const run = async () => {
-    const { request, error: invalid } = toQuoteRequest(input);
+    const { request, error: invalid } = toQuoteRequest(input, products.data?.items.find((p) => p.prdCd === input.prdCd));
     if (invalid) {
       setError({ message: invalid });
       return;
@@ -36,7 +37,8 @@ export function QuotePage() {
       <PageHeader title="보험료 산출" desc="가입 조건을 넣으면 요율표 기준 보험료를 계산합니다. 저장되지 않습니다." />
       <div className="two-col wide-left">
         <Panel title="가입 조건">
-          <PremiumInputs value={input} onChange={(v) => { setInput(v); setQuote(null); }} />
+          <ErrorBox error={products.error} />
+          <PremiumInputs value={input} onChange={(v) => { setInput(v); setQuote(null); }} products={products.data?.items} />
           <ErrorBox error={error} />
           <div className="form-actions">
             <button type="button" className="btn" onClick={() => { setInput(initialPremiumInput(input.insrClsCd)); setQuote(null); }}>초기화</button>

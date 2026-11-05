@@ -4,7 +4,7 @@ import { contractApi, premiumApi } from '../../api/endpoints';
 import { newTxId } from '../../api/http';
 import { money } from '../../common/format';
 import { ErrorBox, Field, PageHeader, Panel, useToast } from '../../components/ui';
-import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest } from '../../components/PremiumInputs';
+import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest, useProducts } from '../../components/PremiumInputs';
 
 /**
  * 청약 입력. 보험료는 반드시 산출 API 결과를 그대로 보낸다(서버가 요율표로 다시 계산해 다르면 E-CTR-020 으로 거절).
@@ -13,6 +13,7 @@ import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest } from 
 export function ApplyPage() {
   const location = useLocation();
   const notify = useToast();
+  const products = useProducts();
   const [input, setInput] = useState(() => location.state?.input ?? initialPremiumInput());
   const [policyholderId, setPolicyholderId] = useState('');
   const [insuredId, setInsuredId] = useState('');
@@ -30,7 +31,7 @@ export function ApplyPage() {
   };
 
   const runQuote = async () => {
-    const { request, error: invalid } = toQuoteRequest(input);
+    const { request, error: invalid } = toQuoteRequest(input, products.data?.items.find((p) => p.prdCd === input.prdCd));
     if (invalid) return setError({ message: invalid });
     setBusy(true);
     setError(null);
@@ -105,7 +106,8 @@ export function ApplyPage() {
       <PageHeader title="청약 입력" desc="① 가입 조건 입력 → ② 보험료 산출 → ③ 계약자 정보 확인 후 청약 접수 순서로 진행합니다." />
       <div className="two-col wide-left">
         <Panel title="① 가입 조건">
-          <PremiumInputs value={input} onChange={changeInput} disabled={busy} />
+          <ErrorBox error={products.error} />
+          <PremiumInputs value={input} onChange={changeInput} products={products.data?.items} disabled={busy} />
           <div className="form-actions">
             <button type="button" className="btn btn-primary" onClick={runQuote} disabled={busy}>② 보험료 산출</button>
           </div>

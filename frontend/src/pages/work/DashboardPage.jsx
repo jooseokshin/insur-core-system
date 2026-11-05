@@ -48,9 +48,20 @@ export function DashboardPage() {
             <Kpi label="갱신 대상 (60일 이내 만기)" value={data.renewalDueCount} unit="건" sub="만기·갱신 대상 보기 →" to="/renewals" />
           </div>
 
-          <div className="two-col">
+          {data.claims && (
+            <div className="kpi-row">
+              <Kpi label="보상 접수 (손해사정 전)" value={data.claims.reportedCount} unit="건" sub="사고·보상 목록 보기 →" to="/claims" />
+              <Kpi label="보험금 지급 대기" value={data.claims.assessedCount} unit="건"
+                   sub={data.claims.highValuePendingCount > 0 ? `고액(관리자 승인) ${data.claims.highValuePendingCount}건` : '고액 승인 대기 없음'} to="/claims" />
+              <Kpi label="오늘 사고 접수" value={data.claims.todayReportedCount} unit="건" />
+              <Kpi label="오늘 보험금 지급" value={money(data.claims.todayPaidAmount)} unit="원" sub={`${data.claims.todayPaidCount}건`} />
+            </div>
+          )}
+
+          {/* 보상 담당처럼 할 일 유형이 없는 역할은 할 일 패널 없이 상태별 현황만 보여 준다 */}
+          <div className={data.todoCounts.length > 0 ? 'two-col' : ''}>
+            {data.todoCounts.length > 0 && (
             <Panel title="처리할 일" actions={<Link to="/todo" className="link">할 일함 →</Link>}>
-              {data.todoCounts.length === 0 && <p className="muted">현재 역할로 처리할 할 일 유형이 없습니다.</p>}
               <ul className="todo-summary">
                 {data.todoCounts.map((t) => (
                   <li key={t.type}>
@@ -65,6 +76,7 @@ export function DashboardPage() {
                 ))}
               </ul>
             </Panel>
+            )}
 
             <Panel title="계약 상태별 현황">
               <table className="grid compact">
