@@ -98,7 +98,7 @@
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    PostgreSQL을 쓰고 Flyway로 스키마를 관리합니다. 코어 마이그레이션은 <code>V1</code>부터 <code>V19</code>까지 쌓여 있고, 기존 파일은 고치지 않습니다. 인증 서버는 같은 DB의 <code>auth</code> 스키마를 쓰고 Flyway 이력도 그 스키마에 따로 두어, 두 앱의 마이그레이션 번호가 섞이지 않습니다. 금액은 <code>NUMERIC(15, 0)</code>이고, 납입 테이블(<code>V18</code>)은 <code>CHECK</code> 제약으로 0 이하 금액과 정해지지 않은 납부 방법을 DB에서 막습니다. 갱신 계약은 "청약취소가 아닌 것에 한해 유일한" 부분 유니크 인덱스(<code>V17</code>)로 원 계약당 하나만 허용하고, 업무 현황·갱신 대상 조회를 위해 <code>V19</code>에서 상태+만기일, 변경 일시, 수납 일시 인덱스를 추가했습니다. 증권번호는 <code>INSERT ... ON CONFLICT DO UPDATE</code> 한 문장으로 채번합니다.
+    PostgreSQL을 쓰고 Flyway로 스키마를 관리합니다. 코어 마이그레이션은 <code>V1</code>부터 <code>V19</code>까지 쌓여 있고, 기존 파일은 고치지 않습니다. 인증 서버는 같은 DB의 <code>auth</code> 스키마를 쓰고 Flyway 이력도 그 스키마에 따로 두어, 두 앱의 마이그레이션 번호가 섞이지 않습니다. 금액은 <code>NUMERIC(15, 0)</code>이고, 납입 테이블(<code>V18</code>)은 <code>CHECK</code> 제약으로 0 이하 금액과 정해지지 않은 납부 방법을 DB에서 막습니다. 갱신 계약은 "청약취소가 아닌 것에 한해 유일한" 부분 유니크 인덱스(<code>V17</code>)로 원 계약당 하나만 허용하고, 업무 현황·갱신 대상 조회를 위해 <code>V19</code>에서 상태+만기일, 변경 일시, 수납 일시 인덱스를 추가했습니다. 증권번호는 <code>INSERT ... ON CONFLICT DO UPDATE</code> 한 문장으로 채번합니다. 상품(<code>V20</code>)과 보상(<code>V21</code>) 테이블은 규칙을 제약조건으로도 지킵니다. 예를 들어 "주계약은 반드시 필수"는 <code>CHECK (CVRG_TYPE &lt;&gt; 'MAIN' OR REQUIRED_YN)</code>, 보상 이력의 <code>UNIQUE (CLM_NO, GLOBAL_TX_ID)</code>는 같은 처리가 두 번 기록되지 않게 막습니다.
   </div>
 
   <section>

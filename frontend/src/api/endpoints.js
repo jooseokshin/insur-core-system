@@ -28,6 +28,18 @@ export const contractApi = {
   renew: (contractNo, rating, txId) => call('/api/contract/renew', { contractNo, rating }, { txId }),
 };
 
+export const productApi = {
+  list: (cond = {}) => call('/api/product/list', cond),
+};
+
+export const claimApi = {
+  report: (body, txId) => call('/api/claim/report', body, { txId }),
+  assess: (clmNo, coverages, memo, txId) => call('/api/claim/assess', { clmNo, coverages, memo }, { txId }),
+  decide: (clmNo, decision, memo, txId) => call('/api/claim/decide', { clmNo, decision, memo }, { txId }),
+  inquiry: (clmNo) => call('/api/claim/inquiry', { clmNo }),
+  list: (cond) => call('/api/claim/list', cond),
+};
+
 export const premiumApi = {
   quote: (body) => call('/api/premium/quote', body),
 };

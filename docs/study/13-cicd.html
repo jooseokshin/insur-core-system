@@ -61,47 +61,66 @@
   </section>
 
   <section>
-    <h2>예시: GitHub Actions로 테스트 돌리기</h2>
-    <p>GitHub Actions는 저장소의 <code>.github/workflows/</code> 아래 YAML 파일로 파이프라인을 정의합니다. 아래는 이 프로젝트에 맞춰 쓴 <strong>예시</strong>입니다. 이 프로젝트의 테스트는 실제 PostgreSQL이 필요해서, CI에서도 DB 컨테이너(서비스 컨테이너)를 함께 띄웁니다.</p>
+    <h2>이 저장소의 GitHub Actions</h2>
+    <p>GitHub Actions는 저장소의 <code>.github/workflows/</code> 아래 YAML 파일로 파이프라인을 정의합니다. 아래는 이 저장소에 실제로 있는 <code>ci.yml</code>의 백엔드 테스트 작업입니다. 테스트가 실제 PostgreSQL을 쓰기 때문에 CI에서도 DB 컨테이너(서비스 컨테이너)를 함께 띄웁니다. 같은 파일에 화면 빌드 작업과, 두 작업이 통과한 뒤에만 도는 Docker 이미지 빌드 작업이 더 있습니다.</p>
     <figure>
-      <figcaption>.github/workflows/ci.yml (예시, 저장소에는 아직 없음)</figcaption>
-      <pre><code>name: ci
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-jobs:
-  test:
+      <figcaption>.github/workflows/ci.yml 중 backend 작업</figcaption>
+      <pre><code>  backend:
+    name: 백엔드 테스트
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 테스트 이름이 한글이라 리포트 파일명에 UTF-8 로케일이 필요하다
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
     services:
       postgres:
-        image: postgres:16-alpine          <span class="c"># docker-compose.yml 과 같은 버전</span>
+        image: postgres:16-alpine
         env:
           POSTGRES_DB: insur_core_db
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgrespassword
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s --health-timeout 5s --health-retries 10
+          TZ: Asia/Seoul
+        ports:
+          - 5432:5432
+        options: &gt;-
+          --health-cmd &quot;pg_isready -U postgres -d insur_core_db&quot;
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: &#x27;17&#x27;
+
       - uses: gradle/actions/setup-gradle@v4
-      <span class="c"># 로컬 DB와 같은 시간대로 맞춘다 (docker-compose 는 timezone=Asia/Seoul)</span>
-      - run: psql -h localhost -U postgres -d insur_core_db -c "ALTER DATABASE insur_core_db SET timezone TO 'Asia/Seoul'"
+
+      # 로컬 docker-compose 와 같이 DB 시간대를 Asia/Seoul 로 맞춘다 (Hibernate jdbc.time_zone 과 일치)
+      - name: DB 시간대 설정
+        run: psql -h localhost -U postgres -d insur_core_db -c &quot;ALTER DATABASE insur_core_db SET timezone TO &#x27;Asia/Seoul&#x27;&quot;
         env:
           PGPASSWORD: postgrespassword
-      <span class="c"># JWT_SECRET 은 build.gradle 의 test 태스크가 테스트용 값을 넣는다</span>
-      - run: ./gradlew test</code></pre>
+
+      # JWT_SECRET 과 테스트 시간대는 각 프로젝트 build.gradle 의 test 태스크가 넣는다
+      - name: 코어·인증 서버 테스트
+        run: ./gradlew test --no-daemon
+
+      - name: 테스트 리포트 보관 (실패 시)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/test
+            auth-server/build/reports/tests/test
+          retention-days: 7</code></pre>
     </figure>
     <div class="note warn">
-      <b>그대로 쓰기 전에</b>
-      이 YAML은 설명용이고 실제로 실행해 보지 않았습니다. 액션 버전과 DB 설정은 도입할 때 확인하세요. CI용 DB 비밀번호는 테스트 전용 값이라 예시에 그대로 적었지만, 운영 비밀값은 절대 YAML에 쓰지 않고 저장소의 Secrets 설정에 넣어 <code>${{ secrets.이름 }}</code>으로 읽습니다.
+      <b>처음 돌렸을 때 겪은 일</b>
+      첫 실행은 테스트가 아니라 Gradle 배포본 다운로드에서 실패했습니다. 래퍼의 읽기 제한이 10초, 재시도 0회였기 때문입니다. 대기시간을 60초, 재시도를 3회로 늘렸고, 그 뒤에도 Gradle 서버가 잠시 504를 돌려줘서 한 번 다시 실행해 통과했습니다. CI 실패의 상당수는 코드가 아니라 외부 의존성에서 나옵니다. CI용 DB 비밀번호는 테스트 전용 값이라 YAML에 그대로 적었지만, 운영 비밀값은 저장소의 Secrets 설정에 넣어 <code>${{ secrets.이름 }}</code>으로 읽습니다.
     </div>
   </section>
 
@@ -157,7 +176,7 @@ jobs:
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    아직 CI 설정(<code>.github/workflows/</code>)은 없지만 배포 단위는 갖춰져 있습니다. 코어, 인증 서버, 화면이 각각 Dockerfile을 갖고, 앞의 둘은 JDK로 빌드한 뒤 JRE 이미지에 JAR만 담는 멀티 스테이지 빌드, 화면은 Node로 빌드한 정적 파일을 nginx 이미지에 담습니다. nginx가 화면을 서빙하면서 <code>/api</code>, <code>/auth</code>를 내부 서비스로 넘기므로 밖으로 여는 포트는 하나입니다. <code>docker compose --profile app up -d --build</code>로 전체를 띄우고, 운영 비밀값(<code>JWT_SECRET</code>, 초기 관리자 비밀번호)은 환경변수로만 넣습니다. 두 서버 모두 비밀키가 없으면 기동에 실패하므로 설정 누락이 배포 즉시 드러납니다. 스키마는 각 앱이 기동할 때 Flyway가 적용합니다.
+    <code>.github/workflows/ci.yml</code>이 <code>main</code>·<code>develop</code> 푸시와 PR마다 세 작업을 돌립니다. 백엔드 테스트(코어·인증 서버, PostgreSQL 16 서비스 컨테이너, 서울 시간대), 화면 빌드(<code>npm ci</code>, Vite 빌드), 그리고 앞의 둘이 통과하면 세 서비스의 Docker 이미지 빌드입니다. 이미지는 레지스트리에 올리지 않고 빌드만 확인합니다. 코어와 인증 서버는 JDK로 빌드한 뒤 JRE 이미지에 JAR만 담는 멀티 스테이지 빌드, 화면은 Node로 빌드한 정적 파일을 nginx 이미지에 담습니다. 운영 비밀값(<code>JWT_SECRET</code>)은 환경변수로만 넣고, 없으면 두 서버 모두 기동에 실패해 설정 누락이 배포 즉시 드러납니다.
   </div>
 
   <section>

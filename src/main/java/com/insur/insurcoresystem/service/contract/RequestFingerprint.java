@@ -38,6 +38,11 @@ public final class RequestFingerprint {
         append(canonical, request.getPolicyholderId());
         append(canonical, request.getInsuredId());
         append(canonical, amount(request.getTotalPremium()));
+        // 상품코드도 입력했을 때만 넣는다 (상품 도입 전 지문과 상품 없는 요청의 지문이 계속 같도록)
+        if (request.getPrdCd() != null && !request.getPrdCd().isBlank()) {
+            append(canonical, "prd");
+            append(canonical, request.getPrdCd());
+        }
         // 요율 계수 입력이 있을 때만 지문에 넣는다. 계수 도입 전에 접수한 계약의 지문과 계수 없는 요청의 지문이 계속 같도록 하기 위해서다.
         RatingInput rating = request.getRating();
         if (rating != null && !rating.isEmpty()) {

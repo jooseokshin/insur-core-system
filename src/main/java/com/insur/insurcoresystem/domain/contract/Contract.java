@@ -104,6 +104,10 @@ public class Contract {
     @Column(name = "REFUND_PREM", precision = 15, scale = 0)
     private BigDecimal refundPremium;
 
+    /** 상품코드. 상품 도입 전 계약이나 상품 없이 접수한 청약은 null */
+    @Column(name = "PRD_CD", length = 20)
+    private String prdCd;
+
     /** 이 계약이 갱신으로 만들어진 경우 원 계약의 증권번호. 갱신 계약이 아니면 null */
     @Column(name = "RENEWED_FROM", length = 30)
     private String renewedFrom;

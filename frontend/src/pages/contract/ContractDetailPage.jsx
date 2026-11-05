@@ -6,12 +6,14 @@ import { CTR_STAT, INSR_CLS, PAY_METHODS, RATING_FIELDS, coverageName, nameOf } 
 import { date, dateTime, money } from '../../common/format';
 import { DataTable, ErrorBox, InfoGrid, PageHeader, Panel, StatusBadge, useLoad, useToast } from '../../components/ui';
 import { EndorseModal, PaymentModal, RenewModal, StatusChangeModal } from './ContractActions';
+import { ClaimReportModal, ContractClaims } from '../claim/ClaimPages';
 
 const TABS = [
   { code: 'coverages', name: '담보' },
   { code: 'payments', name: '납입 내역' },
   { code: 'status', name: '상태 이력' },
   { code: 'endorse', name: '배서 이력' },
+  { code: 'claims', name: '사고 내역' },
 ];
 
 export function ContractDetailPage() {
@@ -76,6 +78,9 @@ export function ContractDetailPage() {
   if (inForce && hasAny('AGENT', 'ADMIN')) {
     actions.push({ key: 'renew', label: '갱신', onClick: () => setModal({ type: 'renew' }) });
   }
+  if ((inForce || c.ctrStatCd === '30') && hasAny('AGENT', 'CLAIM', 'ADMIN')) {
+    actions.push({ key: 'claim', label: '사고 접수', onClick: () => setModal({ type: 'claim' }) });
+  }
   if (inForce && hasAny('OPERATOR', 'ADMIN')) {
     actions.push({ key: 'terminate', label: '해지', tone: 'btn-danger-ghost', onClick: () => setModal({ type: 'status', target: '30' }) });
   }
@@ -118,6 +123,7 @@ export function ContractDetailPage() {
         <InfoGrid items={[
           ['계약상태', <StatusBadge key="s" code={c.ctrStatCd} />],
           ['보험종목', nameOf(INSR_CLS, c.insrClsCd)],
+          ['상품', c.prdNm ? `${c.prdNm} (${c.prdCd})` : '상품 없음 (기존 채널)'],
           ['보험기간', `${date(c.startDate)} ~ ${date(c.endDate)}`],
           ['총보험료', <strong key="p">{money(c.totalPremium)}원</strong>],
           ['계약자', c.policyholderId],
@@ -169,6 +175,7 @@ export function ContractDetailPage() {
             ]} />
           </>
         )}
+        {tab === 'claims' && <ContractClaims contractNo={c.contractNo} />}
         {tab === 'endorse' && (
           <>
             <ErrorBox error={endorseHist.error} />
@@ -186,6 +193,10 @@ export function ContractDetailPage() {
       {modal?.type === 'status' && <StatusChangeModal contract={c} target={modal.target} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'pay' && <PaymentModal contract={c} remaining={remaining} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'endorse' && <EndorseModal contract={c} onClose={() => setModal(null)} onDone={done} />}
+      {modal?.type === 'claim' && (
+        <ClaimReportModal contract={c} onClose={() => setModal(null)}
+                          onReported={(res) => { setModal(null); notify(`사고를 접수했습니다. (${res.clmNo})`); navigate(`/claims/${encodeURIComponent(res.clmNo)}`); }} />
+      )}
       {modal?.type === 'renew' && (
         <RenewModal contract={c} onClose={() => setModal(null)}
                     onRenewed={(res) => {

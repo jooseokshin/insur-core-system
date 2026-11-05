@@ -95,7 +95,7 @@
 
   <div class="note">
     <b>이 프로젝트에서는</b>
-    JUnit 5와 AssertJ로 테스트하며 테스트 이름이 한글 문장입니다. 계산식처럼 순수한 로직은 DB 없이 단위 테스트하고, 청약·갱신·업무 현황·로그인·사원 관리는 실제 PostgreSQL에 붙는 통합 테스트로 검증합니다. <code>./gradlew test</code>가 코어와 인증 서버 테스트를 함께 돌립니다. 업무 현황처럼 전체 데이터를 세는 기능은 개발 DB에 다른 데이터가 있어도 결과가 흔들리지 않도록, 테스트마다 새 설계사 사번을 만들어 그 사람 범위로만 확인합니다. 로그에는 MDC의 <code>globalTxId</code>가 모든 줄에 붙습니다. 실행 환경은 <code>docker-compose.yml</code>의 프로필로 나눠, 그냥 <code>docker compose up -d</code>는 DB만, <code>--profile app</code>을 붙이면 코어·인증 서버·nginx까지 띄웁니다.
+    JUnit 5와 AssertJ로 테스트하며 테스트 이름이 한글 문장입니다. 계산식처럼 순수한 로직은 DB 없이 단위 테스트하고, 청약·갱신·업무 현황·로그인·사원 관리는 실제 PostgreSQL에 붙는 통합 테스트로 검증합니다. <code>./gradlew test</code>가 코어와 인증 서버 테스트를 함께 돌립니다. 업무 현황처럼 전체 데이터를 세는 기능은 개발 DB에 다른 데이터가 있어도 결과가 흔들리지 않도록, 테스트마다 새 설계사 사번을 만들어 그 사람 범위로만 확인합니다. 로그에는 MDC의 <code>globalTxId</code>가 모든 줄에 붙습니다. 실행 환경은 <code>docker-compose.yml</code>의 프로필로 나눠, 그냥 <code>docker compose up -d</code>는 DB만, <code>--profile app</code>을 붙이면 코어·인증 서버·nginx까지 띄웁니다. 이제 GitHub Actions CI가 <code>main</code>·<code>develop</code> 푸시와 PR마다 이 테스트 전체를 실제 PostgreSQL 컨테이너에서 돌리고, 화면 빌드와 Docker 이미지 빌드까지 확인합니다.
   </div>
 
   <section>

@@ -6,6 +6,8 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.pageReq
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
+import com.insur.insurcoresystem.domain.product.Product;
+import com.insur.insurcoresystem.domain.product.ProductRepository;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
@@ -48,6 +50,7 @@ public class ContractInquiryService {
     private final ContractRepository contractRepository;
     private final CoverageRepository coverageRepository;
     private final ContractStatusHistoryRepository historyRepository;
+    private final ProductRepository productRepository;
 
     /** LIKE 조건의 이스케이프 문자 */
     private static final char LIKE_ESCAPE = '\\';
@@ -89,6 +92,9 @@ public class ContractInquiryService {
                 .contractNo(contract.getContractNo())
                 .applNo(contract.getApplNo())
                 .insrClsCd(contract.getInsrClsCd())
+                .prdCd(contract.getPrdCd())
+                .prdNm(contract.getPrdCd() == null ? null
+                        : productRepository.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse(null))
                 .ctrStatCd(contract.getCtrStatCd())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())
@@ -270,6 +276,7 @@ public class ContractInquiryService {
                 .contractNo(contract.getContractNo())
                 .applNo(contract.getApplNo())
                 .insrClsCd(contract.getInsrClsCd())
+                .prdCd(contract.getPrdCd())
                 .ctrStatCd(contract.getCtrStatCd())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())

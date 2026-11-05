@@ -24,6 +24,7 @@ public class ContractNumberGenerator {
 
     static final String SEQ_TYPE_POLICY = "POL";
     static final String SEQ_TYPE_APPLICATION = "APP";
+    static final String SEQ_TYPE_CLAIM = "CLM";
     private static final long MAX_SERIAL = 999_999L;
 
     private static final String NEXT_SEQ_SQL = """
@@ -54,9 +55,21 @@ public class ContractNumberGenerator {
     }
 
     /**
+     * 사고번호를 채번한다. 형식은 증권번호와 같다(예: CLM-CAR-2026-000001). 호출자 트랜잭션에 참여한다.
+     *
+     * @param productType 사고가 난 계약의 상품구분
+     * @return 사고번호
+     * @throws BusinessException 연간 일련번호 한도 초과 시(E-SEQ-002)
+     */
+    @Transactional
+    public String generateClaimNo(ProductType productType) {
+        return next(SEQ_TYPE_CLAIM, productType, String.valueOf(LocalDate.now(clock).getYear()));
+    }
+
+    /**
      * 번호유형/상품구분/연도 단위의 다음 일련번호를 UPSERT 한 문장으로 증가시켜 "{번호유형}-{상품구분}-{연도}-{6자리 일련번호}" 형식으로 반환한다.
      *
-     * @param seqType     번호유형 (POL: 증권번호, APP: 청약번호)
+     * @param seqType     번호유형 (POL: 증권번호, APP: 청약번호, CLM: 사고번호)
      * @param productType 상품구분
      * @param year        채번 연도 (YYYY)
      * @return 채번된 번호 (예: POL-CAR-2026-000001)
