@@ -1,0 +1,109 @@
+# CI: 코드가 올라오면 빌드와 테스트를 돌려 깨진 코드가 main 에 들어가지 않게 한다.
+# - backend: 코어 + 인증 서버 테스트 (실제 PostgreSQL 서비스 컨테이너, 로컬 docker-compose 와 같은 버전·시간대)
+# - frontend: React 화면 빌드
+# - docker: 세 서비스 이미지 빌드 확인 (레지스트리에 올리지 않는다)
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# 같은 브랜치에 새 커밋이 오면 이전 실행은 취소한다
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 백엔드 테스트
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 테스트 이름이 한글이라 리포트 파일명에 UTF-8 로케일이 필요하다
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: insur_core_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          TZ: Asia/Seoul
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d insur_core_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 로컬 docker-compose 와 같이 DB 시간대를 Asia/Seoul 로 맞춘다 (Hibernate jdbc.time_zone 과 일치)
+      - name: DB 시간대 설정
+        run: psql -h localhost -U postgres -d insur_core_db -c "ALTER DATABASE insur_core_db SET timezone TO 'Asia/Seoul'"
+        env:
+          PGPASSWORD: postgrespassword
+
+      # JWT_SECRET 과 테스트 시간대는 각 프로젝트 build.gradle 의 test 태스크가 넣는다
+      - name: 코어·인증 서버 테스트
+        run: ./gradlew test --no-daemon
+
+      - name: 테스트 리포트 보관 (실패 시)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/test
+            auth-server/build/reports/tests/test
+          retention-days: 7
+
+  frontend:
+    name: 화면 빌드
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+  docker:
+    name: 이미지 빌드
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 코어 이미지
+        run: docker build -t insur-core:ci -f Dockerfile .
+
+      - name: 인증 서버 이미지
+        run: docker build -t insur-auth:ci -f auth-server/Dockerfile .
+
+      - name: 화면 이미지
+        run: docker build -t insur-web:ci frontend
