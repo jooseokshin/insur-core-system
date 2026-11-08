@@ -44,4 +44,6 @@ tasks.named('test') {
     systemProperty 'user.timezone', 'Asia/Seoul'
     // JWT 서명 검증용 비밀키 (운영에서는 환경변수로 주입, 테스트용 고정값)
     environment 'JWT_SECRET', 'test-only-secret-key-for-hs256-at-least-32-bytes'
+    // 테스트는 같은 사번으로 수백 번 호출하므로 호출 제한을 끈다. 제한 자체는 RateLimitIntegrationTest 가 켜서 확인한다.
+    environment 'RATE_LIMIT_ENABLED', 'false'
 }

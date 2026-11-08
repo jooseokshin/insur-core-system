@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.common.security;
 
+import com.insur.insurcoresystem.common.ratelimit.RateLimitFilter;
+import com.insur.insurcoresystem.common.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -17,6 +19,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -27,6 +30,7 @@ import org.springframework.security.web.SecurityFilterChain;
  *     <li>API 별 허용 역할은 URL 규칙으로 정하고, 상태 변경의 상태별 권한은 ContractAccessPolicy 가 추가로 확인한다.</li>
  *     <li>세션을 만들지 않으므로(STATELESS) CSRF 보호는 사용하지 않는다.</li>
  *     <li>인증/인가 실패도 공통 전문 형태로 응답한다. (E-AUTH-001: 401, E-AUTH-002: 403)</li>
+ *     <li>토큰 검증 바로 뒤에서 사원별 호출 제한을 건다. (E-CMN-010: 429, {@link RateLimitFilter})</li>
  * </ul>
  */
 @Configuration
@@ -40,8 +44,9 @@ public class SecurityConfig {
      * 보안 필터 체인을 구성한다. 모든 요청을 인증 대상으로 하고, JWT 리소스 서버로 동작하며 오류는 공통 전문으로 응답한다.
      */
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimiter rateLimiter) throws Exception {
         return http
+                .addFilterAfter(new RateLimitFilter(rateLimiter), BearerTokenAuthenticationFilter.class)
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
