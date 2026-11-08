@@ -37,6 +37,7 @@ export const MENU = [
       { path: '/tariff/policies', label: '필수 계수 정책', roles: TARIFF_VIEWERS },
       { path: '/tariff/audits', label: '요율 변경 이력', roles: TARIFF_VIEWERS },
       { path: '/stats/loss-ratio', label: '손해율 분석', roles: ['UNDERWRITER', 'CLAIM', 'ADMIN'] },
+      { path: '/stats/rate-impact', label: '요율 영향 시뮬레이션', roles: ['UNDERWRITER', 'ADMIN'] },
     ],
   },
   {

@@ -11,7 +11,7 @@ const GROUPS = [
 ];
 
 /** 손해율 표시: 100% 이상 위험, 80% 이상 주의 (판단 기준은 화면 표시용 임의값) */
-function Ratio({ value }) {
+export function Ratio({ value }) {
   if (value === null || value === undefined) return <span className="muted">-</span>;
   const pct = Number(value) * 100;
   const tone = pct >= 100 ? 'danger' : pct >= 80 ? 'warn' : 'ok';

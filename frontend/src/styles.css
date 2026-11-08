@@ -120,6 +120,8 @@ input:disabled, select:disabled { background: var(--bg); color: var(--muted); }
 .range input { width: 140px; }
 .search-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .search-bar .field { width: 170px; }
+/* 기간(시작~종료) 입력은 두 칸이라 내용 너비만큼 넓힌다 */
+.search-bar .field:has(.range) { width: auto; }
 .search-actions { display: flex; gap: 6px; margin-left: auto; }
 .rule-list { list-style: none; margin: -4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .rule-list li { padding: 2px 8px; border-radius: 10px; background: var(--bg); color: var(--muted); }

@@ -42,6 +42,7 @@ export const claimApi = {
 
 export const statsApi = {
   lossRatio: (cond) => call('/api/stats/loss-ratio', cond),
+  rateImpact: (cond) => call('/api/stats/rate-impact', cond),
 };
 
 export const premiumApi = {
