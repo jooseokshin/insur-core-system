@@ -15,7 +15,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
@@ -23,9 +25,10 @@ import org.springframework.security.oauth2.server.resource.web.authentication.Be
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * JWT 인증 설정. 이 시스템은 토큰을 발급하지 않고, 외부 인증 서버가 HS256 으로 서명해 발급한 Bearer 토큰만 검증한다.
+ * JWT 인증 설정. 이 시스템은 토큰을 발급하지 않고, 인증 서버(OAuth 인가 서버)가 RS256 으로 서명해 발급한 Bearer 토큰을
+ * 공개키(JWKS)로 검증한다. 개발에서는 공유 비밀키(HS256) 토큰도 받을 수 있다. ({@link AlgorithmRoutingJwtDecoder})
  * <ul>
- *     <li>모든 요청은 유효한 토큰이 필요하다. (서명, 만료 검증)</li>
+ *     <li>모든 요청은 유효한 토큰이 필요하다. (서명, 만료, RS256 은 issuer 검증)</li>
  *     <li>토큰의 subject(sub)가 처리 사번(empId)이 되고, roles 클레임이 역할 권한이 된다. (역할: {@link Roles})</li>
  *     <li>API 별 허용 역할은 URL 규칙으로 정하고, 상태 변경의 상태별 권한은 ContractAccessPolicy 가 추가로 확인한다.</li>
  *     <li>세션을 만들지 않으므로(STATELESS) CSRF 보호는 사용하지 않는다.</li>
@@ -125,20 +128,43 @@ public class SecurityConfig {
     }
 
     /**
-     * 토큰 서명 검증기를 만든다. 공유 비밀키(HS256)로 서명과 만료 시각(exp, nbf)을 검증한다.
+     * 토큰 검증기를 만든다. 인증 서버가 발급한 RS256 토큰은 공개키(JWKS)와 issuer 로, 개발용 HS256 토큰은 공유 비밀키로 검증한다.
+     * 둘 다 만료 시각(exp, nbf)을 확인한다. 공개키는 처음 토큰을 받을 때 가져오고, 모르는 kid 가 오면 다시 가져온다(키 교체 대응).
      *
-     * @param secret 서명 비밀키 (app.jwt.secret, 32바이트 이상)
-     * @throws IllegalStateException 비밀키가 HS256 최소 길이(32바이트)보다 짧은 경우 (기동 시점에 실패)
+     * @param secret    HS256 공유 비밀키 (app.jwt.secret). 비우면 HS256 토큰을 받지 않는다. 운영에서는 비운다
+     * @param jwkSetUri 인증 서버 공개키 주소 (app.jwt.jwk-set-uri, 예: http://auth:8081/auth/oauth2/jwks)
+     * @param issuer    인증 서버 issuer (app.jwt.issuer). 토큰의 iss 가 정확히 같아야 한다
+     * @throws IllegalStateException 둘 다 비었거나, 공개키 주소만 있고 issuer 가 없거나, 비밀키가 32바이트보다 짧은 경우 (기동 시점에 실패)
      */
     @Bean
-    JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {
-        byte[] key = secret.getBytes(StandardCharsets.UTF_8);
-        if (key.length < MIN_SECRET_BYTES) {
-            throw new IllegalStateException("app.jwt.secret 은 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다. (HS256)");
+    JwtDecoder jwtDecoder(@Value("${app.jwt.secret:}") String secret,
+                          @Value("${app.jwt.jwk-set-uri:}") String jwkSetUri,
+                          @Value("${app.jwt.issuer:}") String issuer) {
+        JwtDecoder rsa = null;
+        if (!jwkSetUri.isBlank()) {
+            if (issuer.isBlank()) {
+                throw new IllegalStateException("app.jwt.jwk-set-uri 를 쓰려면 app.jwt.issuer(AUTH_ISSUER)도 설정해야 합니다.");
+            }
+            NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri)
+                    .jwsAlgorithm(SignatureAlgorithm.RS256)
+                    .build();
+            decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
+            rsa = decoder;
         }
-        return NimbusJwtDecoder.withSecretKey(new SecretKeySpec(key, "HmacSHA256"))
-                .macAlgorithm(MacAlgorithm.HS256)
-                .build();
+        JwtDecoder hmac = null;
+        if (!secret.isBlank()) {
+            byte[] key = secret.getBytes(StandardCharsets.UTF_8);
+            if (key.length < MIN_SECRET_BYTES) {
+                throw new IllegalStateException("app.jwt.secret 은 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다. (HS256)");
+            }
+            hmac = NimbusJwtDecoder.withSecretKey(new SecretKeySpec(key, "HmacSHA256"))
+                    .macAlgorithm(MacAlgorithm.HS256)
+                    .build();
+        }
+        if (rsa == null && hmac == null) {
+            throw new IllegalStateException("토큰 검증 설정이 없습니다. 운영은 JWK_SET_URI 와 AUTH_ISSUER, 개발은 JWT_SECRET(또는 local 프로파일)을 설정하세요.");
+        }
+        return new AlgorithmRoutingJwtDecoder(rsa, hmac);
     }
 
     /**

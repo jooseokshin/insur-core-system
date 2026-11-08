@@ -10,7 +10,6 @@ import com.insur.auth.domain.LoginHistoryRepository;
 import com.insur.auth.service.dto.AuthDto;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,33 +34,31 @@ public class AuthService {
     private final LoginHistoryRepository loginHistoryRepository;
     private final EmployeeAuditRepository auditRepository;
     private final PasswordEncoder passwordEncoder;
-    private final TokenIssuer tokenIssuer;
     private final Clock clock;
     private final int maxFailures;
     /** 없는 사번에도 해시 비교를 하기 위한 값 (응답 시간으로 사번 존재 여부를 알 수 없게) */
     private final String dummyHash;
 
     public AuthService(EmployeeRepository employeeRepository, LoginHistoryRepository loginHistoryRepository,
-                       EmployeeAuditRepository auditRepository, PasswordEncoder passwordEncoder, TokenIssuer tokenIssuer,
+                       EmployeeAuditRepository auditRepository, PasswordEncoder passwordEncoder,
                        Clock clock, @Value("${app.login.max-failures}") int maxFailures) {
         this.employeeRepository = employeeRepository;
         this.loginHistoryRepository = loginHistoryRepository;
         this.auditRepository = auditRepository;
         this.passwordEncoder = passwordEncoder;
-        this.tokenIssuer = tokenIssuer;
         this.clock = clock;
         this.maxFailures = maxFailures;
         this.dummyHash = passwordEncoder.encode("dummy-password-for-timing");
     }
 
     /**
-     * 사번과 비밀번호로 로그인해 토큰을 발급한다. 비밀번호 변경이 필요한 사원은 역할 없는 제한 토큰을 받는다.
+     * 사번과 비밀번호를 확인한다. 인가 서버의 로그인 화면(폼 로그인)이 부른다. 토큰은 여기서 만들지 않고 OAuth 토큰 엔드포인트가 발급한다.
      *
      * @param clientIp 접속 IP (로그인 이력용)
      * @throws BusinessException 입력 누락(E-AUTH-100), 사번·비밀번호 불일치(E-AUTH-101, 401), 잠긴 계정(E-AUTH-102, 403), 사용 중지 계정(E-AUTH-103, 403)
      */
     @Transactional(noRollbackFor = BusinessException.class)
-    public AuthDto.TokenResponse login(String empIdInput, String password, String clientIp) {
+    public Employee authenticate(String empIdInput, String password, String clientIp) {
         if (empIdInput == null || empIdInput.isBlank() || password == null || password.isEmpty()) {
             throw new BusinessException("E-AUTH-100", "사번과 비밀번호를 입력해 주세요.");
         }
@@ -93,11 +90,27 @@ public class AuthService {
             throw badCredentials(maxFailures - employee.getLoginFailCnt());
         }
 
-        LocalDateTime previousLogin = employee.getLastLoginDt();
         employee.loginSucceeded(now);
         record(empId, LoginHistory.SUCCESS, clientIp, now);
         log.info("로그인 성공: 사번={}, 비밀번호 변경 필요={}", empId, employee.isPasswordChangeRequired());
-        return tokenResponse(employee, previousLogin);
+        return employee;
+    }
+
+    /**
+     * 토큰을 발급해도 되는 사원인지 확인하고 돌려준다. 토큰을 발급할 때마다(로그인 세션으로 다시 받을 때도) 부르므로,
+     * 사용 중지·잠금·비밀번호 초기화가 로그인 세션이 남아 있어도 다음 토큰부터 바로 반영된다.
+     *
+     * @throws BusinessException 사원이 없거나 사용 중지·잠금(E-AUTH-103), 비밀번호를 바꿔야 하는 경우(E-AUTH-107)
+     */
+    @Transactional(readOnly = true)
+    public Employee requireTokenEligible(String empId) {
+        Employee employee = employeeRepository.findById(empId)
+                .filter(emp -> emp.isActive() && !emp.isLocked())
+                .orElseThrow(() -> new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-103", "사용할 수 없는 계정입니다."));
+        if (employee.isPasswordChangeRequired()) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-107", "비밀번호를 바꾼 뒤에 이용할 수 있습니다. 다시 로그인해 주세요.");
+        }
+        return employee;
     }
 
     /**
@@ -114,13 +127,13 @@ public class AuthService {
     }
 
     /**
-     * 본인 비밀번호를 바꾸고, 역할이 담긴 새 토큰을 발급한다. (비밀번호 변경이 필요했던 사원은 이 토큰부터 업무를 할 수 있다)
+     * 본인 비밀번호를 바꾼다. 임시 비밀번호 사원은 인가 서버의 비밀번호 변경 화면에서, 일반 사원은 업무 화면에서 부른다.
      *
      * @throws BusinessException 입력 누락(E-AUTH-100), 현재 비밀번호 불일치(E-AUTH-105), 규칙 위반(E-AUTH-104),
      *                           현재와 같은 비밀번호(E-AUTH-106), 사용할 수 없는 계정(E-AUTH-103)
      */
     @Transactional
-    public AuthDto.TokenResponse changePassword(String empId, AuthDto.PasswordChangeRequest request, String globalTxId) {
+    public AuthDto.Profile changePassword(String empId, AuthDto.PasswordChangeRequest request, String globalTxId) {
         if (request.getCurrentPassword() == null || request.getNewPassword() == null) {
             throw new BusinessException("E-AUTH-100", "현재 비밀번호와 새 비밀번호를 입력해 주세요.");
         }
@@ -140,19 +153,7 @@ public class AuthService {
         auditRepository.save(EmployeeAudit.builder().empId(empId).action("CHANGE_PASSWORD").detail("본인 비밀번호 변경")
                 .actEmpId(empId).globalTxId(globalTxId).actDt(now).build());
         log.info("비밀번호 변경: 사번={}", empId);
-        return tokenResponse(employee, employee.getLastLoginDt());
-    }
-
-    private AuthDto.TokenResponse tokenResponse(Employee employee, LocalDateTime previousLogin) {
-        TokenIssuer.IssuedToken token = tokenIssuer.issue(employee);
-        return AuthDto.TokenResponse.builder()
-                .accessToken(token.value())
-                .tokenType("Bearer")
-                .expiresIn(token.expiresInSeconds())
-                .expiresAt(OffsetDateTime.ofInstant(token.expiresAt(), clock.getZone()))
-                .passwordChangeRequired(employee.isPasswordChangeRequired())
-                .profile(profileOf(employee, previousLogin))
-                .build();
+        return profileOf(employee, employee.getLastLoginDt());
     }
 
     private static AuthDto.Profile profileOf(Employee employee, LocalDateTime lastLoginDt) {

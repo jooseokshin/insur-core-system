@@ -36,11 +36,12 @@ export function newTxId() {
  * 업무 API 를 호출하고 응답 바디를 돌려준다.
  * @param {string} path  /api/... 또는 /auth/...
  * @param {object} [body] 요청 바디
- * @param {{ txId?: string, auth?: boolean }} [options] txId: 거래 UUID(재시도 시 같은 값), auth: 토큰을 붙일지(기본 true)
+ * @param {{ txId?: string, auth?: boolean, token?: string }} [options] txId: 거래 UUID(재시도 시 같은 값),
+ *        auth: 토큰을 붙일지(기본 true), token: 세션 대신 쓸 토큰(로그인 직후 본인 정보 조회용)
  */
-export async function call(path, body = {}, { txId = newTxId(), auth = true } = {}) {
+export async function call(path, body = {}, { txId = newTxId(), auth = true, token: explicitToken } = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  const token = auth ? tokenProvider() : null;
+  const token = auth ? (explicitToken ?? tokenProvider()) : null;
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let response;
@@ -66,7 +67,7 @@ export async function call(path, body = {}, { txId = newTxId(), auth = true } = 
   }
   if (header.responseCode !== SUCCESS) {
     const error = new ApiError(header.responseCode, header.responseMsg, response.status, header.globalTxId);
-    if (response.status === 401 && auth) unauthorizedHandler(error);
+    if (response.status === 401 && auth && !explicitToken) unauthorizedHandler(error);
     throw error;
   }
   return message.body;

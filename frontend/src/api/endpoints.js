@@ -2,8 +2,8 @@
 import { call } from './http';
 
 export const authApi = {
-  login: (empId, password) => call('/auth/login', { empId, password }, { auth: false }),
-  me: () => call('/auth/me'),
+  /** 본인 정보. 로그인 직후에는 아직 세션이 없어서 받은 토큰을 직접 넘긴다. */
+  me: (token) => call('/auth/me', {}, token ? { token } : {}),
   changePassword: (currentPassword, newPassword) => call('/auth/password', { currentPassword, newPassword }),
 };
 

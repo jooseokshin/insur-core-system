@@ -8,7 +8,8 @@
 브라우저 ──▶ web (nginx :8088)
               ├─ /          React 화면 (frontend/)
               ├─ /api/**  ─▶ core  (코어 백엔드 :8080)  계약·보험료·업무 API
-              └─ /auth/** ─▶ auth  (인증 서버 :8081)    로그인·JWT 발급·사원 관리
+              ├─ /auth/** ─▶ auth  (인증 서버 :8081)    OAuth 2.1 인가 서버·로그인 화면·사원 관리
+              └─ /.well-known/** ─▶ auth               OAuth·OIDC 메타데이터
                                 │                 │
                                 └── PostgreSQL ───┘  public 스키마(코어), auth 스키마(인증)
 ```
@@ -16,10 +17,10 @@
 | 모듈 | 위치 | 역할 |
 |---|---|---|
 | 코어 백엔드 | `src/` | 상품(주계약·특약), 청약, 계약 조회, 상태 변경, 수납, 배서, 갱신, 보험료 산출, 요율 관리, 사고 접수·손해사정·보험금 지급, 손해율 분석, 업무 현황 API. 토큰을 발급하지 않고 검증만 합니다. |
-| 인증 서버 | `auth-server/` | 사원 계정과 역할, 로그인(5회 오류 잠금), 비밀번호 변경, JWT 발급, 사원 관리, 로그인 이력 |
+| 인증 서버 | `auth-server/` | OAuth 2.1 인가 서버(인가 코드 + PKCE, OIDC). 사원 계정과 역할, 로그인 화면(5회 오류 잠금), 임시 비밀번호 변경, 토큰 발급(RS256), 사원 관리, 로그인 이력 |
 | 현업 화면 | `frontend/` | React + Vite(JavaScript). 역할에 맞는 메뉴와 버튼만 보여 줍니다. |
 
-두 서버는 같은 비밀키(`JWT_SECRET`)를 씁니다. 인증 서버가 서명한 토큰을 코어가 그대로 검증합니다.
+로그인은 OAuth 2.1 인가 코드 + PKCE 흐름입니다. 화면은 비밀번호를 받지 않고 인증 서버의 로그인 화면으로 보냈다가, 돌아온 인가 코드를 토큰으로 바꿉니다. 인증 서버는 토큰을 RS256 개인키로 서명하고, 코어는 인증 서버의 공개키(`/auth/oauth2/jwks`)로 검증합니다. 공유 비밀키가 없으므로 검증하는 서버가 늘어나도 토큰을 만들 수 있는 곳은 인증 서버 하나입니다.
 
 호출 제한은 두 단계입니다. nginx가 접속 IP별로 폭주만 막고(`E-CMN-011`), 코어가 사원별로 분당 한도를 셉니다(`E-CMN-010`, 기본 분당 300회, 손해율 같은 집계는 분당 20회). 값은 `application.properties`의 `app.rate-limit.*`에서 바꿉니다.
 
@@ -52,7 +53,7 @@ SPRING_PROFILES_ACTIVE=local ./gradlew :auth-server:bootRun   # 인증 :8081 (�
 cd frontend && npm install && npm run dev             # 화면 :5173
 ```
 
-http://localhost:5173 에서 아래 개발용 계정으로 로그인합니다. 비밀번호는 모두 `Insur!2026`이고, 인증 서버의 `local` 프로필에서만 만들어집니다.
+http://127.0.0.1:5173 에서 아래 개발용 계정으로 로그인합니다(`localhost`로 열면 `127.0.0.1`로 옮겨 갑니다. 인증 서버가 돌아갈 주소로 `localhost`를 받지 않기 때문입니다). 비밀번호는 모두 `Insur!2026`이고, 인증 서버의 `local` 프로필에서만 만들어집니다.
 
 | 사번 | 역할 |
 |---|---|
@@ -72,10 +73,21 @@ scripts/dev-data.sh --cleanup  # GEN- 데이터만 삭제
 ### 컨테이너로 한 번에
 
 ```bash
-JWT_SECRET=<32바이트 이상 임의 문자열> AUTH_PROFILES=local docker compose --profile app up -d --build
+AUTH_PROFILES=local docker compose --profile app up -d --build
 ```
 
-http://localhost:8088 로 접속합니다. `AUTH_PROFILES=local`을 빼면 개발용 계정 없이 뜹니다. 이때는 `AUTH_BOOTSTRAP_ADMIN_PASSWORD`로 첫 관리자(`admin`)를 만들고, 첫 로그인 때 비밀번호를 바꿉니다.
+http://127.0.0.1:8088 로 접속합니다. `AUTH_PROFILES=local`을 빼면 개발용 계정 없이 뜹니다. 이때는 `AUTH_BOOTSTRAP_ADMIN_PASSWORD`로 첫 관리자(`admin`)를 만들고, 첫 로그인 때 인증 서버 화면에서 비밀번호를 바꿉니다.
+
+운영처럼 띄울 때 정할 값:
+
+| 환경변수 | 내용 |
+|---|---|
+| `AUTH_SIGNING_KEY` | 토큰 서명 개인키(RSA 2048비트 이상, PKCS#8 PEM 본문이나 파일 경로). 없으면 인증 서버가 뜰 때마다 새 키를 만들어 재기동하면 모두 다시 로그인해야 하고, 여러 대로 띄울 수 없습니다. `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048` 로 만듭니다. |
+| `AUTH_ISSUER` | 브라우저가 여는 주소(예: `https://core.insur.example`). 인증 서버와 코어에 같은 값을 줍니다. |
+| `AUTH_WEB_REDIRECT_URIS`, `AUTH_WEB_POST_LOGOUT_URIS` | `<주소>/callback`, `<주소>/login` |
+| `JWT_SECRET` | 비워 둡니다. 개발용 토큰(`scripts/dev-token.sh`)을 받을 때만 씁니다. |
+
+PKCE 계산(`crypto.subtle`)은 HTTPS(또는 127.0.0.1)에서만 동작하므로 운영은 HTTPS로 엽니다.
 
 ### CI
 

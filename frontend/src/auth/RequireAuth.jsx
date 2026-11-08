@@ -1,15 +1,12 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 
-/** 로그인하지 않았으면 로그인 화면으로, 비밀번호 변경이 필요하면 변경 화면으로 보낸다. */
+/** 로그인하지 않았으면 로그인 화면으로 보낸다. (임시 비밀번호 변경은 인증 서버 화면에서 끝내고 온다) */
 export function RequireAuth({ children }) {
   const { session } = useAuth();
   const location = useLocation();
   if (!session) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
-  }
-  if (session.passwordChangeRequired && location.pathname !== '/password') {
-    return <Navigate to="/password" replace />;
   }
   return children;
 }

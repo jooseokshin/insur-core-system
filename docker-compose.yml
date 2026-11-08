@@ -23,8 +23,11 @@ services:
       retries: 10
 
   # ── 아래 서비스는 app 프로필에서만 뜬다. `docker compose up -d` 는 지금처럼 DB 만 띄운다. ──
-  # 전체 기동: JWT_SECRET=<32바이트 이상> docker compose --profile app up -d --build  →  http://localhost:8088
+  # 전체 기동: docker compose --profile app up -d --build  →  http://127.0.0.1:8088
   # 개발용 사원 계정(admin01 등)까지 만들려면 AUTH_PROFILES=local 을 함께 준다.
+  # 인증 서버가 RS256 으로 서명하고 코어는 그 공개키(JWKS)로 검증하므로 공유 비밀키가 필요 없다.
+  # 운영처럼 띄울 때는 AUTH_SIGNING_KEY(서명 개인키, PKCS#8 PEM)를 준다. 없으면 인증 서버가 재기동할 때마다 키가 바뀐다.
+  # AUTH_ISSUER 는 브라우저가 여는 주소다. 다른 주소로 열면 AUTH_ISSUER 와 AUTH_WEB_*_URIS 를 그 주소로 맞춘다.
 
   # 코어 백엔드 (계약·보험료·업무 API)
   core:
@@ -36,6 +39,10 @@ services:
       DB_URL: jdbc:postgresql://postgres-db:5432/insur_core_db
       DB_USERNAME: postgres
       DB_PASSWORD: postgrespassword
+      # 인증 서버 공개키는 컨테이너 사이 주소로 가져오고, 토큰의 iss 는 브라우저가 보는 주소와 비교한다
+      JWK_SET_URI: http://auth:8081/auth/oauth2/jwks
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://127.0.0.1:8088}
+      # 개발용 HS256 토큰(scripts/dev-token.sh, e2e-check.sh)도 받으려면 JWT_SECRET 을 준다. 운영에서는 비운다.
       JWT_SECRET: ${JWT_SECRET:-}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
     depends_on:
@@ -43,7 +50,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # 인증 서버 (로그인·JWT 발급·사원 관리). 코어와 같은 JWT_SECRET 을 써야 한다.
+  # 인증 서버 (OAuth 2.1 인가 서버: 로그인 화면·토큰 발급·사원 관리)
   auth:
     profiles: ["app"]
     build:
@@ -53,7 +60,10 @@ services:
       AUTH_DB_URL: jdbc:postgresql://postgres-db:5432/insur_core_db?currentSchema=auth
       AUTH_DB_USERNAME: postgres
       AUTH_DB_PASSWORD: postgrespassword
-      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://127.0.0.1:8088}
+      AUTH_WEB_REDIRECT_URIS: ${AUTH_WEB_REDIRECT_URIS:-http://127.0.0.1:8088/callback}
+      AUTH_WEB_POST_LOGOUT_URIS: ${AUTH_WEB_POST_LOGOUT_URIS:-http://127.0.0.1:8088/login}
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY:-}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
       SPRING_PROFILES_ACTIVE: ${AUTH_PROFILES:-}
     depends_on:

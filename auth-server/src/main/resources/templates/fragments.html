@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:fragment="head(title)">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${title}">로그인</title>
+  <style>
+    :root { --bg: #eef1f5; --card: #fff; --text: #1d2733; --muted: #5d6b7a; --line: #d5dbe3; --primary: #1f4e8c; --danger: #b42318; --info-bg: #e8f0fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--text);
+           font: 15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+    .card { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
+    .brand { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--primary); }
+    h1 { font-size: 20px; margin: 4px 0 20px; }
+    label { display: block; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+    input { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font-size: 15px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); }
+    input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+    button { width: 100%; padding: 11px; border: 0; border-radius: 6px; background: var(--primary); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .alert { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+    .alert-error { background: #fdecea; color: var(--danger); }
+    .alert-info { background: var(--info-bg); color: var(--primary); }
+    .notes { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+    .dev { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+</html>
