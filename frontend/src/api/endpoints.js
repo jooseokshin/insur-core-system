@@ -40,6 +40,10 @@ export const claimApi = {
   list: (cond) => call('/api/claim/list', cond),
 };
 
+export const statsApi = {
+  lossRatio: (cond) => call('/api/stats/loss-ratio', cond),
+};
+
 export const premiumApi = {
   quote: (body) => call('/api/premium/quote', body),
 };

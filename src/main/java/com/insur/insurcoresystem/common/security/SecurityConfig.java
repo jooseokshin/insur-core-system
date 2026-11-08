@@ -61,6 +61,9 @@ public class SecurityConfig {
                         .hasAnyRole(Roles.AGENT, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/claim/assess")
                         .hasAnyRole(Roles.CLAIM, Roles.ADMIN)
+                        // 손해율 같은 상품·요율 관리용 통계는 심사·보상 담당과 ADMIN 만
+                        .requestMatchers(HttpMethod.POST, "/api/stats/loss-ratio")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/inquiry")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 요율/계수 관리: 조회는 심사·계약 관리·ADMIN, 개정과 신규 등록은 ADMIN 만
