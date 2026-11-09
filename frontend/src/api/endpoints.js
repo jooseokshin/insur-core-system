@@ -26,6 +26,9 @@ export const contractApi = {
   endorseHistory: (contractNo, page = 0, size = 50) => call('/api/contract/endorse-history', { contractNo, page, size }),
   renewQuote: (contractNo, rating) => call('/api/contract/renew-quote', { contractNo, rating }),
   renew: (contractNo, rating, txId) => call('/api/contract/renew', { contractNo, rating }, { txId }),
+  mileageInquiry: (contractNo) => call('/api/contract/mileage/inquiry', { contractNo }),
+  mileageRegister: (contractNo, odometerKm, txId) => call('/api/contract/mileage/register', { contractNo, odometerKm }, { txId }),
+  mileageSettle: (contractNo, odometerKm, txId) => call('/api/contract/mileage/settle', { contractNo, odometerKm }, { txId }),
 };
 
 export const productApi = {

@@ -102,6 +102,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse-history")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 납입(수납)은 계약 관리 담당과 ADMIN, 납입 내역 조회는 모든 역할(AGENT 는 본인 접수 계약만)
+                        // 마일리지 특약: 주행거리 등록·정산은 설계사(본인 계약)·계약 관리·ADMIN·채널(사진 접수), 조회는 모든 역할
+                        .requestMatchers(HttpMethod.POST, "/api/contract/mileage/register", "/api/contract/mileage/settle")
+                        .hasAnyRole(Roles.AGENT, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/mileage/inquiry")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 채널 시스템은 PG 결제가 확정된 납입을 자기 채널 계약에 기록한다
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment")
                         .hasAnyRole(Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)

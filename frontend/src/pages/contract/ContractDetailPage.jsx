@@ -7,6 +7,7 @@ import { date, dateTime, money } from '../../common/format';
 import { DataTable, ErrorBox, InfoGrid, PageHeader, Panel, StatusBadge, useLoad, useToast } from '../../components/ui';
 import { EndorseModal, PaymentModal, RenewModal, StatusChangeModal } from './ContractActions';
 import { ClaimReportModal, ContractClaims } from '../claim/ClaimPages';
+import { MileagePanel } from './MileagePanel';
 
 const TABS = [
   { code: 'coverages', name: '담보' },
@@ -136,6 +137,8 @@ export function ContractDetailPage() {
           ...(c.termDate ? [['해지일', date(c.termDate)], ['환급보험료', `${money(c.refundPremium)}원`]] : []),
         ]} />
       </Panel>
+
+      {c.insrClsCd === '01' && <MileagePanel contract={c} version={version} onDone={done} />}
 
       <Panel>
         <div className="tabs" role="tablist">
