@@ -12,7 +12,7 @@ const RULES = [
 ];
 
 export function PasswordPage() {
-  const { session, changePassword, logout } = useAuth();
+  const { session, changePassword } = useAuth();
   const navigate = useNavigate();
   const notify = useToast();
   const [current, setCurrent] = useState('');
@@ -20,7 +20,6 @@ export function PasswordPage() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const forced = session.passwordChangeRequired;
   const containsEmpId = next && next.toLowerCase().includes(session.profile.empId.toLowerCase());
   const ready = RULES.every((r) => r.test(next)) && !containsEmpId && next === confirm && current;
 
@@ -30,7 +29,7 @@ export function PasswordPage() {
     setError(null);
     try {
       await changePassword(current, next);
-      notify('비밀번호를 변경했습니다.');
+      notify('비밀번호를 변경했습니다. 다음 로그인부터 새 비밀번호를 씁니다.');
       navigate('/', { replace: true });
     } catch (err) {
       setError(err);
@@ -41,11 +40,6 @@ export function PasswordPage() {
 
   const form = (
     <form className="form-narrow" onSubmit={submit}>
-      {forced && (
-        <div className="alert alert-info">
-          임시 비밀번호로 로그인했습니다. 업무를 시작하기 전에 새 비밀번호로 바꿔 주세요.
-        </div>
-      )}
       <ErrorBox error={error} />
       <Field label="현재 비밀번호" required>
         <input id="pw-current" type="password" value={current} onChange={(e) => setCurrent(e.target.value)}
@@ -66,11 +60,7 @@ export function PasswordPage() {
       </Field>
       {confirm && next !== confirm && <p className="text-danger">새 비밀번호가 서로 다릅니다.</p>}
       <div className="form-actions">
-        {forced ? (
-          <button type="button" className="btn" onClick={() => logout()}>로그아웃</button>
-        ) : (
-          <button type="button" className="btn" onClick={() => navigate(-1)}>취소</button>
-        )}
+        <button type="button" className="btn" onClick={() => navigate(-1)}>취소</button>
         <button type="submit" className="btn btn-primary" disabled={!ready || busy}>
           {busy ? '변경 중…' : '비밀번호 변경'}
         </button>
@@ -78,16 +68,6 @@ export function PasswordPage() {
     </form>
   );
 
-  if (forced) {
-    return (
-      <div className="login-screen single">
-        <div className="login-card wide">
-          <h2>비밀번호 변경</h2>
-          {form}
-        </div>
-      </div>
-    );
-  }
   return (
     <div className="page">
       <Panel title="비밀번호 변경">{form}</Panel>

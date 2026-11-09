@@ -6,9 +6,11 @@ import static com.insur.insurcoresystem.common.web.CommonMessages.success;
 import com.insur.insurcoresystem.common.dto.CommonHeader;
 import com.insur.insurcoresystem.common.dto.CommonMessage;
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.SalesChannel;
 import com.insur.insurcoresystem.service.contract.ContractAccessPolicy;
 import com.insur.insurcoresystem.service.contract.ContractEndorsementService;
 import com.insur.insurcoresystem.service.contract.ContractInquiryService;
+import com.insur.insurcoresystem.service.contract.ContractMileageService;
 import com.insur.insurcoresystem.service.contract.ContractPaymentService;
 import com.insur.insurcoresystem.service.contract.ContractRenewalService;
 import com.insur.insurcoresystem.service.contract.ContractService;
@@ -30,6 +32,8 @@ import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryPageResp
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryResponse;
+import com.insur.insurcoresystem.service.contract.dto.MileageRequest;
+import com.insur.insurcoresystem.service.contract.dto.MileageResponse;
 import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryInquiryRequest;
@@ -58,6 +62,7 @@ public class ContractController {
     private final ContractEndorsementService endorsementService;
     private final ContractRenewalService renewalService;
     private final ContractPaymentService paymentService;
+    private final ContractMileageService mileageService;
 
     /**
      * 계약 청약을 접수한다. (POST /api/contract/apply)
@@ -69,8 +74,11 @@ public class ContractController {
      */
     @Operation(summary = "계약 청약을 접수한다", description = "요청 전문의 바디를 서비스에 위임하고, 요청 헤더의 globalTxId, empId 를 이어받아 정상 응답 전문을 구성한다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 업무 오류")
     @PostMapping("/apply")
-    public CommonMessage<ContractApplyResponse> apply(@RequestBody CommonMessage<ContractApplyRequest> request) {
+    public CommonMessage<ContractApplyResponse> apply(@RequestBody CommonMessage<ContractApplyRequest> request,
+                                                      Authentication authentication) {
         ContractApplyRequest body = requireBody(request);
+        // 판매채널은 바디가 아니라 토큰으로 정한다 (직원 10 대면, 채널 시스템은 등록된 채널). 채널 할인 계수가 여기서 갈린다
+        body.setSalesChnlCd(SalesChannel.of(authentication));
         // 헤더는 CommonHeaderRequestBodyAdvice 에서 globalTxId 까지 채워진 상태로 전달된다.
         CommonHeader reqHeader = request.getHeader();
 
@@ -87,11 +95,13 @@ public class ContractController {
      */
     @Operation(summary = "청약 상태 계약의 보험료 납입(수납)을 접수한다", description = "나누어 낼 수 있고, 낸 합계가 총보험료에 이르면 승인(유효)할 수 있다. 계약 관리 담당과 ADMIN 만 할 수 있다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 납입 오류(E-CTR-007~011, 015, 019, 026, 027, 029)")
     @PostMapping("/payment")
-    public CommonMessage<PaymentResponse> payment(@RequestBody CommonMessage<PaymentRequest> request) {
+    public CommonMessage<PaymentResponse> payment(@RequestBody CommonMessage<PaymentRequest> request,
+                                                  Authentication authentication) {
         PaymentRequest body = requireBody(request);
         CommonHeader reqHeader = request.getHeader();
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
 
-        return success(reqHeader, paymentService.pay(reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+        return success(reqHeader, paymentService.pay(ownerEmpId, reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
     }
 
     /**
@@ -274,5 +284,53 @@ public class ContractController {
 
         return success(reqHeader,
                 statusService.changeContractStatus(reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+    }
+
+    /**
+     * 마일리지 특약 시작 주행거리를 등록한다. (POST /api/contract/mileage/register)
+     * 자동차 계약만, 보험시기 30일 뒤까지 한 번. 설계사·채널 시스템은 자기가 접수한 계약만 할 수 있다.
+     *
+     * @throws BusinessException 요청 바디 없음(E-CMN-001), 입력 오류(E-CTR-008, 009, E-MIL-001), 계약 없음(E-CTR-010),
+     *                           자동차가 아니거나 상태 오류(E-MIL-002), 기간 지남(E-MIL-003), 이미 등록(E-MIL-004), 재전송 내용 다름(E-CTR-019)
+     */
+    @Operation(summary = "마일리지 특약 시작 주행거리를 등록한다", description = "자동차 계약만, 보험시기 30일 뒤까지 한 번. 설계사·채널 시스템은 자기가 접수한 계약만 할 수 있다.\n\n오류: 요청 바디 없음(E-CMN-001), 입력 오류(E-CTR-008, 009, E-MIL-001), 계약 없음(E-CTR-010), 자동차가 아니거나 상태 오류(E-MIL-002), 기간 지남(E-MIL-003), 이미 등록(E-MIL-004), 재전송 내용 다름(E-CTR-019)")
+    @PostMapping("/mileage/register")
+    public CommonMessage<MileageResponse> mileageRegister(@RequestBody CommonMessage<MileageRequest> request,
+                                                          Authentication authentication) {
+        MileageRequest body = requireBody(request);
+        CommonHeader reqHeader = request.getHeader();
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
+        return success(reqHeader, mileageService.register(ownerEmpId, reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+    }
+
+    /**
+     * 만기 주행거리로 마일리지 특약을 정산한다. (POST /api/contract/mileage/settle)
+     * 유효 계약, 보험종기 30일 전부터 60일 뒤까지. 1년 환산 주행거리 구간의 환급률로 환급액(총보험료 × 환급률, 원 미만 버림)을 정한다.
+     *
+     * @throws BusinessException 요청 바디 없음(E-CMN-001), 입력 오류(E-CTR-008, 009, E-MIL-001), 계약 없음(E-CTR-010), 상태 오류(E-MIL-002),
+     *                           기간 아님(E-MIL-003), 미가입·이미 정산(E-MIL-004), 시작보다 작은 주행거리(E-MIL-005), 재전송 내용 다름(E-CTR-019)
+     */
+    @Operation(summary = "만기 주행거리로 마일리지 특약을 정산한다", description = "유효 계약, 보험종기 30일 전부터 60일 뒤까지. 1년 환산 주행거리 구간의 환급률로 환급액(총보험료 × 환급률, 원 미만 버림)을 정한다.\n\n오류: 요청 바디 없음(E-CMN-001), 입력 오류(E-CTR-008, 009, E-MIL-001), 계약 없음(E-CTR-010), 상태 오류(E-MIL-002), 기간 아님(E-MIL-003), 미가입·이미 정산(E-MIL-004), 시작보다 작은 주행거리(E-MIL-005), 재전송 내용 다름(E-CTR-019)")
+    @PostMapping("/mileage/settle")
+    public CommonMessage<MileageResponse> mileageSettle(@RequestBody CommonMessage<MileageRequest> request,
+                                                        Authentication authentication) {
+        MileageRequest body = requireBody(request);
+        CommonHeader reqHeader = request.getHeader();
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
+        return success(reqHeader, mileageService.settle(ownerEmpId, reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+    }
+
+    /**
+     * 마일리지 특약 현황을 조회한다. (POST /api/contract/mileage/inquiry)
+     *
+     * @throws BusinessException 요청 바디 없음(E-CMN-001), 증권번호 누락(E-CTR-009), 계약 없음(E-CTR-010), 자동차 계약이 아님(E-MIL-002)
+     */
+    @Operation(summary = "마일리지 특약 현황을 조회한다", description = "가입하지 않았으면 등록·정산 가능 기간만 채워서 돌려준다.\n\n오류: 요청 바디 없음(E-CMN-001), 증권번호 누락(E-CTR-009), 계약 없음(E-CTR-010), 자동차 계약이 아님(E-MIL-002)")
+    @PostMapping("/mileage/inquiry")
+    public CommonMessage<MileageResponse> mileageInquiry(@RequestBody CommonMessage<MileageRequest> request,
+                                                         Authentication authentication) {
+        MileageRequest body = requireBody(request);
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
+        return success(request.getHeader(), mileageService.inquiry(ownerEmpId, body.getContractNo()));
     }
 }

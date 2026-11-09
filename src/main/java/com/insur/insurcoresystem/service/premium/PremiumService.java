@@ -43,9 +43,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PremiumService {
 
-    static final String FACTOR_DRIVER_AGE = "DRIVER_AGE";
-    static final String FACTOR_DISCOUNT_GRADE = "DISCOUNT_GRADE";
-    static final String FACTOR_STRUCTURE_GRADE = "STRUCTURE_GRADE";
+    static final String FACTOR_DRIVER_AGE = RatingFactorType.DRIVER_AGE.name();
+    static final String FACTOR_DISCOUNT_GRADE = RatingFactorType.DISCOUNT_GRADE.name();
+    static final String FACTOR_STRUCTURE_GRADE = RatingFactorType.STRUCTURE_GRADE.name();
 
     private final PremiumRateRepository premiumRateRepository;
     private final PremiumFactorRepository premiumFactorRepository;
@@ -96,11 +96,15 @@ public class PremiumService {
                 .stream().collect(Collectors.toMap(PremiumRate::getCvrgCd, Function.identity(), (latest, older) -> latest));
 
         List<String> requiredTypes = requireMandatoryFactors(request);
-        List<AppliedFactor> factors = resolveFactors(request.getInsrClsCd(), request.getStartDate(), request.getRating());
+        List<AppliedFactor> factors = resolveFactors(request.getInsrClsCd(), request.getStartDate(), request.getRating(),
+                request.getSalesChnlCd());
         BigDecimal combinedFactor = factors.stream().map(AppliedFactor::getFactorValue)
                 .reduce(BigDecimal.ONE, BigDecimal::multiply);
 
         long days = ChronoUnit.DAYS.between(request.getStartDate(), request.getEndDate());
+        if (StringUtils.hasText(request.getPrdCd())) {
+            productService.validateTerm(request.getPrdCd(), request.getInsrClsCd(), days);
+        }
         List<QuoteCoverageResponse> results = coverages.stream().map(coverage -> {
             PremiumRate rate = rates.get(coverage.getCvrgCd());
             if (rate == null) {
@@ -148,48 +152,54 @@ public class PremiumService {
         return required;
     }
 
+    /** 필수 정책의 계수가 입력됐는지. 서버가 정하는 계수와 알 수 없는 종류는 입력할 방법이 없으므로 필수로 취급하지 않는다 */
     private static boolean isProvided(RatingInput rating, String factorType) {
-        return switch (factorType) {
-            case FACTOR_DRIVER_AGE -> rating.getDriverAge() != null;
-            case FACTOR_DISCOUNT_GRADE -> rating.getDiscountGrade() != null;
-            case FACTOR_STRUCTURE_GRADE -> rating.getStructureGrade() != null;
-            default -> true;   // 알 수 없는 종류는 입력할 방법이 없으므로 필수로 취급하지 않는다
-        };
+        return RatingFactorType.find(factorType)
+                .map(type -> !type.isUserInput() || type.read(rating) != null)
+                .orElse(true);
     }
 
     /** 계수 종류에 대응하는 요청 필드 이름 (rating 안의 필드) */
     static String inputField(String factorType) {
-        return switch (factorType) {
-            case FACTOR_DRIVER_AGE -> "driverAge";
-            case FACTOR_DISCOUNT_GRADE -> "discountGrade";
-            case FACTOR_STRUCTURE_GRADE -> "structureGrade";
-            default -> factorType;
-        };
+        return RatingFactorType.find(factorType).map(RatingFactorType::inputField).orElse(factorType);
     }
 
     /**
      * 요율 계수 입력을 보험시기에 적용되는 계수표에서 찾아 적용할 계수 목록으로 바꾼다. 입력하지 않은 계수는 적용하지 않는다.
-     * 계수 종류 순서는 입력 필드 순서(운전자 연령, 할인할증 등급, 건물 구조 등급)로 고정된다.
+     * 계수 종류 순서는 {@link RatingFactorType} 선언 순서로 고정된다. 판매채널은 입력이 아니라 서버가 정한 값으로 찾고,
+     * 계수표에 그 채널의 행이 없으면 적용하지 않는다(대면 채널이 보통 그렇다).
      *
      * @throws BusinessException 보험종목에서 쓰지 않는 계수를 입력한 경우(E-PRM-003), 계수표에 없는 입력값인 경우(E-PRM-004)
      */
-    private List<AppliedFactor> resolveFactors(String insrClsCd, LocalDate on, RatingInput rating) {
-        if (rating == null || rating.isEmpty()) {
+    private List<AppliedFactor> resolveFactors(String insrClsCd, LocalDate on, RatingInput rating, String salesChnlCd) {
+        boolean hasInput = rating != null && !rating.isEmpty();
+        if (!hasInput && salesChnlCd == null) {
             return List.of();
         }
         List<PremiumFactor> table = premiumFactorRepository.findEffective(insrClsCd, on);
         List<AppliedFactor> applied = new ArrayList<>();
-        if (rating.getDriverAge() != null) {
-            applied.add(findFactor(table, insrClsCd, FACTOR_DRIVER_AGE, String.valueOf(rating.getDriverAge()),
-                    factor -> factor.contains(rating.getDriverAge())));
+        for (RatingFactorType type : RatingFactorType.values()) {
+            if (!type.isUserInput()) {
+                continue;
+            }
+            String input = type.read(rating);
+            if (input == null) {
+                continue;
+            }
+            applied.add(findFactor(table, insrClsCd, type.name(), input, type.isRange()
+                    ? factor -> factor.contains(Integer.valueOf(input))
+                    : factor -> input.equals(factor.getFactorKey())));
         }
-        if (rating.getDiscountGrade() != null) {
-            applied.add(findFactor(table, insrClsCd, FACTOR_DISCOUNT_GRADE, rating.getDiscountGrade(),
-                    factor -> rating.getDiscountGrade().equals(factor.getFactorKey())));
-        }
-        if (rating.getStructureGrade() != null) {
-            applied.add(findFactor(table, insrClsCd, FACTOR_STRUCTURE_GRADE, rating.getStructureGrade(),
-                    factor -> rating.getStructureGrade().equals(factor.getFactorKey())));
+        if (salesChnlCd != null) {
+            table.stream()
+                    .filter(f -> RatingFactorType.SALES_CHANNEL.name().equals(f.getFactorType()) && salesChnlCd.equals(f.getFactorKey()))
+                    .findFirst()
+                    .ifPresent(found -> applied.add(AppliedFactor.builder()
+                            .factorType(RatingFactorType.SALES_CHANNEL.name())
+                            .factorNm(found.getFactorNm())
+                            .input(salesChnlCd)
+                            .factorValue(found.getFactorValue())
+                            .build()));
         }
         return applied;
     }

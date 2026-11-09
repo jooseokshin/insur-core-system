@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments :: head('로그인 · 손해보험 기간계')}"></head>
+<body>
+<main class="card">
+  <div class="brand">INSUR</div>
+  <h1>손해보험 기간계 로그인</h1>
+  <div class="alert alert-error" role="alert" th:if="${error}" th:text="${error}">오류</div>
+  <div class="alert alert-info" th:if="${loggedOut}">로그아웃했습니다.</div>
+  <!-- th:action 을 쓰면 CSRF 토큰(hidden _csrf)이 자동으로 들어간다 -->
+  <form method="post" th:action="@{/auth/login}">
+    <label>사번
+      <input id="empId" name="empId" autocomplete="username" maxlength="20" required autofocus>
+    </label>
+    <label>비밀번호
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">로그인</button>
+  </form>
+  <ul class="notes">
+    <li>사번과 비밀번호는 시스템 관리자가 발급합니다.</li>
+    <li>비밀번호를 5회 연속 틀리면 계정이 잠깁니다.</li>
+    <li>업무 중 자리를 비울 때는 반드시 로그아웃해 주세요.</li>
+  </ul>
+  <p class="dev" th:if="${devHint}">개발 계정: admin01 · agent01 · uw01 · op01 · clm01 / Insur!2026 (local 프로필)</p>
+</main>
+</body>
+</html>

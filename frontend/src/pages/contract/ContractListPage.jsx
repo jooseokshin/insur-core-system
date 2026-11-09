@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { contractApi } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthProvider';
-import { CTR_STAT, INSR_CLS, nameOf } from '../../common/codes';
+import { CTR_STAT, INSR_CLS, SALES_CHNL, nameOf } from '../../common/codes';
 import { date, dateTime, money } from '../../common/format';
 import { DataTable, ErrorBox, Field, PageHeader, Pagination, Panel, Select, StatusBadge, useLoad } from '../../components/ui';
 
@@ -47,6 +47,7 @@ export function ContractListPage() {
     { key: 'contractNo', title: '증권번호', render: (r) => <span className="mono">{r.contractNo}</span> },
     { key: 'insrClsCd', title: '종목', width: 70, render: (r) => nameOf(INSR_CLS, r.insrClsCd) },
     { key: 'ctrStatCd', title: '상태', width: 90, render: (r) => <StatusBadge code={r.ctrStatCd} /> },
+    { key: 'salesChnlCd', title: '채널', width: 80, render: (r) => nameOf(SALES_CHNL, r.salesChnlCd) },
     { key: 'policyholderId', title: '계약자' },
     { key: 'period', title: '보험기간', render: (r) => `${date(r.startDate)} ~ ${date(r.endDate)}` },
     { key: 'totalPremium', title: '총보험료', align: 'right', render: (r) => money(r.totalPremium) },

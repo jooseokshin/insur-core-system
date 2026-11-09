@@ -3,6 +3,7 @@ import { RequireAuth, RequireRole } from './auth/RequireAuth';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { PasswordPage } from './pages/PasswordPage';
+import { CallbackPage } from './pages/CallbackPage';
 import { DashboardPage } from './pages/work/DashboardPage';
 import { TodoPage } from './pages/work/TodoPage';
 import { RenewalTargetsPage } from './pages/work/RenewalTargetsPage';
@@ -11,29 +12,20 @@ import { ContractDetailPage } from './pages/contract/ContractDetailPage';
 import { ApplyPage } from './pages/contract/ApplyPage';
 import { QuotePage } from './pages/contract/QuotePage';
 import { ProductPage } from './pages/contract/ProductPage';
+import { LossRatioPage } from './pages/admin/LossRatioPage';
+import { RateImpactPage } from './pages/admin/RateImpactPage';
 import { ClaimDetailPage, ClaimListPage } from './pages/claim/ClaimPages';
 import { FactorPage, PolicyPage, RatePage, TariffAuditPage } from './pages/admin/TariffPages';
 import { EmployeePage, LoginHistoryPage } from './pages/admin/EmployeePages';
-import { useAuth } from './auth/AuthProvider';
 
 const TARIFF = ['UNDERWRITER', 'OPERATOR', 'ADMIN'];
 const CLAIM_USERS = ['AGENT', 'CLAIM', 'ADMIN'];
-
-/**
- * 비밀번호 변경이 필요한 사원만 쓰는 메뉴 없는 단독 화면. 변경을 마치면 세션이 바뀌면서 바로 업무 현황으로 간다.
- * (평소의 비밀번호 변경은 레이아웃 안의 /account/password 를 쓴다)
- */
-function PasswordRoute() {
-  const { session } = useAuth();
-  if (session?.passwordChangeRequired) return <PasswordPage />;
-  return <Navigate to="/" replace />;
-}
 
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/password" element={<RequireAuth><PasswordRoute /></RequireAuth>} />
+      <Route path="/callback" element={<CallbackPage />} />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
         <Route path="todo" element={<TodoPage />} />
@@ -49,6 +41,8 @@ export function App() {
         <Route path="tariff/factors" element={<RequireRole roles={TARIFF}><FactorPage /></RequireRole>} />
         <Route path="tariff/policies" element={<RequireRole roles={TARIFF}><PolicyPage /></RequireRole>} />
         <Route path="tariff/audits" element={<RequireRole roles={TARIFF}><TariffAuditPage /></RequireRole>} />
+        <Route path="stats/loss-ratio" element={<RequireRole roles={['UNDERWRITER', 'CLAIM', 'ADMIN']}><LossRatioPage /></RequireRole>} />
+        <Route path="stats/rate-impact" element={<RequireRole roles={['UNDERWRITER', 'ADMIN']}><RateImpactPage /></RequireRole>} />
         <Route path="admin/employees" element={<RequireRole roles={['ADMIN']}><EmployeePage /></RequireRole>} />
         <Route path="admin/login-history" element={<RequireRole roles={['ADMIN']}><LoginHistoryPage /></RequireRole>} />
         <Route path="account/password" element={<PasswordPage />} />

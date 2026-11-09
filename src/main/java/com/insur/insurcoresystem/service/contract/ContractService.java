@@ -7,6 +7,7 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.SalesChannel;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractRepository;
@@ -159,6 +160,7 @@ public class ContractService {
                 .globalTxId(globalTxId)
                 .insrClsCd(request.getInsrClsCd())
                 .prdCd(StringUtils.hasText(request.getPrdCd()) ? request.getPrdCd() : null)
+                .salesChnlCd(salesChannel(request))
                 .ctrStatCd(Contract.CTR_STAT_APPLIED)
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
@@ -171,6 +173,8 @@ public class ContractService {
                 .driverAge(request.getRating() == null ? null : request.getRating().getDriverAge())
                 .discountGrade(request.getRating() == null ? null : request.getRating().getDiscountGrade())
                 .structureGrade(request.getRating() == null ? null : request.getRating().getStructureGrade())
+                .travelRegion(request.getRating() == null ? null : request.getRating().getTravelRegion())
+                .insuredAge(request.getRating() == null ? null : request.getRating().getInsuredAge())
                 .renewedFrom(renewedFrom)
                 .build());
 
@@ -204,6 +208,7 @@ public class ContractService {
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .rating(request.getRating())
+                .salesChnlCd(salesChannel(request))
                 .coverages(request.getCoverages().stream()
                         .map(cvrg -> QuoteCoverageRequest.builder()
                                 .cvrgCd(cvrg.getCvrgCd()).isrdAmt(cvrg.getIsrdAmt()).build())
@@ -249,6 +254,11 @@ public class ContractService {
      */
     private static boolean isGlobalTxIdConflict(DataIntegrityViolationException e) {
         return isConstraintViolation(e, GLOBAL_TX_ID_CONSTRAINT);
+    }
+
+    /** 요청에 서버가 정해 둔 판매채널. 컨트롤러를 거치지 않은 호출(배치·테스트)은 대면(10)으로 본다 */
+    private static String salesChannel(ContractApplyRequest request) {
+        return request.getSalesChnlCd() == null ? SalesChannel.FACE_TO_FACE : request.getSalesChnlCd();
     }
 
     /** 계약 원장과 담보 건수로 청약 응답 바디를 만든다. 신규 접수와 재전송 응답이 같은 형태를 갖도록 공통으로 사용한다. */

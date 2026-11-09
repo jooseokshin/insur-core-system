@@ -69,6 +69,17 @@ public class ContractPaymentService {
      */
     @Transactional
     public PaymentResponse pay(String globalTxId, String empId, PaymentRequest request) {
+        return pay(null, globalTxId, empId, request);
+    }
+
+    /**
+     * 납입을 접수한다. 채널 시스템은 자기 채널로 들어온 계약에만 납입(PG 결제 확정분)을 기록할 수 있다.
+     *
+     * @param ownerEmpId 납입을 접수자 본인의 계약으로 제한할 사번(채널 시스템은 채널 클라이언트 ID). null 이면 제한 없음
+     * @throws BusinessException {@link #pay(String, String, PaymentRequest)} 와 같고, 제한 밖의 계약은 없는 계약과 같은 E-CTR-010
+     */
+    @Transactional
+    public PaymentResponse pay(String ownerEmpId, String globalTxId, String empId, PaymentRequest request) {
         validateGlobalTxId(globalTxId);
         if (isInvalidCode(request.getContractNo(), 30)) {
             throw new BusinessException("E-CTR-009", "납입할 계약의 증권번호를 입력해야 합니다.");
@@ -86,6 +97,7 @@ public class ContractPaymentService {
         }
 
         Contract contract = contractRepository.findForUpdateByContractNo(request.getContractNo())
+                .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
         if (!ContractStatus.APPLIED.getCode().equals(contract.getCtrStatCd())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-026", "청약(10) 상태의 계약만 납입할 수 있습니다.");

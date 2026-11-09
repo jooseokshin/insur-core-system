@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.common.security;
 
+import com.insur.insurcoresystem.common.ratelimit.RateLimitFilter;
+import com.insur.insurcoresystem.common.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -9,24 +11,32 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * JWT 인증 설정. 이 시스템은 토큰을 발급하지 않고, 외부 인증 서버가 HS256 으로 서명해 발급한 Bearer 토큰만 검증한다.
+ * JWT 인증 설정. 이 시스템은 토큰을 발급하지 않고, 인증 서버(OAuth 인가 서버)가 RS256 으로 서명해 발급한 Bearer 토큰을
+ * 공개키(JWKS)로 검증한다. 개발에서는 공유 비밀키(HS256) 토큰도 받을 수 있다. ({@link AlgorithmRoutingJwtDecoder})
  * <ul>
- *     <li>모든 요청은 유효한 토큰이 필요하다. (서명, 만료 검증)</li>
+ *     <li>모든 요청은 유효한 토큰이 필요하다. (서명, 만료, RS256 은 issuer 검증)</li>
  *     <li>토큰의 subject(sub)가 처리 사번(empId)이 되고, roles 클레임이 역할 권한이 된다. (역할: {@link Roles})</li>
  *     <li>API 별 허용 역할은 URL 규칙으로 정하고, 상태 변경의 상태별 권한은 ContractAccessPolicy 가 추가로 확인한다.</li>
  *     <li>세션을 만들지 않으므로(STATELESS) CSRF 보호는 사용하지 않는다.</li>
  *     <li>인증/인가 실패도 공통 전문 형태로 응답한다. (E-AUTH-001: 401, E-AUTH-002: 403)</li>
+ *     <li>토큰 검증 바로 뒤에서 사원별 호출 제한을 건다. (E-CMN-010: 429, {@link RateLimitFilter})</li>
  * </ul>
  */
 @Configuration
@@ -40,29 +50,40 @@ public class SecurityConfig {
      * 보안 필터 체인을 구성한다. 모든 요청을 인증 대상으로 하고, JWT 리소스 서버로 동작하며 오류는 공통 전문으로 응답한다.
      */
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimiter rateLimiter) throws Exception {
         return http
+                .addFilterAfter(new RateLimitFilter(rateLimiter), BearerTokenAuthenticationFilter.class)
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // API 문서(Swagger UI)는 토큰 없이 열 수 있다. 호출은 화면의 Authorize 에 토큰을 넣어서 한다.
                         .requestMatchers(HttpMethod.GET, "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
                         .permitAll()
+                        // 채널 시스템(CHANNEL): 산출·청약·수납·갱신·조회·사고 접수만. 목록·현황·배서·상태 변경·통계·요율 관리는 막는다.
+                        // 데이터 범위는 설계사와 같은 규칙(자기 채널이 접수한 계약만)을 서비스가 적용한다.
                         .requestMatchers(HttpMethod.POST, "/api/contract/apply")
-                        .hasAnyRole(Roles.AGENT, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.ADMIN, Roles.CHANNEL)
                         // 갱신은 새 청약을 만드는 일이라 청약 접수와 같은 역할
                         .requestMatchers(HttpMethod.POST, "/api/contract/renew", "/api/contract/renew-quote")
-                        .hasAnyRole(Roles.AGENT, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.ADMIN, Roles.CHANNEL)
                         // 업무 현황·할 일함·갱신 대상은 모든 업무 역할이 본다. 할 일 유형별 권한과 AGENT 의 본인 계약 제한은 서비스에서 적용한다.
                         .requestMatchers(HttpMethod.POST, "/api/work/dashboard", "/api/work/todo", "/api/work/renewal-targets")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 보상: 접수·조회·접수 취소는 설계사도, 손해사정은 보상 담당과 ADMIN 만. 지급·면책의 역할과 고액 승인은 서비스가 확인한다.
-                        .requestMatchers(HttpMethod.POST, "/api/claim/report", "/api/claim/inquiry", "/api/claim/list", "/api/claim/decide")
+                        .requestMatchers(HttpMethod.POST, "/api/claim/report", "/api/claim/inquiry", "/api/claim/decide")
+                        .hasAnyRole(Roles.AGENT, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/claim/list")
                         .hasAnyRole(Roles.AGENT, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/claim/assess")
                         .hasAnyRole(Roles.CLAIM, Roles.ADMIN)
+                        // 손해율 같은 상품·요율 관리용 통계는 심사·보상 담당과 ADMIN 만
+                        .requestMatchers(HttpMethod.POST, "/api/stats/loss-ratio")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.CLAIM, Roles.ADMIN)
+                        // 요율 영향 시뮬레이션은 요율을 정하는 심사 담당과 ADMIN 만 (저장은 하지 않는다)
+                        .requestMatchers(HttpMethod.POST, "/api/stats/rate-impact")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/inquiry")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 요율/계수 관리: 조회는 심사·계약 관리·ADMIN, 개정과 신규 등록은 ADMIN 만
                         .requestMatchers(HttpMethod.POST, "/api/admin/premium/rate-list", "/api/admin/premium/factor-list",
                                 "/api/admin/premium/policy-list", "/api/admin/premium/audit-list")
@@ -71,9 +92,9 @@ public class SecurityConfig {
                                 "/api/admin/premium/policy-revise")
                         .hasRole(Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/product/list")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/premium/quote")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/list")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse")
@@ -81,16 +102,24 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse-history")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 납입(수납)은 계약 관리 담당과 ADMIN, 납입 내역 조회는 모든 역할(AGENT 는 본인 접수 계약만)
+                        // 마일리지 특약: 주행거리 등록·정산은 설계사(본인 계약)·계약 관리·ADMIN·채널(사진 접수), 조회는 모든 역할
+                        .requestMatchers(HttpMethod.POST, "/api/contract/mileage/register", "/api/contract/mileage/settle")
+                        .hasAnyRole(Roles.AGENT, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/mileage/inquiry")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
+                        // 채널 시스템은 PG 결제가 확정된 납입을 자기 채널 계약에 기록한다
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment")
-                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment-history")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-history")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 상태 변경은 여기서 심사/관리 담당자만 통과시키고, 변경할 상태별 세부 권한은 ContractAccessPolicy 가 확인한다.
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-change")
                         .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
-                        .anyRequest().authenticated())
+                        // 위에 규칙이 없는 경로는 직원 토큰만 통과한다. 채널 시스템은 명시적으로 연 API 만 쓸 수 있어야 해서,
+                        // 나중에 규칙 없이 추가된 API 가 채널에 열리는 일이 없게 기본값을 거절로 둔다.
+                        .anyRequest().access((authentication, context) -> new AuthorizationDecision(isStaff(authentication.get()))))
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint((request, response, e) -> {
@@ -101,6 +130,13 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, e) ->
                                 writeError(response, HttpStatus.FORBIDDEN, FORBIDDEN_CODE, "접근 권한이 없습니다.")))
                 .build();
+    }
+
+    /** 로그인한 사람(직원) 토큰인지. 익명이거나 채널 시스템(CHANNEL) 토큰이면 false */
+    private static boolean isStaff(Authentication authentication) {
+        return authentication != null && !(authentication instanceof AnonymousAuthenticationToken)
+                && authentication.isAuthenticated()
+                && authentication.getAuthorities().stream().noneMatch(a -> ("ROLE_" + Roles.CHANNEL).equals(a.getAuthority()));
     }
 
     /**
@@ -117,20 +153,43 @@ public class SecurityConfig {
     }
 
     /**
-     * 토큰 서명 검증기를 만든다. 공유 비밀키(HS256)로 서명과 만료 시각(exp, nbf)을 검증한다.
+     * 토큰 검증기를 만든다. 인증 서버가 발급한 RS256 토큰은 공개키(JWKS)와 issuer 로, 개발용 HS256 토큰은 공유 비밀키로 검증한다.
+     * 둘 다 만료 시각(exp, nbf)을 확인한다. 공개키는 처음 토큰을 받을 때 가져오고, 모르는 kid 가 오면 다시 가져온다(키 교체 대응).
      *
-     * @param secret 서명 비밀키 (app.jwt.secret, 32바이트 이상)
-     * @throws IllegalStateException 비밀키가 HS256 최소 길이(32바이트)보다 짧은 경우 (기동 시점에 실패)
+     * @param secret    HS256 공유 비밀키 (app.jwt.secret). 비우면 HS256 토큰을 받지 않는다. 운영에서는 비운다
+     * @param jwkSetUri 인증 서버 공개키 주소 (app.jwt.jwk-set-uri, 예: http://auth:8081/auth/oauth2/jwks)
+     * @param issuer    인증 서버 issuer (app.jwt.issuer). 토큰의 iss 가 정확히 같아야 한다
+     * @throws IllegalStateException 둘 다 비었거나, 공개키 주소만 있고 issuer 가 없거나, 비밀키가 32바이트보다 짧은 경우 (기동 시점에 실패)
      */
     @Bean
-    JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {
-        byte[] key = secret.getBytes(StandardCharsets.UTF_8);
-        if (key.length < MIN_SECRET_BYTES) {
-            throw new IllegalStateException("app.jwt.secret 은 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다. (HS256)");
+    JwtDecoder jwtDecoder(@Value("${app.jwt.secret:}") String secret,
+                          @Value("${app.jwt.jwk-set-uri:}") String jwkSetUri,
+                          @Value("${app.jwt.issuer:}") String issuer) {
+        JwtDecoder rsa = null;
+        if (!jwkSetUri.isBlank()) {
+            if (issuer.isBlank()) {
+                throw new IllegalStateException("app.jwt.jwk-set-uri 를 쓰려면 app.jwt.issuer(AUTH_ISSUER)도 설정해야 합니다.");
+            }
+            NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri)
+                    .jwsAlgorithm(SignatureAlgorithm.RS256)
+                    .build();
+            decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
+            rsa = decoder;
         }
-        return NimbusJwtDecoder.withSecretKey(new SecretKeySpec(key, "HmacSHA256"))
-                .macAlgorithm(MacAlgorithm.HS256)
-                .build();
+        JwtDecoder hmac = null;
+        if (!secret.isBlank()) {
+            byte[] key = secret.getBytes(StandardCharsets.UTF_8);
+            if (key.length < MIN_SECRET_BYTES) {
+                throw new IllegalStateException("app.jwt.secret 은 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다. (HS256)");
+            }
+            hmac = NimbusJwtDecoder.withSecretKey(new SecretKeySpec(key, "HmacSHA256"))
+                    .macAlgorithm(MacAlgorithm.HS256)
+                    .build();
+        }
+        if (rsa == null && hmac == null) {
+            throw new IllegalStateException("토큰 검증 설정이 없습니다. 운영은 JWK_SET_URI 와 AUTH_ISSUER, 개발은 JWT_SECRET(또는 local 프로파일)을 설정하세요.");
+        }
+        return new AlgorithmRoutingJwtDecoder(rsa, hmac);
     }
 
     /**

@@ -49,3 +49,10 @@ export function parseAmount(text) {
   if (cleaned === '') return null;
   return /^\d+$/.test(cleaned) ? Number(cleaned) : NaN;
 }
+
+/** 날짜 문자열에 일수를 더한다 (단기 보험 기본 종료일용) */
+export function addDays(dateText, days) {
+  const [y, m, d] = dateText.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}

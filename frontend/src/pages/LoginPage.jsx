@@ -1,31 +1,25 @@
 import { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { ErrorBox } from '../components/ui';
 
+/**
+ * 로그인 시작 화면. 사번·비밀번호는 여기서 받지 않고 인증 서버의 로그인 화면에서 입력한다(OAuth 인가 코드 + PKCE).
+ * 인증 서버 로그인 세션이 살아 있으면 비밀번호 없이 바로 돌아온다.
+ */
 export function LoginPage() {
-  const { session, login, notice, clearNotice } = useAuth();
-  const navigate = useNavigate();
+  const { session, login, notice } = useAuth();
   const location = useLocation();
-  const [empId, setEmpId] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const from = location.state?.from ?? '/';
+  const error = location.state?.error;
 
-  if (session) return <Navigate to={session.passwordChangeRequired ? '/password' : '/'} replace />;
+  if (session) return <Navigate to={from} replace />;
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const start = async () => {
     setBusy(true);
-    setError(null);
-    clearNotice();
     try {
-      const res = await login(empId.trim(), password);
-      navigate(res.passwordChangeRequired ? '/password' : (location.state?.from ?? '/'), { replace: true });
-    } catch (err) {
-      setError(err);
-      setPassword('');
-    } finally {
+      await login(from);
+    } catch {
       setBusy(false);
     }
   };
@@ -44,29 +38,15 @@ export function LoginPage() {
           <li>업무 중 자리를 비울 때는 반드시 로그아웃해 주세요.</li>
         </ul>
       </div>
-      <form className="login-card" onSubmit={submit}>
+      <div className="login-card">
         <h2>로그인</h2>
         {notice && <div className="alert alert-info">{notice}</div>}
-        <ErrorBox error={error} />
-        <label className="field">
-          <span className="field-label">사번</span>
-          <input id="login-emp-id" value={empId} onChange={(e) => setEmpId(e.target.value)} autoComplete="username"
-                 autoFocus required maxLength={20} />
-        </label>
-        <label className="field">
-          <span className="field-label">비밀번호</span>
-          <input id="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                 autoComplete="current-password" required />
-        </label>
-        <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? '확인 중…' : '로그인'}
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
+        <p className="muted">사번과 비밀번호는 인증 서버의 로그인 화면에서 입력합니다. 이 화면은 비밀번호를 받지 않습니다.</p>
+        <button id="login-start" type="button" className="btn btn-primary btn-block" onClick={start} disabled={busy}>
+          {busy ? '로그인 화면으로 이동 중…' : '사내 계정으로 로그인'}
         </button>
-        {import.meta.env.DEV && (
-          <p className="login-dev">
-            개발 계정: admin01 · agent01 · uw01 · op01 / Insur!2026 (인증 서버 local 프로필)
-          </p>
-        )}
-      </form>
+      </div>
     </div>
   );
 }

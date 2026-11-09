@@ -8,6 +8,8 @@ package com.insur.insurcoresystem.common.security;
  *     <li>OPERATOR: 계약 관리 (해지)와 계약 조회</li>
  *     <li>CLAIM: 보상 (손해사정, 지급·면책)과 계약 조회</li>
  *     <li>ADMIN: 모든 업무</li>
+ *     <li>CHANNEL: 채널계 시스템(다이렉트 홈페이지·앱, TM 등). 사람이 아니라 시스템이 OAuth client credentials 로 받은 토큰에만 있다.
+ *         보험료 산출, 청약, 수납, 갱신, 사고 접수·접수 취소를 하고, 자기 채널이 접수한 계약만 본다</li>
  * </ul>
  */
 public final class Roles {
@@ -17,6 +19,7 @@ public final class Roles {
     public static final String OPERATOR = "OPERATOR";
     public static final String CLAIM = "CLAIM";
     public static final String ADMIN = "ADMIN";
+    public static final String CHANNEL = "CHANNEL";
 
     private Roles() {
     }

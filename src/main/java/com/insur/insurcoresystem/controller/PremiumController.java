@@ -8,6 +8,8 @@ import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.service.premium.PremiumService;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
+import com.insur.insurcoresystem.common.security.SalesChannel;
+import org.springframework.security.core.Authentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +40,11 @@ public class PremiumController {
      */
     @Operation(summary = "보험료를 산출한다", description = "가입금액과 보험기간으로 담보별 보험료와 총보험료를 계산해 돌려줄 뿐 아무것도 저장하지 않는다. 응답의 담보별 보험료와 총보험료는 청약 접수요청에 그대로 사용할 수 있다. 상품코드를 넣으면 판매 중인 상품인지와 담보 구성(필수 담보, 가입금액 한도)을 함께 검증한다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 입력/요율 오류")
     @PostMapping("/quote")
-    public CommonMessage<PremiumQuoteResponse> quote(@RequestBody CommonMessage<PremiumQuoteRequest> request) {
-        return success(request.getHeader(), premiumService.quoteNewBusiness(requireBody(request)));
+    public CommonMessage<PremiumQuoteResponse> quote(@RequestBody CommonMessage<PremiumQuoteRequest> request,
+                                                     Authentication authentication) {
+        PremiumQuoteRequest body = requireBody(request);
+        // 청약과 같은 판매채널 계수로 산출해야 산출 결과를 그대로 청약에 쓸 수 있다
+        body.setSalesChnlCd(SalesChannel.of(authentication));
+        return success(request.getHeader(), premiumService.quoteNewBusiness(body));
     }
 }

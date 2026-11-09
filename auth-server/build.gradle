@@ -25,8 +25,12 @@ dependencies {
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-security'
-    // JWT 발급(NimbusJwtEncoder)과 검증(관리 API 의 Bearer 토큰)
+    // OAuth 2.1 인가 서버(Authorization Code + PKCE, OIDC). 토큰은 RS256 으로 서명하고 공개키를 JWKS 로 내놓는다.
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-authorization-server'
+    // 이 서버의 관리 API(/auth/me, /auth/admin/**)는 자기가 발급한 Bearer 토큰으로 호출한다
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    // 로그인·비밀번호 변경 화면은 인가 서버가 직접 그린다 (비밀번호는 이 서버 화면에만 입력한다)
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'
@@ -42,6 +46,4 @@ tasks.named('test') {
     useJUnitPlatform()
     // 코어와 같은 업무 시간대(Asia/Seoul)에서 테스트한다.
     systemProperty 'user.timezone', 'Asia/Seoul'
-    // JWT 서명 비밀키 (운영에서는 환경변수로 주입, 테스트용 고정값)
-    environment 'JWT_SECRET', 'test-only-secret-key-for-hs256-at-least-32-bytes'
 }

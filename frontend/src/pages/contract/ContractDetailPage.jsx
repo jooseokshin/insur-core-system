@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { contractApi } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthProvider';
-import { CTR_STAT, INSR_CLS, PAY_METHODS, RATING_FIELDS, coverageName, nameOf } from '../../common/codes';
+import { CTR_STAT, INSR_CLS, PAY_METHODS, RATING_FIELDS, SALES_CHNL, coverageName, nameOf } from '../../common/codes';
 import { date, dateTime, money } from '../../common/format';
 import { DataTable, ErrorBox, InfoGrid, PageHeader, Panel, StatusBadge, useLoad, useToast } from '../../components/ui';
 import { EndorseModal, PaymentModal, RenewModal, StatusChangeModal } from './ContractActions';
 import { ClaimReportModal, ContractClaims } from '../claim/ClaimPages';
+import { MileagePanel } from './MileagePanel';
 
 const TABS = [
   { code: 'coverages', name: '담보' },
@@ -123,7 +124,8 @@ export function ContractDetailPage() {
         <InfoGrid items={[
           ['계약상태', <StatusBadge key="s" code={c.ctrStatCd} />],
           ['보험종목', nameOf(INSR_CLS, c.insrClsCd)],
-          ['상품', c.prdNm ? `${c.prdNm} (${c.prdCd})` : '상품 없음 (기존 채널)'],
+          ['상품', c.prdNm ? `${c.prdNm} (${c.prdCd})` : '상품 없음 (상품 도입 전 방식)'],
+          ['판매채널', nameOf(SALES_CHNL, c.salesChnlCd)],
           ['보험기간', `${date(c.startDate)} ~ ${date(c.endDate)}`],
           ['총보험료', <strong key="p">{money(c.totalPremium)}원</strong>],
           ['계약자', c.policyholderId],
@@ -135,6 +137,8 @@ export function ContractDetailPage() {
           ...(c.termDate ? [['해지일', date(c.termDate)], ['환급보험료', `${money(c.refundPremium)}원`]] : []),
         ]} />
       </Panel>
+
+      {c.insrClsCd === '01' && <MileagePanel contract={c} version={version} onDone={done} />}
 
       <Panel>
         <div className="tabs" role="tablist">

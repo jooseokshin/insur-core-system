@@ -2,8 +2,8 @@
 import { call } from './http';
 
 export const authApi = {
-  login: (empId, password) => call('/auth/login', { empId, password }, { auth: false }),
-  me: () => call('/auth/me'),
+  /** 본인 정보. 로그인 직후에는 아직 세션이 없어서 받은 토큰을 직접 넘긴다. */
+  me: (token) => call('/auth/me', {}, token ? { token } : {}),
   changePassword: (currentPassword, newPassword) => call('/auth/password', { currentPassword, newPassword }),
 };
 
@@ -26,6 +26,9 @@ export const contractApi = {
   endorseHistory: (contractNo, page = 0, size = 50) => call('/api/contract/endorse-history', { contractNo, page, size }),
   renewQuote: (contractNo, rating) => call('/api/contract/renew-quote', { contractNo, rating }),
   renew: (contractNo, rating, txId) => call('/api/contract/renew', { contractNo, rating }, { txId }),
+  mileageInquiry: (contractNo) => call('/api/contract/mileage/inquiry', { contractNo }),
+  mileageRegister: (contractNo, odometerKm, txId) => call('/api/contract/mileage/register', { contractNo, odometerKm }, { txId }),
+  mileageSettle: (contractNo, odometerKm, txId) => call('/api/contract/mileage/settle', { contractNo, odometerKm }, { txId }),
 };
 
 export const productApi = {
@@ -38,6 +41,11 @@ export const claimApi = {
   decide: (clmNo, decision, memo, txId) => call('/api/claim/decide', { clmNo, decision, memo }, { txId }),
   inquiry: (clmNo) => call('/api/claim/inquiry', { clmNo }),
   list: (cond) => call('/api/claim/list', cond),
+};
+
+export const statsApi = {
+  lossRatio: (cond) => call('/api/stats/loss-ratio', cond),
+  rateImpact: (cond) => call('/api/stats/rate-impact', cond),
 };
 
 export const premiumApi = {

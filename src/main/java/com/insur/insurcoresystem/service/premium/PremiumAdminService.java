@@ -64,15 +64,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class PremiumAdminService {
 
-    /** 계수 종류별 형태. 범위형은 구간(rangeFrom~rangeTo)으로, 키형은 코드(factorKey)로 칸이 정해진다. */
-    private static final Map<String, Boolean> FACTOR_TYPE_IS_RANGE = Map.of(
-            PremiumService.FACTOR_DRIVER_AGE, true,
-            PremiumService.FACTOR_DISCOUNT_GRADE, false,
-            PremiumService.FACTOR_STRUCTURE_GRADE, false);
-    /** 보험종목별로 쓰는 계수 종류 */
-    private static final Map<String, List<String>> FACTOR_TYPES_BY_PRODUCT = Map.of(
-            "01", List.of(PremiumService.FACTOR_DRIVER_AGE, PremiumService.FACTOR_DISCOUNT_GRADE),
-            "02", List.of(PremiumService.FACTOR_STRUCTURE_GRADE));
+    // 계수 종류별 형태(범위형/키형)와 보험종목별 사용 여부는 RatingFactorType 이 정한다
     private static final BigDecimal MAX_RATE = BigDecimal.ONE;
     private static final BigDecimal MAX_FACTOR = new BigDecimal("9.9999");
     private static final int MAX_RANGE_VALUE = 150;
@@ -206,7 +198,7 @@ public class PremiumAdminService {
         if (StringUtils.hasText(request.getInsrClsCd())) {
             ProductType.fromInsrClsCd(request.getInsrClsCd());
         }
-        if (StringUtils.hasText(request.getFactorType()) && !FACTOR_TYPE_IS_RANGE.containsKey(request.getFactorType())) {
+        if (StringUtils.hasText(request.getFactorType()) && RatingFactorType.find(request.getFactorType()).isEmpty()) {
             throw new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + request.getFactorType());
         }
         LocalDate today = LocalDate.now(clock);
@@ -402,10 +394,12 @@ public class PremiumAdminService {
     @Transactional
     public PolicyRevisionResponse revisePolicy(String globalTxId, String empId, PolicyRevisionRequest request) {
         ProductType.fromInsrClsCd(request.getInsrClsCd());
-        if (!FACTOR_TYPE_IS_RANGE.containsKey(request.getFactorType())) {
-            throw new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + request.getFactorType());
+        RatingFactorType policyType = RatingFactorType.find(request.getFactorType()).orElseThrow(() ->
+                new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + request.getFactorType()));
+        if (!policyType.isUserInput()) {
+            throw new BusinessException("E-ADM-001", "판매채널처럼 서버가 정하는 계수는 필수 정책을 둘 수 없습니다: " + request.getFactorType());
         }
-        if (!FACTOR_TYPES_BY_PRODUCT.get(request.getInsrClsCd()).contains(request.getFactorType())) {
+        if (!policyType.appliesTo(request.getInsrClsCd())) {
             throw new BusinessException("E-ADM-001", "보험종목 " + request.getInsrClsCd()
                     + "에서 쓰지 않는 계수 종류입니다: " + request.getFactorType());
         }
@@ -506,16 +500,15 @@ public class PremiumAdminService {
     /** 계수 종류가 보험종목에서 쓰는 것이고, 종류에 맞는 형태(키 또는 구간)로만 입력했는지 확인한다. */
     private static void validateFactorSlot(FactorRevisionRequest request) {
         String type = request.getFactorType();
-        if (!FACTOR_TYPE_IS_RANGE.containsKey(type)) {
-            throw new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + type);
-        }
-        if (!FACTOR_TYPES_BY_PRODUCT.get(request.getInsrClsCd()).contains(type)) {
+        RatingFactorType factorType = RatingFactorType.find(type).orElseThrow(() ->
+                new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + type));
+        if (!factorType.appliesTo(request.getInsrClsCd())) {
             throw new BusinessException("E-ADM-001",
                     "보험종목 " + request.getInsrClsCd() + "에서 쓰지 않는 계수 종류입니다: " + type);
         }
         boolean hasKey = request.getFactorKey() != null;
         boolean hasRange = request.getRangeFrom() != null || request.getRangeTo() != null;
-        if (FACTOR_TYPE_IS_RANGE.get(type)) {
+        if (factorType.isRange()) {
             Integer from = request.getRangeFrom();
             Integer to = request.getRangeTo();
             if (hasKey || from == null || to == null || from < 0 || to > MAX_RANGE_VALUE || from > to) {

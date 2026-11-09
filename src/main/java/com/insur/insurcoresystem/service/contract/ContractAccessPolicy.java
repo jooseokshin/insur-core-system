@@ -16,7 +16,7 @@ import org.springframework.security.core.GrantedAuthority;
  *     <li>유효(20), 청약취소(90): 심사 담당(UNDERWRITER)</li>
  *     <li>해지(30): 계약 관리 담당(OPERATOR)</li>
  *     <li>ADMIN 은 모든 상태로 변경할 수 있다.</li>
- *     <li>조회: AGENT 만 가진 사용자는 본인이 접수한 계약만, 그 외 역할은 전체</li>
+ *     <li>조회: AGENT 나 CHANNEL 만 가진 사용자는 본인(채널 시스템은 자기 채널)이 접수한 계약만, 그 외 역할은 전체</li>
  * </ul>
  * 상태 변경 API 자체에 접근할 수 있는 역할은 SecurityConfig 의 URL 규칙이 먼저 걸러내고, 이 정책은 그 안에서 상태별로 한 번 더 확인한다.
  */
@@ -47,14 +47,15 @@ public final class ContractAccessPolicy {
 
     /**
      * 계약 조회를 본인이 접수한 계약으로 제한해야 하는 사용자인지 판단한다.
-     * 청약 접수 담당(AGENT)만 가진 사용자는 본인이 접수한 계약만 볼 수 있고, 심사/계약 관리/ADMIN 역할이 하나라도 있으면 전체를 볼 수 있다.
+     * 청약 접수 담당(AGENT)이나 채널 시스템(CHANNEL)만 가진 사용자는 본인이 접수한 계약만 볼 수 있고(채널 시스템은 토큰 sub 가
+     * 채널 클라이언트 ID 라서 그 채널로 들어온 계약만), 심사/계약 관리/ADMIN 역할이 하나라도 있으면 전체를 볼 수 있다.
      *
      * @param authentication 인증된 사용자
      * @return 본인 접수 계약으로 제한해야 하면 true
      */
     public static boolean ownContractsOnly(Authentication authentication) {
         Set<String> roles = roles(authentication);
-        return roles.contains(Roles.AGENT)
+        return (roles.contains(Roles.AGENT) || roles.contains(Roles.CHANNEL))
                 && !roles.contains(Roles.UNDERWRITER) && !roles.contains(Roles.OPERATOR) && !roles.contains(Roles.ADMIN);
     }
 

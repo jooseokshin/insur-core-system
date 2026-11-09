@@ -25,9 +25,12 @@ public class ContractInquiryResponse {
     /** 청약번호 */
     @Schema(description = "청약번호")
     private String applNo;
-    /** 보험종목코드 (01:자동차, 02:화재) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
     private String insrClsCd;
+    /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM) */
+    @Schema(description = "판매채널코드 (10:대면, 20:다이렉트, 30:TM)")
+    private String salesChnlCd;
     /** 상품코드 (상품 없이 접수한 계약은 null) */
     @Schema(description = "상품코드 (상품 없이 접수한 계약은 null)")
     private String prdCd;
@@ -67,6 +70,12 @@ public class ContractInquiryResponse {
     /** 보험료 산출에 쓴 건물 구조 등급 (화재, 입력하지 않았으면 null) */
     @Schema(description = "보험료 산출에 쓴 건물 구조 등급 (화재, 입력하지 않았으면 null)")
     private String structureGrade;
+    /** 보험료 산출에 쓴 여행 지역 (해외여행, 입력하지 않았으면 null) */
+    @Schema(description = "보험료 산출에 쓴 여행 지역 (해외여행, 입력하지 않았으면 null)")
+    private String travelRegion;
+    /** 보험료 산출에 쓴 피보험자 만 나이 (해외여행, 입력하지 않았으면 null) */
+    @Schema(description = "보험료 산출에 쓴 피보험자 만 나이 (해외여행, 입력하지 않았으면 null)")
+    private Integer insuredAge;
     /** 해지일 (해지하지 않았으면 null) */
     @Schema(description = "해지일 (해지하지 않았으면 null)")
     private LocalDate termDate;
