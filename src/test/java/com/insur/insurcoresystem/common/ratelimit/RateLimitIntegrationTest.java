@@ -23,10 +23,15 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
         "app.rate-limit.enabled=true",
         "app.rate-limit.defaults.capacity=3",
         "app.rate-limit.defaults.per-minute=1",
-        "app.rate-limit.rules[0].name=stats",
-        "app.rate-limit.rules[0].paths=/api/stats/**",
-        "app.rate-limit.rules[0].capacity=2",
+        "app.rate-limit.rules[0].name=channel",
+        "app.rate-limit.rules[0].roles=CHANNEL",
+        "app.rate-limit.rules[0].paths=/api/**",
+        "app.rate-limit.rules[0].capacity=5",
         "app.rate-limit.rules[0].per-minute=1",
+        "app.rate-limit.rules[1].name=stats",
+        "app.rate-limit.rules[1].paths=/api/stats/**",
+        "app.rate-limit.rules[1].capacity=2",
+        "app.rate-limit.rules[1].per-minute=1",
 })
 @AutoConfigureMockMvc
 class RateLimitIntegrationTest {
@@ -86,6 +91,19 @@ class RateLimitIntegrationTest {
         call("/api/stats/loss-ratio", agent).andExpect(status().isForbidden());
         call("/api/stats/loss-ratio", agent).andExpect(status().isForbidden());
         call("/api/stats/loss-ratio", agent).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void 역할을_지정한_규칙은_그_역할의_토큰에만_적용된다() throws Exception {
+        // 채널 시스템은 고객 여럿을 대신하므로 사원 기본 한도(3)가 아니라 채널 규칙(5)을 쓴다
+        RequestPostProcessor channel = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt()
+                .jwt(t -> t.subject("ch-rl").claim("channel_cd", "20"))
+                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + Roles.CHANNEL));
+        for (int i = 4; i >= 0; i--) {
+            call("/api/product/list", channel).andExpect(status().isOk())
+                    .andExpect(header().string("X-RateLimit-Remaining", Integer.toString(i)));
+        }
+        call("/api/product/list", channel).andExpect(status().isTooManyRequests());
     }
 
     private ResultActions call(String path, RequestPostProcessor auth) throws Exception {

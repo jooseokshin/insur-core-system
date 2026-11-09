@@ -1,6 +1,7 @@
 package com.insur.insurcoresystem.service.contract.dto;
 
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -46,6 +47,10 @@ public class ContractApplyRequest {
     /** 요율 계수 입력 (선택). 보험료 산출에 쓴 조건이며, 이 값으로 산출한 보험료와 담보 보험료가 일치해야 한다 */
     @Schema(description = "요율 계수 입력 (선택). 보험료 산출에 쓴 조건이며, 이 값으로 산출한 보험료와 담보 보험료가 일치해야 한다")
     private RatingInput rating;
+    /** 판매채널코드. 요청 바디로 받지 않고(무시) 서버가 토큰으로 정한다: 직원 10 대면, 채널 시스템은 토큰의 channel_cd (SalesChannel) */
+    @Schema(hidden = true)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String salesChnlCd;
     /** 가입 담보 목록 (1건 이상) */
     @Schema(description = "가입 담보 목록 (1건 이상)")
     private List<CoverageRequest> coverages;

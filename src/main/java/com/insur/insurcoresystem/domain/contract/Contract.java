@@ -3,6 +3,7 @@ package com.insur.insurcoresystem.domain.contract;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -108,9 +109,21 @@ public class Contract {
     @Column(name = "PRD_CD", length = 20)
     private String prdCd;
 
+    /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM). 갱신 계약은 원 계약의 채널을 잇는다 */
+    @Column(name = "SALES_CHNL_CD", length = 2, nullable = false)
+    private String salesChnlCd;
+
     /** 이 계약이 갱신으로 만들어진 경우 원 계약의 증권번호. 갱신 계약이 아니면 null */
     @Column(name = "RENEWED_FROM", length = 30)
     private String renewedFrom;
+
+    /** 판매채널을 정하지 않고 저장하면 대면(10)으로 본다 (DB 기본값과 같은 규칙. JPA 는 null 을 그대로 넣으므로 여기서 채운다) */
+    @PrePersist
+    void defaultSalesChannel() {
+        if (salesChnlCd == null) {
+            salesChnlCd = "10";
+        }
+    }
 
     /**
      * 계약상태를 변경한다. 전이 가능 여부는 호출자(서비스)가 {@link ContractStatus#canChangeTo} 로 먼저 확인한다.

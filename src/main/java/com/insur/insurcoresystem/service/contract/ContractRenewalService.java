@@ -98,6 +98,8 @@ public class ContractRenewalService {
                 .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate)
                 .policyholderId(source.getPolicyholderId()).insuredId(source.getInsuredId())
                 .totalPremium(quote.getTotalPremium()).rating(rating)
+                // 갱신 계약은 원 계약의 판매채널을 잇는다 (누가 갱신을 눌렀든 같은 채널 요율로 산출·검증)
+                .salesChnlCd(source.getSalesChnlCd())
                 .coverages(quote.getCoverages().stream().map(c -> CoverageRequest.builder()
                         .cvrgCd(c.getCvrgCd()).isrdAmt(c.getIsrdAmt()).prem(c.getPrem()).build()).toList())
                 .build(), source.getContractNo());
@@ -157,6 +159,7 @@ public class ContractRenewalService {
 
         PremiumQuoteResponse quote = premiumService.quote(PremiumQuoteRequest.builder()
                 .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate).rating(rating)
+                .salesChnlCd(source.getSalesChnlCd())
                 .coverages(sourceCoverages.stream().map(c -> PremiumQuoteRequest.QuoteCoverageRequest.builder()
                         .cvrgCd(c.getCvrgCd()).isrdAmt(c.getIsrdAmt()).build()).toList())
                 .build());

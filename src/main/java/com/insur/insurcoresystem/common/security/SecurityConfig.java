@@ -11,7 +11,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -56,16 +59,20 @@ public class SecurityConfig {
                         // API 문서(Swagger UI)는 토큰 없이 열 수 있다. 호출은 화면의 Authorize 에 토큰을 넣어서 한다.
                         .requestMatchers(HttpMethod.GET, "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
                         .permitAll()
+                        // 채널 시스템(CHANNEL): 산출·청약·수납·갱신·조회·사고 접수만. 목록·현황·배서·상태 변경·통계·요율 관리는 막는다.
+                        // 데이터 범위는 설계사와 같은 규칙(자기 채널이 접수한 계약만)을 서비스가 적용한다.
                         .requestMatchers(HttpMethod.POST, "/api/contract/apply")
-                        .hasAnyRole(Roles.AGENT, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.ADMIN, Roles.CHANNEL)
                         // 갱신은 새 청약을 만드는 일이라 청약 접수와 같은 역할
                         .requestMatchers(HttpMethod.POST, "/api/contract/renew", "/api/contract/renew-quote")
-                        .hasAnyRole(Roles.AGENT, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.ADMIN, Roles.CHANNEL)
                         // 업무 현황·할 일함·갱신 대상은 모든 업무 역할이 본다. 할 일 유형별 권한과 AGENT 의 본인 계약 제한은 서비스에서 적용한다.
                         .requestMatchers(HttpMethod.POST, "/api/work/dashboard", "/api/work/todo", "/api/work/renewal-targets")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 보상: 접수·조회·접수 취소는 설계사도, 손해사정은 보상 담당과 ADMIN 만. 지급·면책의 역할과 고액 승인은 서비스가 확인한다.
-                        .requestMatchers(HttpMethod.POST, "/api/claim/report", "/api/claim/inquiry", "/api/claim/list", "/api/claim/decide")
+                        .requestMatchers(HttpMethod.POST, "/api/claim/report", "/api/claim/inquiry", "/api/claim/decide")
+                        .hasAnyRole(Roles.AGENT, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/claim/list")
                         .hasAnyRole(Roles.AGENT, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/claim/assess")
                         .hasAnyRole(Roles.CLAIM, Roles.ADMIN)
@@ -76,7 +83,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/stats/rate-impact")
                         .hasAnyRole(Roles.UNDERWRITER, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/inquiry")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 요율/계수 관리: 조회는 심사·계약 관리·ADMIN, 개정과 신규 등록은 ADMIN 만
                         .requestMatchers(HttpMethod.POST, "/api/admin/premium/rate-list", "/api/admin/premium/factor-list",
                                 "/api/admin/premium/policy-list", "/api/admin/premium/audit-list")
@@ -85,9 +92,9 @@ public class SecurityConfig {
                                 "/api/admin/premium/policy-revise")
                         .hasRole(Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/product/list")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/premium/quote")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/list")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse")
@@ -95,16 +102,19 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/contract/endorse-history")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         // 납입(수납)은 계약 관리 담당과 ADMIN, 납입 내역 조회는 모든 역할(AGENT 는 본인 접수 계약만)
+                        // 채널 시스템은 PG 결제가 확정된 납입을 자기 채널 계약에 기록한다
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment")
-                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment-history")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-history")
-                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 상태 변경은 여기서 심사/관리 담당자만 통과시키고, 변경할 상태별 세부 권한은 ContractAccessPolicy 가 확인한다.
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-change")
                         .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
-                        .anyRequest().authenticated())
+                        // 위에 규칙이 없는 경로는 직원 토큰만 통과한다. 채널 시스템은 명시적으로 연 API 만 쓸 수 있어야 해서,
+                        // 나중에 규칙 없이 추가된 API 가 채널에 열리는 일이 없게 기본값을 거절로 둔다.
+                        .anyRequest().access((authentication, context) -> new AuthorizationDecision(isStaff(authentication.get()))))
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint((request, response, e) -> {
@@ -115,6 +125,13 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, e) ->
                                 writeError(response, HttpStatus.FORBIDDEN, FORBIDDEN_CODE, "접근 권한이 없습니다.")))
                 .build();
+    }
+
+    /** 로그인한 사람(직원) 토큰인지. 익명이거나 채널 시스템(CHANNEL) 토큰이면 false */
+    private static boolean isStaff(Authentication authentication) {
+        return authentication != null && !(authentication instanceof AnonymousAuthenticationToken)
+                && authentication.isAuthenticated()
+                && authentication.getAuthorities().stream().noneMatch(a -> ("ROLE_" + Roles.CHANNEL).equals(a.getAuthority()));
     }
 
     /**

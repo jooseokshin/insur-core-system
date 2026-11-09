@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.premium.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.List;
@@ -34,6 +35,10 @@ public class PremiumQuoteRequest {
     /** 요율 계수 입력 (선택). 입력하지 않은 계수는 적용하지 않는다 */
     @Schema(description = "요율 계수 입력 (선택). 입력하지 않은 계수는 적용하지 않는다")
     private RatingInput rating;
+    /** 판매채널코드. 요청 바디로 받지 않고(무시) 서버가 토큰으로 정한다: 직원 10 대면, 채널 시스템은 토큰의 channel_cd (SalesChannel) */
+    @Schema(hidden = true)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String salesChnlCd;
     /** 보험료를 산출할 담보 목록 (1건 이상, 담보코드 중복 불가) */
     @Schema(description = "보험료를 산출할 담보 목록 (1건 이상, 담보코드 중복 불가)")
     private List<QuoteCoverageRequest> coverages;

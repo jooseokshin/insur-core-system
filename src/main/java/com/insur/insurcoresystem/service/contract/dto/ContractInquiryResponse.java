@@ -28,6 +28,9 @@ public class ContractInquiryResponse {
     /** 보험종목코드 (01:자동차, 02:화재) */
     @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
     private String insrClsCd;
+    /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM) */
+    @Schema(description = "판매채널코드 (10:대면, 20:다이렉트, 30:TM)")
+    private String salesChnlCd;
     /** 상품코드 (상품 없이 접수한 계약은 null) */
     @Schema(description = "상품코드 (상품 없이 접수한 계약은 null)")
     private String prdCd;

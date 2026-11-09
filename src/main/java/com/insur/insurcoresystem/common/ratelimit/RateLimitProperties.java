@@ -32,8 +32,15 @@ public record RateLimitProperties(
     /**
      * @param name  규칙 이름 (버킷 키와 로그에 쓴다)
      * @param paths 경로 패턴 (예: /api/stats/**)
+     * @param roles 이 역할 중 하나를 가진 호출에만 적용 (예: CHANNEL). 비우면 역할과 무관
      */
-    public record Rule(String name, List<String> paths, int capacity, int perMinute) {
+    public record Rule(String name, List<String> paths, List<String> roles, int capacity, int perMinute) {
+
+        /** 이 역할 집합(ROLE_ 접두사 없음)의 호출에 적용되는 규칙인지 */
+        public boolean matchesRoles(java.util.Set<String> callerRoles) {
+            return roles == null || roles.isEmpty() || roles.stream().anyMatch(callerRoles::contains);
+        }
+
         public Limit limit() {
             return new Limit(capacity, perMinute);
         }

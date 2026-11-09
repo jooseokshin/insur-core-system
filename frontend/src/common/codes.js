@@ -58,10 +58,18 @@ export const RATING_FIELDS = {
   ],
 };
 
+/** 판매채널 (계약 원장 SALES_CHNL_CD, V23). 채널은 토큰으로 정해지고 화면에서 고르지 않는다 */
+export const SALES_CHNL = [
+  { code: '10', name: '대면', tone: 'muted' },
+  { code: '20', name: '다이렉트', tone: 'info' },
+  { code: '30', name: 'TM', tone: 'info' },
+];
+
 export const FACTOR_TYPES = [
   { code: 'DRIVER_AGE', name: '운전자 나이', insrClsCd: '01' },
   { code: 'DISCOUNT_GRADE', name: '할인할증 등급', insrClsCd: '01' },
   { code: 'STRUCTURE_GRADE', name: '건물 구조 등급', insrClsCd: '02' },
+  { code: 'SALES_CHANNEL', name: '판매채널 (서버가 정함)' },
 ];
 
 export const PAY_METHODS = [

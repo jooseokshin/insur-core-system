@@ -93,6 +93,7 @@ public class ContractInquiryService {
                 .applNo(contract.getApplNo())
                 .insrClsCd(contract.getInsrClsCd())
                 .prdCd(contract.getPrdCd())
+                .salesChnlCd(contract.getSalesChnlCd())
                 .prdNm(contract.getPrdCd() == null ? null
                         : productRepository.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse(null))
                 .ctrStatCd(contract.getCtrStatCd())
@@ -277,6 +278,7 @@ public class ContractInquiryService {
                 .applNo(contract.getApplNo())
                 .insrClsCd(contract.getInsrClsCd())
                 .prdCd(contract.getPrdCd())
+                .salesChnlCd(contract.getSalesChnlCd())
                 .ctrStatCd(contract.getCtrStatCd())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())

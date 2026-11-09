@@ -9,6 +9,9 @@ import com.nimbusds.jose.proc.SecurityContext;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -152,7 +155,7 @@ public class SecurityConfig {
      * 액세스 토큰이 만료되면 화면이 인가 요청을 다시 하고, 로그인 세션이 남아 있으면 비밀번호 없이 새 토큰을 받는다.
      */
     @Bean
-    RegisteredClientRepository registeredClientRepository(OAuthProperties properties) {
+    RegisteredClientRepository registeredClientRepository(OAuthProperties properties, PasswordEncoder passwordEncoder) {
         OAuthProperties.Client web = properties.web();
         RegisteredClient client = RegisteredClient.withId(web.clientId())
                 .clientId(web.clientId())
@@ -169,7 +172,45 @@ public class SecurityConfig {
                         .accessTokenTimeToLive(Duration.ofMinutes(properties.accessTokenTtlMinutes()))
                         .build())
                 .build();
-        return new InMemoryRegisteredClientRepository(client);
+        List<RegisteredClient> clients = new ArrayList<>();
+        clients.add(client);
+        for (OAuthProperties.ChannelClient channel : properties.channels()) {
+            if (channel.clientSecret() == null || channel.clientSecret().isBlank()) {
+                continue;   // 비밀값을 주지 않은 채널은 등록하지 않는다 (운영에서 기본값으로 열리는 일이 없게)
+            }
+            clients.add(channelClient(channel, passwordEncoder));
+        }
+        return new InMemoryRegisteredClientRepository(clients);
+    }
+
+    /** 판매채널 클라이언트 설정에 남기는 채널코드 키 (TokenClaimsCustomizer 가 읽는다) */
+    public static final String CHANNEL_CD_SETTING = "insur.channel-cd";
+    private static final Set<String> CHANNEL_CODES = Set.of("20", "30");
+    private static final int MIN_CHANNEL_SECRET_LENGTH = 32;
+
+    /**
+     * 채널계 시스템 클라이언트. client credentials 만 쓰는 기밀 클라이언트이고(사람 로그인 없음), 비밀값은 HTTP Basic 으로 보낸다.
+     * 토큰에는 사람 대신 CHANNEL 역할과 판매채널코드가 들어가고, 코어는 이 토큰으로 열어 둔 API 만 허용한다.
+     *
+     * @throws IllegalStateException 채널코드가 20/30 이 아니거나 비밀값이 32자보다 짧은 경우 (기동 시점에 실패)
+     */
+    private static RegisteredClient channelClient(OAuthProperties.ChannelClient channel, PasswordEncoder passwordEncoder) {
+        if (!CHANNEL_CODES.contains(channel.channelCd())) {
+            throw new IllegalStateException("채널 클라이언트 " + channel.clientId() + " 의 channel-cd 는 20(다이렉트) 또는 30(TM)이어야 합니다.");
+        }
+        if (channel.clientSecret().length() < MIN_CHANNEL_SECRET_LENGTH) {
+            throw new IllegalStateException("채널 클라이언트 " + channel.clientId() + " 의 비밀값은 " + MIN_CHANNEL_SECRET_LENGTH + "자 이상이어야 합니다.");
+        }
+        return RegisteredClient.withId(channel.clientId())
+                .clientId(channel.clientId())
+                .clientSecret(passwordEncoder.encode(channel.clientSecret()))
+                .clientName(channel.name() == null ? channel.clientId() : channel.name())
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .scope("channel")
+                .clientSettings(ClientSettings.builder().setting(CHANNEL_CD_SETTING, channel.channelCd()).build())
+                .tokenSettings(TokenSettings.builder().accessTokenTimeToLive(Duration.ofMinutes(channel.tokenTtlMinutes())).build())
+                .build();
     }
 
     /** 인가 코드와 발급 토큰 기록은 DB(auth.oauth2_authorization, V3)에 둔다. 재기동이나 여러 대 구성에서도 코드 교환이 끊기지 않는다. */

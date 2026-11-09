@@ -25,7 +25,7 @@ export function LossRatioPage() {
   const { data, error, loading } = useLoad(() => statsApi.lossRatio({ ...cond, groupBy }), [cond, groupBy]);
 
   const label = (r) => {
-    if (groupBy === 'PRODUCT') return r.prdCd ?? '상품 없음 (기존 채널)';
+    if (groupBy === 'PRODUCT') return r.prdCd ?? '상품 없음 (상품 도입 전 방식)';
     if (groupBy === 'COVERAGE') return `${coverageName(r.cvrgCd)} (${r.cvrgCd})`;
     return '-';
   };

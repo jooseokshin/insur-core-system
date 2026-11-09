@@ -6,6 +6,7 @@ import static com.insur.insurcoresystem.common.web.CommonMessages.success;
 import com.insur.insurcoresystem.common.dto.CommonHeader;
 import com.insur.insurcoresystem.common.dto.CommonMessage;
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.SalesChannel;
 import com.insur.insurcoresystem.service.contract.ContractAccessPolicy;
 import com.insur.insurcoresystem.service.contract.ContractEndorsementService;
 import com.insur.insurcoresystem.service.contract.ContractInquiryService;
@@ -69,8 +70,11 @@ public class ContractController {
      */
     @Operation(summary = "계약 청약을 접수한다", description = "요청 전문의 바디를 서비스에 위임하고, 요청 헤더의 globalTxId, empId 를 이어받아 정상 응답 전문을 구성한다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 업무 오류")
     @PostMapping("/apply")
-    public CommonMessage<ContractApplyResponse> apply(@RequestBody CommonMessage<ContractApplyRequest> request) {
+    public CommonMessage<ContractApplyResponse> apply(@RequestBody CommonMessage<ContractApplyRequest> request,
+                                                      Authentication authentication) {
         ContractApplyRequest body = requireBody(request);
+        // 판매채널은 바디가 아니라 토큰으로 정한다 (직원 10 대면, 채널 시스템은 등록된 채널). 채널 할인 계수가 여기서 갈린다
+        body.setSalesChnlCd(SalesChannel.of(authentication));
         // 헤더는 CommonHeaderRequestBodyAdvice 에서 globalTxId 까지 채워진 상태로 전달된다.
         CommonHeader reqHeader = request.getHeader();
 
@@ -87,11 +91,13 @@ public class ContractController {
      */
     @Operation(summary = "청약 상태 계약의 보험료 납입(수납)을 접수한다", description = "나누어 낼 수 있고, 낸 합계가 총보험료에 이르면 승인(유효)할 수 있다. 계약 관리 담당과 ADMIN 만 할 수 있다.\n\n오류: 요청 바디가 없는 경우(E-CMN-001) 및 서비스 단계의 납입 오류(E-CTR-007~011, 015, 019, 026, 027, 029)")
     @PostMapping("/payment")
-    public CommonMessage<PaymentResponse> payment(@RequestBody CommonMessage<PaymentRequest> request) {
+    public CommonMessage<PaymentResponse> payment(@RequestBody CommonMessage<PaymentRequest> request,
+                                                  Authentication authentication) {
         PaymentRequest body = requireBody(request);
         CommonHeader reqHeader = request.getHeader();
+        String ownerEmpId = ContractAccessPolicy.ownContractsOnly(authentication) ? authentication.getName() : null;
 
-        return success(reqHeader, paymentService.pay(reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
+        return success(reqHeader, paymentService.pay(ownerEmpId, reqHeader.getGlobalTxId(), reqHeader.getEmpId(), body));
     }
 
     /**

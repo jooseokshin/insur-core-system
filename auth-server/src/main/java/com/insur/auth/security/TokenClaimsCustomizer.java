@@ -3,9 +3,12 @@ package com.insur.auth.security;
 import com.insur.auth.common.BusinessException;
 import com.insur.auth.domain.Employee;
 import com.insur.auth.service.AuthService;
+import com.insur.auth.config.SecurityConfig;
 import java.util.ArrayList;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
@@ -33,7 +36,11 @@ public class TokenClaimsCustomizer implements OAuth2TokenCustomizer<JwtEncodingC
 
     @Override
     public void customize(JwtEncodingContext context) {
-        // 사원이 로그인해서 받은 토큰만 다룬다 (앞으로 클라이언트 자격 증명 같은 기계 토큰이 생기면 여기를 지난다)
+        if (AuthorizationGrantType.CLIENT_CREDENTIALS.equals(context.getAuthorizationGrantType())) {
+            customizeChannel(context);
+            return;
+        }
+        // 그 밖에는 사원이 로그인해서 받은 토큰만 다룬다
         if (!(context.getPrincipal() instanceof UsernamePasswordAuthenticationToken principal)) {
             return;
         }
@@ -54,5 +61,24 @@ public class TokenClaimsCustomizer implements OAuth2TokenCustomizer<JwtEncodingC
         } else if (OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue())) {
             context.getClaims().claim("name", employee.getEmpNm());
         }
+    }
+
+    /**
+     * 채널계 시스템 토큰 (client credentials). sub 는 클라이언트 ID(기본값)이고, 사람 역할 대신 CHANNEL 하나와 판매채널코드를 넣는다.
+     * 채널 클라이언트로 등록하지 않은 클라이언트가 이 방식으로 토큰을 받으면(설정 실수) 거절한다.
+     */
+    private static void customizeChannel(JwtEncodingContext context) {
+        if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+            return;
+        }
+        Object channelCd = context.getRegisteredClient().getClientSettings().getSetting(SecurityConfig.CHANNEL_CD_SETTING);
+        if (channelCd == null) {
+            throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.UNAUTHORIZED_CLIENT,
+                    "채널 시스템으로 등록되지 않은 클라이언트입니다.", null));
+        }
+        context.getClaims()
+                .claim("roles", new ArrayList<>(List.of("CHANNEL")))
+                .claim("channel_cd", channelCd.toString())
+                .claim("name", context.getRegisteredClient().getClientName());
     }
 }

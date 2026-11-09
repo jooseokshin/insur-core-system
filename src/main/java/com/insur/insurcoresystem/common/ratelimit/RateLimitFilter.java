@@ -43,7 +43,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        RateLimitStore.Decision decision = rateLimiter.tryConsume(auth.getName(), path(request));
+        java.util.Set<String> roles = auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replaceFirst("^ROLE_", "")).collect(java.util.stream.Collectors.toSet());
+        RateLimitStore.Decision decision = rateLimiter.tryConsume(auth.getName(), path(request), roles);
         if (decision.allowed()) {
             response.setHeader("X-RateLimit-Remaining", Long.toString(decision.remaining()));
             chain.doFilter(request, response);

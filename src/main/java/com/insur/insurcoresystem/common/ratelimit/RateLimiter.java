@@ -20,7 +20,7 @@ public class RateLimiter {
         this.properties = properties;
         this.store = store;
         this.rules = properties.rules().stream()
-                .map(rule -> new CompiledRule(rule.name(), rule.limit(),
+                .map(rule -> new CompiledRule(rule, rule.limit(),
                         rule.paths().stream().map(PathPatternParser.defaultInstance::parse).toList()))
                 .toList();
     }
@@ -29,17 +29,26 @@ public class RateLimiter {
         return properties.enabled();
     }
 
-    /** 경로에 맞는 규칙의 버킷에서 사원의 호출 하나를 꺼낸다. */
+    /** 경로에 맞는 규칙의 버킷에서 사원의 호출 하나를 꺼낸다. (역할과 무관한 규칙만 본다) */
     public RateLimitStore.Decision tryConsume(String empId, String path) {
+        return tryConsume(empId, path, java.util.Set.of());
+    }
+
+    /**
+     * 경로와 역할에 맞는 첫 규칙의 버킷에서 호출 하나를 꺼낸다.
+     *
+     * @param roles 호출한 주체의 역할 (ROLE_ 접두사 없음). 역할을 지정한 규칙은 이 중 하나가 있어야 맞는다
+     */
+    public RateLimitStore.Decision tryConsume(String empId, String path, java.util.Set<String> roles) {
         PathContainer container = PathContainer.parsePath(path);
         for (CompiledRule rule : rules) {
-            if (rule.patterns().stream().anyMatch(p -> p.matches(container))) {
-                return store.tryConsume(rule.name() + ":" + empId, rule.limit());
+            if (rule.rule().matchesRoles(roles) && rule.patterns().stream().anyMatch(p -> p.matches(container))) {
+                return store.tryConsume(rule.rule().name() + ":" + empId, rule.limit());
             }
         }
         return store.tryConsume(DEFAULT_GROUP + ":" + empId, properties.defaults());
     }
 
-    private record CompiledRule(String name, RateLimitProperties.Limit limit, List<PathPattern> patterns) {
+    private record CompiledRule(RateLimitProperties.Rule rule, RateLimitProperties.Limit limit, List<PathPattern> patterns) {
     }
 }
