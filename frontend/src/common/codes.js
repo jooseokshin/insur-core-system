@@ -3,6 +3,8 @@
 export const INSR_CLS = [
   { code: '01', name: '자동차' },
   { code: '02', name: '화재' },
+  { code: '03', name: '운전자' },
+  { code: '04', name: '해외여행' },
 ];
 
 export const CTR_STAT = [
@@ -25,12 +27,25 @@ export const COVERAGES = {
     { code: 'FI002', name: '가재도구' },
     { code: 'FI003', name: '시설소유자배상책임' },
   ],
+  '03': [
+    { code: 'DR001', name: '교통사고처리지원금' },
+    { code: 'DR002', name: '변호사선임비용' },
+    { code: 'DR003', name: '벌금' },
+    { code: 'DR004', name: '운전자상해(사망)' },
+  ],
+  '04': [
+    { code: 'TR001', name: '해외상해의료비' },
+    { code: 'TR002', name: '해외질병의료비' },
+    { code: 'TR003', name: '휴대품손해' },
+    { code: 'TR004', name: '해외배상책임' },
+    { code: 'TR005', name: '항공기·수하물지연' },
+  ],
 };
 
 /** 보험종목별 요율 계수 입력 항목 (V8 시드 기준) */
 export const RATING_FIELDS = {
   '01': [
-    { key: 'driverAge', label: '운전자 만 나이', type: 'number', placeholder: '예: 35' },
+    { key: 'driverAge', label: '운전자 만 나이', type: 'number', placeholder: '예: 35', min: 18, max: 99 },
     {
       key: 'discountGrade',
       label: '할인할증 등급',
@@ -56,6 +71,23 @@ export const RATING_FIELDS = {
       ],
     },
   ],
+  '03': [
+    { key: 'driverAge', label: '운전자 만 나이', type: 'number', placeholder: '예: 40', min: 18, max: 99 },
+  ],
+  '04': [
+    {
+      key: 'travelRegion',
+      label: '여행 지역',
+      type: 'select',
+      options: [
+        { code: 'ASIA', name: '아시아' },
+        { code: 'EUROPE', name: '유럽' },
+        { code: 'AMERICA', name: '미주' },
+        { code: 'ETC', name: '그 밖' },
+      ],
+    },
+    { key: 'insuredAge', label: '피보험자 만 나이', type: 'number', placeholder: '예: 30 (80세 이상 가입 불가)', min: 0, max: 79 },
+  ],
 };
 
 /** 판매채널 (계약 원장 SALES_CHNL_CD, V23). 채널은 토큰으로 정해지고 화면에서 고르지 않는다 */
@@ -67,6 +99,8 @@ export const SALES_CHNL = [
 
 export const FACTOR_TYPES = [
   { code: 'DRIVER_AGE', name: '운전자 나이', insrClsCd: '01' },
+  { code: 'TRAVEL_REGION', name: '여행 지역', insrClsCd: '04' },
+  { code: 'INSURED_AGE', name: '피보험자 나이', insrClsCd: '04' },
   { code: 'DISCOUNT_GRADE', name: '할인할증 등급', insrClsCd: '01' },
   { code: 'STRUCTURE_GRADE', name: '건물 구조 등급', insrClsCd: '02' },
   { code: 'SALES_CHANNEL', name: '판매채널 (서버가 정함)' },

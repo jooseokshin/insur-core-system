@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { productApi } from '../api/endpoints';
 import { CVRG_TYPES, INSR_CLS, RATING_FIELDS, nameOf } from '../common/codes';
-import { addYears, daysBetween, money, parseAmount, seoulDate } from '../common/format';
+import { addDays, addYears, daysBetween, money, parseAmount, seoulDate } from '../common/format';
 import { Badge, Field, Select, useLoad } from './ui';
 
 // 보험료 입력: 상품을 고르면 그 상품의 주계약(필수)·특약(선택) 담보와 가입금액 한도가 입력 표가 된다.
@@ -12,8 +12,21 @@ export function useProducts() {
   return useLoad(() => productApi.list({ onSaleOnly: true }), []);
 }
 
+/** 종목별 요율 계수 입력의 시작값. 중립 계수(1.0)가 있으면 그 값, 고객마다 다른 값(건물 구조, 여행지, 나이)은 빈칸 */
 function neutralRating(insrClsCd) {
-  return insrClsCd === '01' ? { driverAge: '35', discountGrade: '3' } : { structureGrade: '' };
+  switch (insrClsCd) {
+    case '01': return { driverAge: '35', discountGrade: '3' };
+    case '03': return { driverAge: '40' };
+    case '04': return { travelRegion: '', insuredAge: '' };
+    default: return { structureGrade: '' };
+  }
+}
+
+/** 보험시기에서 상품의 기본 종료일: 1년 미만 상품(해외여행 1~90일)은 7일(상한이 더 짧으면 상한), 그 밖은 1년 */
+export function defaultEndDate(startDate, product) {
+  const max = product?.maxTermDays;
+  if (max && max < 365) return addDays(startDate, Math.min(7, max));
+  return addYears(startDate, 1);
 }
 
 /** 상품을 고른 직후의 가입금액: 필수 담보는 최소 한도, 특약은 미가입 */
@@ -28,7 +41,7 @@ export function initialPremiumInput(insrClsCd = '01', product = null) {
     insrClsCd,
     prdCd: product?.prdCd ?? '',
     startDate: start,
-    endDate: addYears(start, 1),
+    endDate: defaultEndDate(start, product),
     rating: neutralRating(insrClsCd),
     amounts: defaultAmounts(product),
   };
@@ -79,17 +92,18 @@ export function PremiumInputs({ value, onChange, products, disabled }) {
   // 상품 목록이 늦게 오거나 종목을 바꾸면 그 종목의 첫 상품을 고른다
   useEffect(() => {
     if (!product && ofClass.length > 0) {
-      onChange({ ...value, prdCd: ofClass[0].prdCd, amounts: defaultAmounts(ofClass[0]) });
+      onChange({ ...value, prdCd: ofClass[0].prdCd, amounts: defaultAmounts(ofClass[0]),
+        endDate: defaultEndDate(value.startDate, ofClass[0]) });
     }
   }, [product, ofClass, value, onChange]);
 
   const chooseClass = (code) => {
     const first = (products ?? []).find((p) => p.insrClsCd === code);
-    onChange({ ...initialPremiumInput(code, first), startDate: value.startDate, endDate: value.endDate });
+    onChange({ ...initialPremiumInput(code, first), startDate: value.startDate, endDate: defaultEndDate(value.startDate, first) });
   };
   const chooseProduct = (prdCd) => {
     const next = ofClass.find((p) => p.prdCd === prdCd);
-    set({ prdCd, amounts: defaultAmounts(next) });
+    set({ prdCd, amounts: defaultAmounts(next), endDate: defaultEndDate(value.startDate, next) });
   };
 
   return (
@@ -116,13 +130,14 @@ export function PremiumInputs({ value, onChange, products, disabled }) {
               <Select id={`rating-${f.key}`} value={value.rating[f.key]} disabled={disabled} options={f.options} placeholder="선택"
                       onChange={(v) => set({ rating: { ...value.rating, [f.key]: v } })} />
             ) : (
-              <input id={`rating-${f.key}`} type="number" min="18" max="99" value={value.rating[f.key] ?? ''} placeholder={f.placeholder}
+              <input id={`rating-${f.key}`} type="number" min={f.min ?? 0} max={f.max ?? 150} value={value.rating[f.key] ?? ''} placeholder={f.placeholder}
                      disabled={disabled} onChange={(e) => set({ rating: { ...value.rating, [f.key]: e.target.value } })} />
             )}
           </Field>
         ))}
       </div>
       {product?.prdDesc && <p className="muted small">{product.prdDesc}</p>}
+      <div className="table-wrap">
       <table className="grid compact coverage-input">
         <thead>
           <tr>
@@ -163,6 +178,7 @@ export function PremiumInputs({ value, onChange, products, disabled }) {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

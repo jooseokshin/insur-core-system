@@ -173,6 +173,8 @@ public class ContractService {
                 .driverAge(request.getRating() == null ? null : request.getRating().getDriverAge())
                 .discountGrade(request.getRating() == null ? null : request.getRating().getDiscountGrade())
                 .structureGrade(request.getRating() == null ? null : request.getRating().getStructureGrade())
+                .travelRegion(request.getRating() == null ? null : request.getRating().getTravelRegion())
+                .insuredAge(request.getRating() == null ? null : request.getRating().getInsuredAge())
                 .renewedFrom(renewedFrom)
                 .build());
 

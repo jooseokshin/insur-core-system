@@ -102,6 +102,9 @@ public class PremiumService {
                 .reduce(BigDecimal.ONE, BigDecimal::multiply);
 
         long days = ChronoUnit.DAYS.between(request.getStartDate(), request.getEndDate());
+        if (StringUtils.hasText(request.getPrdCd())) {
+            productService.validateTerm(request.getPrdCd(), request.getInsrClsCd(), days);
+        }
         List<QuoteCoverageResponse> results = coverages.stream().map(coverage -> {
             PremiumRate rate = rates.get(coverage.getCvrgCd());
             if (rate == null) {

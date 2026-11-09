@@ -128,6 +128,22 @@ public class ProductService {
         return product;
     }
 
+    /**
+     * 보험기간 일수가 상품이 허용하는 범위 안인지 확인한다. (예: 해외여행 1~90일, 운전자 1년)
+     *
+     * @throws BusinessException 상품 없음·종목 불일치(E-PRD-001, 002), 허용 범위 밖의 보험기간(E-PRD-007)
+     */
+    @Transactional(readOnly = true)
+    public void validateTerm(String prdCd, String insrClsCd, long days) {
+        Product product = require(prdCd, insrClsCd);
+        if (!product.allowsTerm(days)) {
+            throw new BusinessException("E-PRD-007", "상품 " + prdCd + "의 보험기간은 "
+                    + (product.getMinTermDays() == null ? "" : product.getMinTermDays() + "일 이상 ")
+                    + (product.getMaxTermDays() == null ? "" : product.getMaxTermDays() + "일 이하")
+                    + "여야 합니다. (요청 " + days + "일)");
+        }
+    }
+
     private ProductResponse toResponse(Product product, LocalDate today) {
         Map<String, String> names = premiumRateRepository.findEffective(product.getInsrClsCd(),
                         product.getCoverages().stream().map(ProductCoverage::getCvrgCd).toList(), today)
@@ -139,6 +155,8 @@ public class ProductService {
                 .prdDesc(product.getPrdDesc())
                 .saleFrom(product.getSaleFrom())
                 .saleTo(product.getSaleTo())
+                .minTermDays(product.getMinTermDays())
+                .maxTermDays(product.getMaxTermDays())
                 .onSale(product.isOnSale(today))
                 .coverages(product.getCoverages().stream().map(c -> ProductResponse.Coverage.builder()
                         .cvrgCd(c.getCvrgCd())

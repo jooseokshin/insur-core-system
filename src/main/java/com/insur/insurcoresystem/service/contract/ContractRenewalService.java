@@ -210,10 +210,9 @@ public class ContractRenewalService {
 
     /** 원 계약에 저장된 요율 계수 입력값. 하나도 없으면 null */
     private static RatingInput storedRating(Contract source) {
-        if (source.getDriverAge() == null && source.getDiscountGrade() == null && source.getStructureGrade() == null) {
-            return null;
-        }
-        return RatingInput.builder().driverAge(source.getDriverAge()).discountGrade(source.getDiscountGrade())
-                .structureGrade(source.getStructureGrade()).build();
+        RatingInput stored = RatingInput.builder().driverAge(source.getDriverAge()).discountGrade(source.getDiscountGrade())
+                .structureGrade(source.getStructureGrade()).travelRegion(source.getTravelRegion()).insuredAge(source.getInsuredAge())
+                .build();
+        return stored.isEmpty() ? null : stored;
     }
 }

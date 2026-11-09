@@ -20,8 +20,8 @@ import lombok.Setter;
 @AllArgsConstructor
 public class RateImpactRequest {
 
-    /** 보험종목 코드 (01 자동차, 02 화재). 필수 */
-    @Schema(description = "보험종목 코드 (01 자동차, 02 화재). 필수", example = "01")
+    /** 보험종목 코드 (01 자동차, 02 화재, 03 운전자, 04 해외여행). 필수 */
+    @Schema(description = "보험종목 코드 (01 자동차, 02 화재, 03 운전자, 04 해외여행). 필수", example = "01")
     private String insrClsCd;
     /** 경험 기간 시작일 (포함). 생략하면 종료일의 364일 전 (12개월) */
     @Schema(description = "경험 기간 시작일 (포함). 생략하면 종료일의 364일 전 (12개월)")

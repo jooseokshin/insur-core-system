@@ -31,7 +31,7 @@ public class PremiumRate {
     @Column(name = "RATE_ID")
     private Long rateId;
 
-    /** 보험종목코드 (01:자동차, 02:화재) */
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
     @Column(name = "INSR_CLS_CD", length = 2, nullable = false)
     private String insrClsCd;
 

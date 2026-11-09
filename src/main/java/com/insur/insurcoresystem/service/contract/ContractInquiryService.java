@@ -107,6 +107,8 @@ public class ContractInquiryService {
                 .driverAge(contract.getDriverAge())
                 .discountGrade(contract.getDiscountGrade())
                 .structureGrade(contract.getStructureGrade())
+                .travelRegion(contract.getTravelRegion())
+                .insuredAge(contract.getInsuredAge())
                 .renewedFrom(contract.getRenewedFrom())
                 .termDate(contract.getTermDate())
                 .refundPremium(contract.getRefundPremium())

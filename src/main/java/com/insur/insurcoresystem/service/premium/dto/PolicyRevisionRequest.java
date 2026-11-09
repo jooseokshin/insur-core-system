@@ -19,8 +19,8 @@ import lombok.Setter;
 @AllArgsConstructor
 public class PolicyRevisionRequest {
 
-    /** 보험종목코드 (01:자동차, 02:화재) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
     private String insrClsCd;
     /** 계수 종류 (DRIVER_AGE, DISCOUNT_GRADE, STRUCTURE_GRADE). 그 보험종목에서 쓰는 종류여야 한다 */
     @Schema(description = "계수 종류 (DRIVER_AGE, DISCOUNT_GRADE, STRUCTURE_GRADE). 그 보험종목에서 쓰는 종류여야 한다")

@@ -72,9 +72,10 @@ button, input, select { font: inherit; color: inherit; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); }
 .panel-head h2 { font-size: 15px; }
-.panel-body { padding: 14px 16px; display: grid; gap: 12px; min-width: 0; }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
-.two-col.wide-left { grid-template-columns: 1.2fr 1fr; }
+.panel-body { padding: 14px 16px; display: grid; gap: 12px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+/* minmax(0, …): 표처럼 넓은 내용이 있어도 칸이 비율을 지키고, 넘치는 표는 안에서 가로로 스크롤한다 */
+.two-col.wide-left { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
 .sub-title { font-size: 14px; margin-top: 8px; }
 
 /* ── 버튼 ── */

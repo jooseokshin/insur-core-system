@@ -22,8 +22,8 @@ import lombok.Setter;
 @AllArgsConstructor
 public class ContractApplyRequest {
 
-    /** 보험종목코드 (01:자동차, 02:화재) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
     private String insrClsCd;
 
     /** 상품코드 (선택). 지정하면 오늘 판매 중인 상품이어야 하고 담보 구성을 상품 규칙으로 검증한다. 생략하면 상품 없이(기존 연계 채널 방식) 접수한다 */

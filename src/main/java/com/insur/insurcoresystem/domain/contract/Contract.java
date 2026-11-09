@@ -29,6 +29,10 @@ public class Contract {
     public static final String INSR_CLS_CAR = "01";
     /** 보험종목: 화재 */
     public static final String INSR_CLS_FIRE = "02";
+    /** 보험종목: 운전자 */
+    public static final String INSR_CLS_DRIVER = "03";
+    /** 보험종목: 해외여행 */
+    public static final String INSR_CLS_TRAVEL = "04";
     /** 계약상태: 청약 */
     public static final String CTR_STAT_APPLIED = "10";
 
@@ -45,7 +49,7 @@ public class Contract {
     @Column(name = "APPL_NO", length = 30, nullable = false, unique = true)
     private String applNo;
 
-    /** 보험종목코드 (01:자동차, 02:화재) */
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
     @Column(name = "INSR_CLS_CD", length = 2, nullable = false)
     private String insrClsCd;
 
@@ -108,6 +112,14 @@ public class Contract {
     /** 상품코드. 상품 도입 전 계약이나 상품 없이 접수한 청약은 null */
     @Column(name = "PRD_CD", length = 20)
     private String prdCd;
+
+    /** 보험료 산출에 쓴 여행 지역 (해외여행, 입력하지 않았으면 null) */
+    @Column(name = "TRAVEL_REGION", length = 10)
+    private String travelRegion;
+
+    /** 보험료 산출에 쓴 피보험자 만 나이 (해외여행, 입력하지 않았으면 null) */
+    @Column(name = "INSURED_AGE")
+    private Integer insuredAge;
 
     /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM). 갱신 계약은 원 계약의 채널을 잇는다 */
     @Column(name = "SALES_CHNL_CD", length = 2, nullable = false)

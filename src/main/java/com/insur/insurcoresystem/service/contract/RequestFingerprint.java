@@ -50,6 +50,12 @@ public final class RequestFingerprint {
             append(canonical, rating.getDriverAge());
             append(canonical, rating.getDiscountGrade());
             append(canonical, rating.getStructureGrade());
+            // 해외여행 계수는 나중에 생겨서, 입력했을 때만 넣는다 (이전 지문이 그대로 같도록)
+            if (rating.getTravelRegion() != null || rating.getInsuredAge() != null) {
+                append(canonical, "travel");
+                append(canonical, rating.getTravelRegion());
+                append(canonical, rating.getInsuredAge());
+            }
         }
 
         List<CoverageRequest> coverages = request.getCoverages() == null ? List.of() : request.getCoverages();

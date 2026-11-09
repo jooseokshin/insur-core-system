@@ -24,8 +24,8 @@ public class ProductResponse {
     /** 상품명 */
     @Schema(description = "상품명")
     private String prdNm;
-    /** 보험종목코드 (01:자동차, 02:화재) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
     private String insrClsCd;
     /** 상품 설명 */
     @Schema(description = "상품 설명")
@@ -36,6 +36,12 @@ public class ProductResponse {
     /** 판매 종료일 (없으면 판매 중) */
     @Schema(description = "판매 종료일 (없으면 판매 중)")
     private LocalDate saleTo;
+    /** 보험기간 최소 일수 (없으면 제한 없음) */
+    @Schema(description = "보험기간 최소 일수 (없으면 제한 없음)")
+    private Integer minTermDays;
+    /** 보험기간 최대 일수 (없으면 제한 없음) */
+    @Schema(description = "보험기간 최대 일수 (없으면 제한 없음)")
+    private Integer maxTermDays;
     /** 오늘(서울 기준) 판매 중인지 */
     @Schema(description = "오늘(서울 기준) 판매 중인지")
     private boolean onSale;
