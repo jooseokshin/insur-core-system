@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Commits and pull requests
+
+Write commit messages, pull request titles and descriptions in Korean (the repository owner's request). Code identifiers, file paths and error codes stay as they are.
+
 ## Tests
 
 Spring Boot 4 splits the test slices out of the old monolithic `spring-boot-starter-test` into `spring-boot-starter-data-jpa-test` and `spring-boot-starter-webmvc-test`, so slice annotations (`@DataJpaTest`, `@WebMvcTest`) live in modularized packages that differ from Boot 3.
