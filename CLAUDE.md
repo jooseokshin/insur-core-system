@@ -54,7 +54,7 @@ Locally: Postgres (`docker compose up -d`), then the core and auth server with `
 
 ## Schema migrations
 
-Flyway owns the schema. Migrations go in `src/main/resources/db/migration` as `V<n>__<description>.sql` and run automatically at startup. Hibernate is set to `ddl-auto=validate`, so every entity change needs a matching migration or the app fails on startup. Never edit a migration that has already been applied; add a new one instead. Boot 4 only auto-configures Flyway through `spring-boot-starter-flyway`, so don't swap it for bare `flyway-core`. `flyway-database-postgresql` is required for Postgres support.
+Flyway owns the schema. Migrations go in `src/main/resources/db/migration` as `V<n>__<description>.sql` and run automatically at startup. Hibernate is set to `ddl-auto=validate`, so every entity change needs a matching migration or the app fails on startup. Never edit a migration that has already been applied; add a new one instead. Every table and column carries a Korean `COMMENT ON` (core V22, auth V4) so DB tools such as DBeaver show its meaning; a migration that adds a table or column must add its comments in the same file, and `SchemaCommentTest` (core and auth server) fails on any table or column without one (Flyway's history table excepted). Comments state code values and units the way the entity Javadoc does; keep the two consistent. Boot 4 only auto-configures Flyway through `spring-boot-starter-flyway`, so don't swap it for bare `flyway-core`. `flyway-database-postgresql` is required for Postgres support.
 
 ## Premium rating policy
 
