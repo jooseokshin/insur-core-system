@@ -46,4 +46,6 @@ tasks.named('test') {
     environment 'JWT_SECRET', 'test-only-secret-key-for-hs256-at-least-32-bytes'
     // 테스트는 같은 사번으로 수백 번 호출하므로 호출 제한을 끈다. 제한 자체는 RateLimitIntegrationTest 가 켜서 확인한다.
     environment 'RATE_LIMIT_ENABLED', 'false'
+    // 대외기관 전송 대기열은 테스트가 OutboxSender.sendDue() 를 직접 불러 확인한다 (예약 작업이 끼어들지 않게 끈다)
+    environment 'OUTBOX_SCHEDULER_ENABLED', 'false'
 }

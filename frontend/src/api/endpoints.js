@@ -29,6 +29,7 @@ export const contractApi = {
   mileageInquiry: (contractNo) => call('/api/contract/mileage/inquiry', { contractNo }),
   mileageRegister: (contractNo, odometerKm, txId) => call('/api/contract/mileage/register', { contractNo, odometerKm }, { txId }),
   mileageSettle: (contractNo, odometerKm, txId) => call('/api/contract/mileage/settle', { contractNo, odometerKm }, { txId }),
+  medicalDupCheck: (contractNo) => call('/api/contract/medical/dup-check', { contractNo }),
 };
 
 export const productApi = {
@@ -37,7 +38,7 @@ export const productApi = {
 
 export const claimApi = {
   report: (body, txId) => call('/api/claim/report', body, { txId }),
-  assess: (clmNo, coverages, memo, txId) => call('/api/claim/assess', { clmNo, coverages, memo }, { txId }),
+  assess: (clmNo, coverages, memo, txId, medicalItems) => call('/api/claim/assess', { clmNo, coverages, memo, medicalItems }, { txId }),
   decide: (clmNo, decision, memo, txId) => call('/api/claim/decide', { clmNo, decision, memo }, { txId }),
   inquiry: (clmNo) => call('/api/claim/inquiry', { clmNo }),
   list: (cond) => call('/api/claim/list', cond),
@@ -60,6 +61,11 @@ export const tariffApi = {
   policyList: (cond) => call('/api/admin/premium/policy-list', cond),
   policyRevise: (body, txId) => call('/api/admin/premium/policy-revise', body, { txId }),
   auditList: (cond) => call('/api/admin/premium/audit-list', cond),
+};
+
+export const extApi = {
+  outboxList: (cond) => call('/api/admin/ext/outbox-list', cond),
+  outboxRetry: (outboxId) => call('/api/admin/ext/outbox-retry', { outboxId }),
 };
 
 export const employeeApi = {

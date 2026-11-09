@@ -62,6 +62,66 @@ public final class ClaimResponses {
         private List<Item> items;
         @Schema(description = "상태 이력 (발생 순)")
         private List<History> histories;
+        @Schema(description = "실손(05) 진료 내역과 진료별 계산 결과 (실손이 아니면 null)")
+        private List<MedicalItem> medicalItems;
+        @Schema(description = "실손(05) 비례보상 내역 (다른 보험사 실손이 없거나 손해사정 전이면 빈 목록, 실손이 아니면 null)")
+        private List<MedicalShare> medicalShares;
+    }
+
+    /** 실손 진료 1건과 계산 결과 */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MedicalItem {
+        @Schema(description = "진료 순번 (1부터)")
+        private int seq;
+        @Schema(description = "진료일")
+        private LocalDate treatDt;
+        @Schema(description = "진료 구분 (IN: 입원, OUT: 통원)")
+        private String careType;
+        @Schema(description = "요양기관 종별 (CLINIC, HOSPITAL, GENERAL, TERTIARY)")
+        private String facilityType;
+        @Schema(description = "의료기관명")
+        private String facilityNm;
+        @Schema(description = "청구 급여 본인부담금 (원)")
+        private BigDecimal coveredAmt;
+        @Schema(description = "청구 비급여 금액 (원)")
+        private BigDecimal nonCoveredAmt;
+        @Schema(description = "인정 급여 본인부담금 (원, 손해사정 전 null)")
+        private BigDecimal coveredAssessed;
+        @Schema(description = "인정 비급여 금액 (원, 손해사정 전 null)")
+        private BigDecimal nonCoveredAssessed;
+        @Schema(description = "급여 공제금액 (원)")
+        private BigDecimal coveredDeduct;
+        @Schema(description = "급여 보상책임액 (원, 연간 한도·비례보상 전)")
+        private BigDecimal coveredPay;
+        @Schema(description = "비급여 공제금액 (원, 비급여 특약이 없으면 null)")
+        private BigDecimal nonCoveredDeduct;
+        @Schema(description = "비급여 보상책임액 (원, 비급여 특약이 없으면 null)")
+        private BigDecimal nonCoveredPay;
+        @Schema(description = "접수 경로 (MANUAL: 직원·채널 입력, KIDI: 실손 청구 전산화)")
+        private String sourceCd;
+    }
+
+    /** 실손 비례보상 한 줄 */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MedicalShare {
+        @Schema(description = "담보코드 (ME001 급여, ME002 비급여)")
+        private String cvrgCd;
+        @Schema(description = "보험회사 코드 (우리 회사는 설정의 기관코드)")
+        private String insurerCd;
+        @Schema(description = "증권번호 (다른 회사는 마스킹)")
+        private String policyNo;
+        @Schema(description = "우리 회사 계약인지")
+        private boolean own;
+        @Schema(description = "단독 보상책임액 (원)")
+        private BigDecimal liabilityAmt;
+        @Schema(description = "비례보상 분담액 (원)")
+        private BigDecimal shareAmt;
     }
 
     /** 사고 화면에 필요한 계약 요약 */

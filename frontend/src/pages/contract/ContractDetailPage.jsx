@@ -8,6 +8,7 @@ import { DataTable, ErrorBox, InfoGrid, PageHeader, Panel, StatusBadge, useLoad,
 import { EndorseModal, PaymentModal, RenewModal, StatusChangeModal } from './ContractActions';
 import { ClaimReportModal, ContractClaims } from '../claim/ClaimPages';
 import { MileagePanel } from './MileagePanel';
+import { MedicalCheckPanel } from './MedicalCheckPanel';
 
 const TABS = [
   { code: 'coverages', name: '담보' },
@@ -67,8 +68,10 @@ export function ContractDetailPage() {
   }
   if (applied && hasAny('UNDERWRITER', 'ADMIN')) {
     actions.push({
-      key: 'approve', label: '승인', tone: 'btn-primary', disabled: remaining > 0,
-      title: remaining > 0 ? '보험료를 완납해야 승인할 수 있습니다' : undefined,
+      key: 'approve', label: '승인', tone: 'btn-primary',
+      disabled: remaining > 0 || c.medicalCheck?.checkStatCd === '80',
+      title: remaining > 0 ? '보험료를 완납해야 승인할 수 있습니다'
+        : c.medicalCheck?.checkStatCd === '80' ? '실손 중복가입을 다시 조회해야 승인할 수 있습니다' : undefined,
       onClick: () => setModal({ type: 'status', target: '20' }),
     });
     actions.push({ key: 'cancel', label: '청약 취소', tone: 'btn-danger-ghost', onClick: () => setModal({ type: 'status', target: '90' }) });
@@ -139,6 +142,7 @@ export function ContractDetailPage() {
       </Panel>
 
       {c.insrClsCd === '01' && <MileagePanel contract={c} version={version} onDone={done} />}
+      {c.insrClsCd === '05' && <MedicalCheckPanel contract={c} onDone={done} />}
 
       <Panel>
         <div className="tabs" role="tablist">

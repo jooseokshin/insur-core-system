@@ -98,6 +98,7 @@ public class ContractRenewalService {
                 .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate)
                 .policyholderId(source.getPolicyholderId()).insuredId(source.getInsuredId())
                 .totalPremium(quote.getTotalPremium()).rating(rating)
+                .creditInfoConsent(Contract.INSR_CLS_MEDICAL.equals(source.getInsrClsCd()) ? Boolean.TRUE : null)
                 // 갱신 계약은 원 계약의 판매채널을 잇는다 (누가 갱신을 눌렀든 같은 채널 요율로 산출·검증)
                 .salesChnlCd(source.getSalesChnlCd())
                 .coverages(quote.getCoverages().stream().map(c -> CoverageRequest.builder()

@@ -5,7 +5,11 @@ export const INSR_CLS = [
   { code: '02', name: '화재' },
   { code: '03', name: '운전자' },
   { code: '04', name: '해외여행' },
+  { code: '05', name: '실손의료' },
 ];
+
+/** 실손(05)은 상품 필수, 청약에 신용정보 조회 동의 필수 (V26) */
+export const MEDICAL_CLS = '05';
 
 export const CTR_STAT = [
   { code: '10', name: '청약', tone: 'info' },
@@ -39,6 +43,10 @@ export const COVERAGES = {
     { code: 'TR003', name: '휴대품손해' },
     { code: 'TR004', name: '해외배상책임' },
     { code: 'TR005', name: '항공기·수하물지연' },
+  ],
+  '05': [
+    { code: 'ME001', name: '급여 실손의료비' },
+    { code: 'ME002', name: '비급여 실손의료비' },
   ],
 };
 
@@ -88,7 +96,27 @@ export const RATING_FIELDS = {
     },
     { key: 'insuredAge', label: '피보험자 만 나이', type: 'number', placeholder: '예: 30 (80세 이상 가입 불가)', min: 0, max: 79 },
   ],
+  '05': [
+    { key: 'insuredAge', label: '피보험자 만 나이', type: 'number', placeholder: '예: 35 (80세 이상 가입 불가)', min: 0, max: 79 },
+  ],
 };
+
+/** 실손 진료 구분과 요양기관 종별 (TB_CLM_MED_ITEM) */
+export const CARE_TYPES = [
+  { code: 'OUT', name: '통원' },
+  { code: 'IN', name: '입원' },
+];
+export const FACILITY_TYPES = [
+  { code: 'CLINIC', name: '의원' },
+  { code: 'HOSPITAL', name: '병원' },
+  { code: 'GENERAL', name: '종합병원' },
+  { code: 'TERTIARY', name: '상급종합병원' },
+];
+/** 중복가입 조회 상태 (TB_CTR_MED_CHECK) */
+export const MED_CHECK_STAT = [
+  { code: '10', name: '조회 완료', tone: 'ok' },
+  { code: '80', name: '조회 실패 (재조회 필요)', tone: 'danger' },
+];
 
 /** 판매채널 (계약 원장 SALES_CHNL_CD, V23). 채널은 토큰으로 정해지고 화면에서 고르지 않는다 */
 export const SALES_CHNL = [
@@ -100,7 +128,7 @@ export const SALES_CHNL = [
 export const FACTOR_TYPES = [
   { code: 'DRIVER_AGE', name: '운전자 나이', insrClsCd: '01' },
   { code: 'TRAVEL_REGION', name: '여행 지역', insrClsCd: '04' },
-  { code: 'INSURED_AGE', name: '피보험자 나이', insrClsCd: '04' },
+  { code: 'INSURED_AGE', name: '피보험자 나이 (해외여행·실손)', insrClsCd: '04' },
   { code: 'DISCOUNT_GRADE', name: '할인할증 등급', insrClsCd: '01' },
   { code: 'STRUCTURE_GRADE', name: '건물 구조 등급', insrClsCd: '02' },
   { code: 'SALES_CHANNEL', name: '판매채널 (서버가 정함)' },

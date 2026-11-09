@@ -180,6 +180,12 @@ public class SecurityConfig {
             }
             clients.add(channelClient(channel, passwordEncoder));
         }
+        for (OAuthProperties.PartnerClient partner : properties.partners()) {
+            if (partner.clientSecret() == null || partner.clientSecret().isBlank()) {
+                continue;
+            }
+            clients.add(partnerClient(partner, passwordEncoder));
+        }
         return new InMemoryRegisteredClientRepository(clients);
     }
 
@@ -210,6 +216,30 @@ public class SecurityConfig {
                 .scope("channel")
                 .clientSettings(ClientSettings.builder().setting(CHANNEL_CD_SETTING, channel.channelCd()).build())
                 .tokenSettings(TokenSettings.builder().accessTokenTimeToLive(Duration.ofMinutes(channel.tokenTtlMinutes())).build())
+                .build();
+    }
+
+    /** 대외기관 클라이언트 설정에 남기는 표시 (TokenClaimsCustomizer 가 EXTERNAL 역할을 준다) */
+    public static final String PARTNER_SETTING = "insur.partner";
+
+    /**
+     * 대외기관 시스템 클라이언트. 채널 클라이언트와 같은 방식(client credentials, HTTP Basic)이지만 scope 는 partner, 역할은 EXTERNAL 이다.
+     *
+     * @throws IllegalStateException 비밀값이 32자보다 짧은 경우 (기동 시점에 실패)
+     */
+    private static RegisteredClient partnerClient(OAuthProperties.PartnerClient partner, PasswordEncoder passwordEncoder) {
+        if (partner.clientSecret().length() < MIN_CHANNEL_SECRET_LENGTH) {
+            throw new IllegalStateException("대외기관 클라이언트 " + partner.clientId() + " 의 비밀값은 " + MIN_CHANNEL_SECRET_LENGTH + "자 이상이어야 합니다.");
+        }
+        return RegisteredClient.withId(partner.clientId())
+                .clientId(partner.clientId())
+                .clientSecret(passwordEncoder.encode(partner.clientSecret()))
+                .clientName(partner.name() == null ? partner.clientId() : partner.name())
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .scope("partner")
+                .clientSettings(ClientSettings.builder().setting(PARTNER_SETTING, Boolean.TRUE).build())
+                .tokenSettings(TokenSettings.builder().accessTokenTimeToLive(Duration.ofMinutes(partner.tokenTtlMinutes())).build())
                 .build();
     }
 
