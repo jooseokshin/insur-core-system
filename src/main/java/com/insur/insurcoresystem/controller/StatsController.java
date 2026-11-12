@@ -7,6 +7,9 @@ import com.insur.insurcoresystem.common.dto.CommonMessage;
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.service.stats.LossRatioService;
 import com.insur.insurcoresystem.service.stats.RateImpactService;
+import com.insur.insurcoresystem.service.stats.ReserveService;
+import com.insur.insurcoresystem.service.stats.dto.IbnrRequest;
+import com.insur.insurcoresystem.service.stats.dto.IbnrResponse;
 import com.insur.insurcoresystem.service.stats.dto.LossRatioRequest;
 import com.insur.insurcoresystem.service.stats.dto.LossRatioResponse;
 import com.insur.insurcoresystem.service.stats.dto.RateImpactRequest;
@@ -30,6 +33,7 @@ public class StatsController {
 
     private final LossRatioService lossRatioService;
     private final RateImpactService rateImpactService;
+    private final ReserveService reserveService;
 
     /**
      * 손해율을 집계한다. (POST /api/stats/loss-ratio, 심사·보상·ADMIN)
@@ -52,5 +56,16 @@ public class StatsController {
     @PostMapping("/rate-impact")
     public CommonMessage<RateImpactResponse> rateImpact(@RequestBody CommonMessage<RateImpactRequest> request) {
         return success(request.getHeader(), rateImpactService.simulate(requireBody(request)));
+    }
+
+    /**
+     * IBNR 을 산출한다. (POST /api/stats/ibnr, 심사·보상·ADMIN, 저장하지 않음)
+     *
+     * @throws BusinessException 요청 바디가 없는 경우(E-CMN-001), 조건 오류(E-RSV-001)
+     */
+    @Operation(summary = "IBNR 을 산출한다", description = "보험종목의 지급 기준 손해 진전 삼각형으로 체인래더·본휴터-퍼거슨 IBNR 을 계산한다. 진전율 50% 이상인 사고 기간은 체인래더, 미만은 BF 를 고르고, 기대손해율을 주지 않으면 케이프코드로 실적에서 구한다. 지급준비금 = 개별추산액 + IBNR. 저장하지 않는다(확정은 분기 결산 배치).\n\n오류: 요청 바디가 없는 경우(E-CMN-001), 조건 오류(E-RSV-001)")
+    @PostMapping("/ibnr")
+    public CommonMessage<IbnrResponse> ibnr(@RequestBody CommonMessage<IbnrRequest> request) {
+        return success(request.getHeader(), reserveService.ibnr(requireBody(request)));
     }
 }

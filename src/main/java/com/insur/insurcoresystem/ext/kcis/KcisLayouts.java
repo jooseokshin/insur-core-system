@@ -5,6 +5,7 @@ import static com.insur.insurcoresystem.ext.FixedLengthCodec.Field.n;
 import static com.insur.insurcoresystem.ext.FixedLengthCodec.Field.text;
 
 import com.insur.insurcoresystem.ext.FixedLengthCodec.Field;
+import com.insur.insurcoresystem.ext.fep.FepHeader;
 import java.util.List;
 
 /**
@@ -33,9 +34,8 @@ public final class KcisLayouts {
     /** 거래구분: 실손 보험금 지급정보 집중 */
     public static final String R002 = "R002";
 
-    public static final List<Field> HEADER = List.of(
-            n("length", 4), an("kind", 4), an("txType", 4), an("orgCode", 3), n("txDateTime", 14),
-            an("traceNo", 20), an("responseCode", 4), an("reserved", 7));
+    /** 공통부는 FEP 공통 배치를 쓴다 ({@link FepHeader}) */
+    public static final List<Field> HEADER = FepHeader.LAYOUT;
 
     public static final List<Field> Q001_REQUEST = List.of(an("insuredId", 20), n("baseDate", 8));
     public static final List<Field> Q001_RESPONSE_COUNT = List.of(n("count", 2));

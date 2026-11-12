@@ -192,3 +192,36 @@ export function coverageName(cvrgCd) {
   }
   return cvrgCd;
 }
+
+/** 지급 상태 (TB_PAY_OUT, V29) */
+export const PAYOUT_STAT = [
+  { code: '10', name: '이체 대기', tone: 'info' },
+  { code: '30', name: '이체 완료', tone: 'ok' },
+  { code: '70', name: '결과 불명 (조회 중)', tone: 'warn' },
+  { code: '80', name: '실패', tone: 'danger' },
+];
+
+/** 은행 코드 (모의 은행 예시값) */
+export const BANKS = [
+  { code: '004', name: '국민' },
+  { code: '011', name: '농협' },
+  { code: '020', name: '우리' },
+  { code: '088', name: '신한' },
+];
+
+/** 대사 결과 (TB_PAY_RECON) */
+export const RECON_RESULTS = [
+  { code: 'MATCHED', name: '일치', tone: 'ok' },
+  { code: 'STATUS_DIFF', name: '상태 다름 (이중 지급 위험)', tone: 'danger' },
+  { code: 'OURS_ONLY', name: '우리만 완료', tone: 'danger' },
+  { code: 'BANK_ONLY', name: '은행에만 있음', tone: 'danger' },
+  { code: 'AMOUNT_DIFF', name: '금액 다름', tone: 'warn' },
+];
+
+/** FEP 전문 결과 (TB_FEP_MSG_LOG) */
+export const FEP_RESULTS = [
+  { code: 'OK', name: '정상', tone: 'ok' },
+  { code: 'ERROR', name: '오류 응답', tone: 'warn' },
+  { code: 'TIMEOUT', name: '응답 없음', tone: 'danger' },
+  { code: 'BLOCKED', name: '보내지 않음', tone: 'muted' },
+];

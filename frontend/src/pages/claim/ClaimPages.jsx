@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { claimApi } from '../../api/endpoints';
 import { newTxId } from '../../api/http';
 import { useAuth } from '../../auth/AuthProvider';
+import { PayoutPanel } from './PayoutPanel';
 import { CARE_TYPES, CLM_STAT, FACILITY_TYPES, INSR_CLS, MEDICAL_CLS, coverageName, nameOf } from '../../common/codes';
 import { date, dateTime, money, parseAmount, seoulDate } from '../../common/format';
 import {
@@ -314,6 +315,9 @@ export function ClaimDetailPage() {
           : '지급액 = min(사정 손해액 − 자기부담금, 남은 가입금액). 남은 가입금액 = 가입금액 − 같은 담보에 다른 사고로 이미 지급한 금액'}</p>
       </Panel>
       {medical && <MedicalPanels claim={c} />}
+      {c.clmStatCd === '40' && hasAny('CLAIM', 'OPERATOR', 'ADMIN') && (
+        <PayoutPanel srcType="CLAIM" srcNo={c.clmNo} payable={Number(c.totalPayAmt) > 0} amount={c.totalPayAmt} />
+      )}
       <Panel title="처리 이력">
         <DataTable rows={c.histories} columns={[
           { key: 'chgDt', title: '일시', render: (r) => dateTime(r.chgDt) },

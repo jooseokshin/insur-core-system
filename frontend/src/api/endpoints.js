@@ -47,6 +47,29 @@ export const claimApi = {
 export const statsApi = {
   lossRatio: (cond) => call('/api/stats/loss-ratio', cond),
   rateImpact: (cond) => call('/api/stats/rate-impact', cond),
+  ibnr: (cond) => call('/api/stats/ibnr', cond),
+};
+
+export const batchApi = {
+  reserveClose: (closeDate) => call('/api/batch/reserve-close', { closeDate }),
+  reserveCloseList: (closeDate) => call('/api/batch/reserve-close-list', { closeDate }),
+  payoutRecon: (reconDate) => call('/api/batch/payout-recon', { reconDate }),
+  payoutReconList: (reconDate, diffOnly) => call('/api/batch/payout-recon-list', { reconDate, diffOnly }),
+  executions: (jobName, limit = 20) => call('/api/batch/executions', { jobName, limit }),
+};
+
+export const payoutApi = {
+  verify: (body) => call('/api/payout/account-verify', body),
+  request: (body, txId) => call('/api/payout/request', body, { txId }),
+  list: (cond) => call('/api/payout/list', cond),
+};
+
+export const fepApi = {
+  institutions: () => call('/api/admin/fep/inst-list', {}),
+  signOn: (instCd) => call('/api/admin/fep/sign-on', { instCd }),
+  signOff: (instCd) => call('/api/admin/fep/sign-off', { instCd }),
+  echo: (instCd) => call('/api/admin/fep/echo', { instCd }),
+  messages: (cond) => call('/api/admin/fep/msg-log', cond),
 };
 
 export const premiumApi = {

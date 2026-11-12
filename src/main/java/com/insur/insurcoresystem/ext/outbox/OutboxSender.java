@@ -104,7 +104,7 @@ public class OutboxSender {
     }
 
     /** n번째 실패 뒤 기다릴 시간: 30초 × 2^(n−1), 최대 1시간 */
-    static Duration backoff(int attempts) {
+    public static Duration backoff(int attempts) {
         Duration wait = FIRST_BACKOFF.multipliedBy(1L << Math.min(attempts - 1, 20));
         return wait.compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : wait;
     }

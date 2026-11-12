@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.ext.FixedLengthCodec;
+import com.insur.insurcoresystem.ext.fep.FepGateway;
 import com.insur.insurcoresystem.ext.kcis.KcisLayouts;
 import com.insur.insurcoresystem.ext.kcis.KcisSimulator;
 import com.insur.insurcoresystem.ext.outbox.OutboxSender;
@@ -57,6 +58,8 @@ class MedicalIndemnityIntegrationTest {
     KcisSimulator kcis;
     @Autowired
     OutboxSender outboxSender;
+    @Autowired
+    FepGateway fepGateway;
 
     private final RequestPostProcessor agent = TestAuth.as("E-AG-MED", Roles.AGENT);
     private final RequestPostProcessor operator = TestAuth.as("E-OP-MED", Roles.OPERATOR);
@@ -67,6 +70,7 @@ class MedicalIndemnityIntegrationTest {
     @AfterEach
     void restore() {
         kcis.setFailAll(false);
+        fepGateway.resetCircuit(KcisLayouts.AGENCY);
     }
 
     private ResultActions call(String path, RequestPostProcessor auth, String body) throws Exception {
@@ -199,6 +203,9 @@ class MedicalIndemnityIntegrationTest {
         call("/api/admin/ext/outbox-retry", operator, "{ \"outboxId\": " + id + " }").andExpect(status().isForbidden());
 
         kcis.setFailAll(false);
+        // 응답 없음이 5번 이어져 FEP 가 신용정보원 회선을 잠시 막았다. 회선 확인이 성공하면 풀린다(여기서는 직접 푼다)
+        assertThat(fepGateway.circuit(KcisLayouts.AGENCY).open()).isTrue();
+        fepGateway.resetCircuit(KcisLayouts.AGENCY);
         call("/api/admin/ext/outbox-retry", admin, "{ \"outboxId\": " + id + " }")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.body.statCd").value("10"));
         call("/api/admin/ext/outbox-retry", admin, "{ \"outboxId\": " + id + " }")

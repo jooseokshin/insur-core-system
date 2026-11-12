@@ -4,6 +4,8 @@ import static com.insur.insurcoresystem.ext.FixedLengthCodec.CHARSET;
 
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.FixedLengthCodec;
+import com.insur.insurcoresystem.ext.fep.FepHeader;
+import com.insur.insurcoresystem.ext.fep.FepTransport;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,7 +30,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "app.ext.kcis.mode", havingValue = "simulator", matchIfMissing = true)
-public class KcisSimulator implements KcisTransport {
+public class KcisSimulator implements FepTransport {
 
     private static final DateTimeFormatter YMD = DateTimeFormatter.BASIC_ISO_DATE;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -48,6 +50,11 @@ public class KcisSimulator implements KcisTransport {
     }
 
     @Override
+    public String instCd() {
+        return KcisLayouts.AGENCY;
+    }
+
+    @Override
     public byte[] exchange(byte[] request) {
         String message = new String(request, CHARSET);
         Map<String, String> header = FixedLengthCodec.decode(KcisLayouts.HEADER, message, 0);
@@ -57,6 +64,9 @@ public class KcisSimulator implements KcisTransport {
         }
         if (failAll.get()) {
             throw new ExternalAgencyException(KcisLayouts.AGENCY, "모의 신용정보원 응답 시간 초과 (전체 장애 흉내)", (Throwable) null);
+        }
+        if (FepHeader.NETWORK_REQUEST.equals(header.get("kind"))) {
+            return respond(header, KcisLayouts.OK, "");   // 개시·종료·회선 확인
         }
         return switch (header.get("txType")) {
             case KcisLayouts.Q001 -> inquire(header, FixedLengthCodec.decode(KcisLayouts.Q001_REQUEST, message, headerLength));
@@ -123,13 +133,7 @@ public class KcisSimulator implements KcisTransport {
     }
 
     private byte[] respond(Map<String, String> request, String code, String body) {
-        Map<String, Object> header = new HashMap<>(request);
-        header.put("kind", KcisLayouts.RESPONSE);
-        header.put("responseCode", code);
-        header.put("txDateTime", LocalDateTime.now(clock).format(TS));
-        int total = FixedLengthCodec.length(KcisLayouts.HEADER) + FixedLengthCodec.byteLength(body);
-        header.put("length", String.valueOf(total));
-        return (FixedLengthCodec.encode(KcisLayouts.HEADER, header) + body).getBytes(CHARSET);
+        return FepHeader.respond(request, code, body, LocalDateTime.now(clock));
     }
 
     /** 다른 회사 증권번호는 가운데를 가려서 준다 (조회한 회사가 알 필요가 없는 정보) */
