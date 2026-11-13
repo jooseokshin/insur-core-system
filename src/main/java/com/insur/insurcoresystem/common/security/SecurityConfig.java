@@ -122,6 +122,13 @@ public class SecurityConfig {
                         .hasAnyRole(Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/batch/executions")
                         .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        // 보험료 자동이체: 등록·해지는 청약 접수 쪽(설계사·운영·채널), 조회는 계약을 보는 역할 전부
+                        .requestMatchers(HttpMethod.POST, "/api/contract/autodebit/register", "/api/contract/autodebit/cancel")
+                        .hasAnyRole(Roles.AGENT, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/autodebit/inquiry")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/cms-debit", "/api/batch/cms-debit-list")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
                         // 지급: 보상(보험금)·운영(환급금)
                         .requestMatchers(HttpMethod.POST, "/api/payout/account-verify", "/api/payout/request", "/api/payout/list")
                         .hasAnyRole(Roles.CLAIM, Roles.OPERATOR, Roles.ADMIN)

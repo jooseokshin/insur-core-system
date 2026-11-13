@@ -30,6 +30,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.insur.insurcoresystem.service.cms.CmsMandateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -51,6 +52,8 @@ public class ContractRenewalService {
     private final CoverageRepository coverageRepository;
     private final ContractService contractService;
     private final PremiumService premiumService;
+    /** 원 계약의 보험료 자동이체를 갱신 계약에 잇는다 */
+    private final CmsMandateService cmsMandateService;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -105,6 +108,7 @@ public class ContractRenewalService {
                         .cvrgCd(c.getCvrgCd()).isrdAmt(c.getIsrdAmt()).prem(c.getPrem()).build()).toList())
                 .build(), source.getContractNo());
 
+        cmsMandateService.inheritForRenewal(source.getContractNo(), applied.getContractNo(), empId);
         log.info("계약 갱신 접수: 원 계약={}, 갱신 계약={}, 총보험료 {} -> {}", source.getContractNo(), applied.getContractNo(),
                 source.getTotalPremium(), applied.getTotalPremium());
         return ContractRenewResponse.builder()

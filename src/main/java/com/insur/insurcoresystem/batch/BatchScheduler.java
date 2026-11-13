@@ -25,6 +25,18 @@ public class BatchScheduler {
     private final BatchService batchService;
     private final Clock clock;
 
+    /** 보험료 자동이체: 매일 오늘 출금일로 (등록 의뢰·결과, 출금 의뢰·결과) */
+    @Scheduled(cron = "${app.batch.cms-cron:0 0 7 * * *}", zone = "Asia/Seoul")
+    public void dailyCmsDebit() {
+        LocalDate today = LocalDate.now(clock);
+        try {
+            BatchService.Execution e = batchService.runCmsDebit(today, "system");
+            log.info("보험료 자동이체 배치: {} → {}", today, e.status());
+        } catch (BusinessException e) {
+            log.warn("보험료 자동이체 배치를 시작하지 못함: {}", e.getErrorMessage());
+        }
+    }
+
     @Scheduled(cron = "${app.batch.recon-cron:0 30 6 * * *}", zone = "Asia/Seoul")
     public void dailyRecon() {
         LocalDate yesterday = LocalDate.now(clock).minusDays(1);

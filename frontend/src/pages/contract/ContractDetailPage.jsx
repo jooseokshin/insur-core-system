@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { contractApi } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthProvider';
-import { CTR_STAT, INSR_CLS, PAY_METHODS, RATING_FIELDS, SALES_CHNL, coverageName, nameOf } from '../../common/codes';
+import { CTR_STAT, INSR_CLS, PAY_METHODS_ALL, RATING_FIELDS, SALES_CHNL, coverageName, nameOf } from '../../common/codes';
 import { date, dateTime, money } from '../../common/format';
 import { DataTable, ErrorBox, InfoGrid, PageHeader, Panel, StatusBadge, useLoad, useToast } from '../../components/ui';
 import { EndorseModal, PaymentModal, RenewModal, StatusChangeModal } from './ContractActions';
 import { ClaimReportModal, ContractClaims } from '../claim/ClaimPages';
 import { MileagePanel } from './MileagePanel';
 import { MedicalCheckPanel } from './MedicalCheckPanel';
+import { AutoDebitPanel } from './AutoDebitPanel';
 
 const TABS = [
   { code: 'coverages', name: '담보' },
@@ -143,6 +144,7 @@ export function ContractDetailPage() {
 
       {c.insrClsCd === '01' && <MileagePanel contract={c} version={version} onDone={done} />}
       {c.insrClsCd === '05' && <MedicalCheckPanel contract={c} onDone={done} />}
+      {['10', '20'].includes(c.ctrStatCd) && <AutoDebitPanel contract={c} version={version} onDone={done} />}
 
       <Panel>
         <div className="tabs" role="tablist">
@@ -167,7 +169,7 @@ export function ContractDetailPage() {
             <DataTable loading={payments.loading} rows={payments.data?.items} rowKey={(r) => r.paymentId} empty="납입 내역이 없습니다." columns={[
               { key: 'paidDt', title: '수납일시', render: (r) => dateTime(r.paidDt) },
               { key: 'payAmt', title: '금액', align: 'right', render: (r) => money(r.payAmt) },
-              { key: 'payMethod', title: '방법', render: (r) => nameOf(PAY_METHODS, r.payMethod) },
+              { key: 'payMethod', title: '방법', render: (r) => nameOf(PAY_METHODS_ALL, r.payMethod) },
               { key: 'empId', title: '처리자' },
             ]} />
           </>

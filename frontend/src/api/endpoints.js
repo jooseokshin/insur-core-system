@@ -30,6 +30,9 @@ export const contractApi = {
   mileageRegister: (contractNo, odometerKm, txId) => call('/api/contract/mileage/register', { contractNo, odometerKm }, { txId }),
   mileageSettle: (contractNo, odometerKm, txId) => call('/api/contract/mileage/settle', { contractNo, odometerKm }, { txId }),
   medicalDupCheck: (contractNo) => call('/api/contract/medical/dup-check', { contractNo }),
+  autoDebitInquiry: (contractNo) => call('/api/contract/autodebit/inquiry', { contractNo }),
+  autoDebitRegister: (body, txId) => call('/api/contract/autodebit/register', body, { txId }),
+  autoDebitCancel: (contractNo) => call('/api/contract/autodebit/cancel', { contractNo }),
 };
 
 export const productApi = {
@@ -56,6 +59,8 @@ export const batchApi = {
   payoutRecon: (reconDate) => call('/api/batch/payout-recon', { reconDate }),
   payoutReconList: (reconDate, diffOnly) => call('/api/batch/payout-recon-list', { reconDate, diffOnly }),
   executions: (jobName, limit = 20) => call('/api/batch/executions', { jobName, limit }),
+  cmsDebit: (debitDate) => call('/api/batch/cms-debit', { debitDate }),
+  cmsDebitList: (debitDate) => call('/api/batch/cms-debit-list', { debitDate }),
 };
 
 export const payoutApi = {

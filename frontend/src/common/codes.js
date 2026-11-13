@@ -139,6 +139,29 @@ export const PAY_METHODS = [
   { code: 'CARD', name: '카드' },
   { code: 'CASH', name: '현금' },
 ];
+/** 납입 내역 표시용 (CMS 는 자동이체 배치만 기록하므로 수납 입력에는 없다) */
+export const PAY_METHODS_ALL = [...PAY_METHODS, { code: 'CMS', name: '자동이체' }];
+
+/** 자동이체 출금 동의 방식 (TB_CMS_MANDATE, V30) */
+export const CONSENT_METHODS = [
+  { code: 'PAPER', name: '서면' },
+  { code: 'RECORDING', name: '전화 녹취' },
+  { code: 'ARS', name: 'ARS' },
+  { code: 'E_SIGN', name: '전자서명' },
+];
+export const MANDATE_STAT = [
+  { code: '10', name: '결제원 등록 대기', tone: 'info' },
+  { code: '20', name: '등록 의뢰함', tone: 'info' },
+  { code: '30', name: '등록 완료', tone: 'ok' },
+  { code: '80', name: '등록 불능', tone: 'danger' },
+  { code: '90', name: '해지', tone: 'muted' },
+];
+export const CMS_DEBIT_STAT = [
+  { code: '10', name: '의뢰 대상', tone: 'info' },
+  { code: '20', name: '결과 대기', tone: 'warn' },
+  { code: '30', name: '출금 성공', tone: 'ok' },
+  { code: '80', name: '출금 실패', tone: 'danger' },
+];
 
 export const ROLES = [
   { code: 'AGENT', name: '설계사', desc: '청약 접수, 본인 계약 조회·갱신' },

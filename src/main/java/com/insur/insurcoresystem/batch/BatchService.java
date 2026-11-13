@@ -32,14 +32,17 @@ public class BatchService {
     private final JobOperator jobOperator;
     private final Job reserveCloseJob;
     private final Job payoutReconJob;
+    private final Job cmsDebitJob;
     private final NamedParameterJdbcTemplate jdbc;
     private final Clock clock;
 
     public BatchService(JobOperator jobOperator, @Qualifier("reserveCloseJob") Job reserveCloseJob,
-                        @Qualifier("payoutReconJob") Job payoutReconJob, NamedParameterJdbcTemplate jdbc, Clock clock) {
+                        @Qualifier("payoutReconJob") Job payoutReconJob, @Qualifier("cmsDebitJob") Job cmsDebitJob,
+                        NamedParameterJdbcTemplate jdbc, Clock clock) {
         this.jobOperator = jobOperator;
         this.reserveCloseJob = reserveCloseJob;
         this.payoutReconJob = payoutReconJob;
+        this.cmsDebitJob = cmsDebitJob;
         this.jdbc = jdbc;
         this.clock = clock;
     }
@@ -92,6 +95,55 @@ public class BatchService {
                 .addLong("run.id", System.currentTimeMillis())
                 .addString("empId", empId, false)
                 .toJobParameters(), "이미 실행한 대사입니다.");
+    }
+
+    /**
+     * 보험료 자동이체(CMS) 배치를 실행한다. 출금일당 한 번 완료되고, 실패한 실행은 같은 출금일로 다시 실행하면 실패한 단계부터 재시작한다.
+     *
+     * @throws BusinessException 날짜 없음·미래(E-BAT-001), 이미 완료(E-BAT-002, 409), 실행 중(E-BAT-003, 409)
+     */
+    public Execution runCmsDebit(LocalDate debitDate, String empId) {
+        if (debitDate == null || debitDate.isAfter(LocalDate.now(clock))) {
+            throw new BusinessException("E-BAT-001", "출금일은 오늘 이전이어야 합니다.");
+        }
+        return launch(cmsDebitJob, new JobParametersBuilder()
+                .addLocalDate("debitDate", debitDate)
+                .addString("empId", empId, false)
+                .toJobParameters(), "이미 처리한 출금일입니다. 실패한 계약은 다음 출금일에 다시 출금합니다.");
+    }
+
+    /** 자동이체 하루 현황: 출금 건과 결제원 파일 기록 */
+    public record CmsDay(LocalDate debitDate, List<CmsDebitRow> debits, List<CmsFileRow> files) {
+    }
+
+    public record CmsDebitRow(long debitId, String contractNo, BigDecimal amount, int attemptNo, String statCd, String resultCd,
+                              String resultMsg, Long paymentId, String bankCd, String accountMask, String payerNm) {
+    }
+
+    public record CmsFileRow(String fileType, String direction, int recordCount, BigDecimal totalAmt, int bytes, String fileHash,
+                             long jobExecutionId, LocalDateTime createdDt) {
+    }
+
+    /**
+     * 출금일의 자동이체 현황.
+     *
+     * @throws BusinessException 날짜 없음(E-BAT-001)
+     */
+    public CmsDay cmsDay(LocalDate debitDate) {
+        if (debitDate == null) {
+            throw new BusinessException("E-BAT-001", "출금일을 입력해야 합니다.");
+        }
+        MapSqlParameterSource p = new MapSqlParameterSource("d", debitDate);
+        List<CmsDebitRow> debits = jdbc.query("SELECT D.*, M.BANK_CD, M.ACCOUNT_MASK, M.PAYER_NM FROM TB_CMS_DEBIT D"
+                        + " JOIN TB_CMS_MANDATE M ON M.MANDATE_ID = D.MANDATE_ID WHERE D.DEBIT_DT = :d"
+                        + " ORDER BY CASE WHEN D.STAT_CD = '30' THEN 1 ELSE 0 END, D.DEBIT_ID", p,
+                (rs, i) -> new CmsDebitRow(rs.getLong("DEBIT_ID"), rs.getString("CONTRACT_NO"), rs.getBigDecimal("AMOUNT"), rs.getInt("ATTEMPT_NO"),
+                        rs.getString("STAT_CD"), rs.getString("RESULT_CD"), rs.getString("RESULT_MSG"), (Long) rs.getObject("PAYMENT_ID"),
+                        rs.getString("BANK_CD"), rs.getString("ACCOUNT_MASK"), rs.getString("PAYER_NM")));
+        List<CmsFileRow> files = jdbc.query("SELECT * FROM TB_CMS_FILE WHERE FILE_DT = :d ORDER BY FILE_ID", p,
+                (rs, i) -> new CmsFileRow(rs.getString("FILE_TYPE"), rs.getString("DIRECTION"), rs.getInt("RECORD_COUNT"), rs.getBigDecimal("TOTAL_AMT"),
+                        rs.getInt("BYTES"), rs.getString("FILE_HASH"), rs.getLong("JOB_EXECUTION_ID"), rs.getObject("CREATED_DT", LocalDateTime.class)));
+        return new CmsDay(debitDate, debits, files);
     }
 
     /** 실행 이력 (최근순) */

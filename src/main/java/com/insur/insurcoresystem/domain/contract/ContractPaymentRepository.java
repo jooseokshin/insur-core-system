@@ -35,4 +35,13 @@ public interface ContractPaymentRepository extends JpaRepository<ContractPayment
      */
     @Query("select coalesce(sum(p.payAmt), 0) from ContractPayment p where p.contractNo = :contractNo")
     BigDecimal sumPaid(@Param("contractNo") String contractNo);
+
+    /**
+     * 진행 중인 자동이체 출금(의뢰 대상·결과 대기) 건수. 진행 중이면 결과가 오기 전에 수기 수납을 받으면 과납이 될 수 있다.
+     *
+     * @param contractNo 증권번호
+     * @return 진행 중인 출금 건수
+     */
+    @Query(value = "SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE CONTRACT_NO = :contractNo AND STAT_CD IN ('10', '20')", nativeQuery = true)
+    long countDebitsInFlight(@Param("contractNo") String contractNo);
 }

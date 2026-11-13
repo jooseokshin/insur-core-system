@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { batchApi, extApi, fepApi, payoutApi } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthProvider';
-import { BANKS, FEP_RESULTS, PAYOUT_STAT, RECON_RESULTS, nameOf } from '../../common/codes';
+import { BANKS, CMS_DEBIT_STAT, FEP_RESULTS, PAYOUT_STAT, RECON_RESULTS, nameOf } from '../../common/codes';
 import { dateTime, money, seoulDate } from '../../common/format';
 import { Badge, DataTable, ErrorBox, PageHeader, Panel, useLoad, useToast } from '../../components/ui';
 import { PayoutStatusBadge } from '../claim/PayoutPanel';
@@ -14,6 +14,7 @@ const TABS = [
   { code: 'log', name: '전문 로그' },
   { code: 'payout', name: '지급 현황' },
   { code: 'recon', name: '지급 대사' },
+  { code: 'cms', name: '보험료 자동이체' },
   { code: 'batch', name: '배치 이력' },
   { code: 'outbox', name: '전송 대기열' },
 ];
@@ -39,6 +40,7 @@ export function OpsPage() {
         {tab === 'log' && <LogTab />}
         {tab === 'payout' && <PayoutTab />}
         {tab === 'recon' && <ReconTab />}
+        {tab === 'cms' && <CmsTab />}
         {tab === 'batch' && <BatchTab />}
         {tab === 'outbox' && <OutboxTab />}
       </Panel>
@@ -192,6 +194,60 @@ function ReconTab() {
   );
 }
 
+function CmsTab() {
+  const { hasAny } = useAuth();
+  const notify = useToast();
+  const [debitDate, setDebitDate] = useState(seoulDate());
+  const [version, setVersion] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const day = useLoad(() => batchApi.cmsDebitList(debitDate), [debitDate, version]);
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await batchApi.cmsDebit(debitDate);
+      notify(res.status === 'COMPLETED' ? `자동이체 배치 완료 (실행 ${res.executionId})` : `자동이체 배치 ${res.status}: ${res.exitMessage ?? ''}`,
+        res.status === 'COMPLETED' ? 'ok' : 'danger');
+      setVersion((v) => v + 1);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="inline-form">
+        <input type="date" value={debitDate} max={seoulDate()} onChange={(e) => setDebitDate(e.target.value)} />
+        {hasAny('OPERATOR', 'ADMIN') && <button type="button" id="cms-run" className="btn btn-primary" disabled={busy} onClick={run}>{busy ? '처리 중…' : '자동이체 배치 실행'}</button>}
+      </div>
+      <p className="muted small">매일 07:00 에 그날 출금일로 자동 실행됩니다: 출금 동의 등록 의뢰(EB11) → 등록 결과(EB12) → 출금 대상 선정 → 출금 의뢰(EB21) → 출금 결과(EB22).
+        결과 파일이 늦어 실패하면 같은 출금일로 다시 실행해 실패한 단계부터 이어서 합니다. 실패한 출금은 다음 출금일에 최대 3차까지 다시 합니다.</p>
+      <ErrorBox error={error || day.error} onClose={() => setError(null)} />
+      <h3 className="sub-title">출금</h3>
+      <DataTable rowKey={(r) => r.debitId} rows={day.data?.debits} loading={day.loading} empty="이 출금일의 출금 건이 없습니다." columns={[
+        { key: 'statCd', title: '상태', render: (r) => <Badge tone={tone(CMS_DEBIT_STAT, r.statCd)}>{nameOf(CMS_DEBIT_STAT, r.statCd)}</Badge> },
+        { key: 'contractNo', title: '증권번호', render: (r) => <Link className="mono" to={`/contracts/${encodeURIComponent(r.contractNo)}`}>{r.contractNo}</Link> },
+        { key: 'attemptNo', title: '차수', align: 'right', render: (r) => `${r.attemptNo}차` },
+        { key: 'amount', title: '금액', align: 'right', render: (r) => money(r.amount) },
+        { key: 'account', title: '출금 계좌', render: (r) => <>{nameOf(BANKS, r.bankCd)} <span className="mono">{r.accountMask}</span> {r.payerNm}</> },
+        { key: 'resultMsg', title: '결과', render: (r) => r.resultMsg ?? '-' },
+      ]} />
+      <h3 className="sub-title">결제원 파일</h3>
+      <DataTable rowKey={(r) => `${r.fileType}-${r.createdDt}`} rows={day.data?.files} loading={day.loading} empty="주고받은 파일이 없습니다." columns={[
+        { key: 'fileType', title: '파일', render: (r) => <span className="mono">{r.fileType}</span> },
+        { key: 'direction', title: '방향', render: (r) => (r.direction === 'SEND' ? '보냄' : '받음') },
+        { key: 'recordCount', title: '건수', align: 'right' },
+        { key: 'totalAmt', title: '합계', align: 'right', render: (r) => money(r.totalAmt) },
+        { key: 'bytes', title: '바이트', align: 'right' },
+        { key: 'fileHash', title: 'SHA-256', render: (r) => <span className="mono small">{r.fileHash.slice(0, 16)}…</span> },
+        { key: 'createdDt', title: '일시', render: (r) => `${dateTime(r.createdDt)} (실행 ${r.jobExecutionId})` },
+      ]} />
+    </>
+  );
+}
+
 function BatchTab() {
   const [jobName, setJobName] = useState('');
   const list = useLoad(() => batchApi.executions(jobName || null, 30), [jobName]);
@@ -202,12 +258,13 @@ function BatchTab() {
           <option value="">전체 작업</option>
           <option value="reserveCloseJob">지급준비금 결산</option>
           <option value="payoutReconJob">지급 대사</option>
+          <option value="cmsDebitJob">보험료 자동이체</option>
         </select>
       </div>
       <ErrorBox error={list.error} />
       <DataTable rowKey={(r) => r.executionId} rows={list.data} loading={list.loading} empty="실행 이력이 없습니다." columns={[
         { key: 'executionId', title: '실행', align: 'right' },
-        { key: 'jobName', title: '작업', render: (r) => (r.jobName === 'reserveCloseJob' ? '지급준비금 결산' : r.jobName === 'payoutReconJob' ? '지급 대사' : r.jobName) },
+        { key: 'jobName', title: '작업', render: (r) => ({ reserveCloseJob: '지급준비금 결산', payoutReconJob: '지급 대사', cmsDebitJob: '보험료 자동이체' }[r.jobName] ?? r.jobName) },
         { key: 'params', title: '파라미터', render: (r) => <span className="mono small">{r.params}</span> },
         { key: 'status', title: '상태', render: (r) => <Badge tone={r.status === 'COMPLETED' ? 'ok' : r.status === 'FAILED' ? 'danger' : 'info'}>{r.status}</Badge> },
         { key: 'time', title: '시작 ~ 종료', render: (r) => `${dateTime(r.startTime)} ~ ${dateTime(r.endTime)}` },

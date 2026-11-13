@@ -201,21 +201,6 @@ class BatchJobIntegrationTest {
     }
 
     private void deleteBatchRuns(String job, String param, String value) {
-        List<Long> execs = jdbc.queryForList("""
-                SELECT E.JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION E JOIN BATCH_JOB_INSTANCE I ON I.JOB_INSTANCE_ID = E.JOB_INSTANCE_ID
-                 WHERE I.JOB_NAME = ? AND E.JOB_INSTANCE_ID IN (
-                       SELECT X.JOB_INSTANCE_ID FROM BATCH_JOB_EXECUTION X JOIN BATCH_JOB_EXECUTION_PARAMS P ON P.JOB_EXECUTION_ID = X.JOB_EXECUTION_ID
-                        WHERE P.PARAMETER_NAME = ? AND P.PARAMETER_VALUE = ?)
-                """, Long.class, job, param, value);
-        List<Long> instances = new ArrayList<>();
-        for (Long id : execs) {
-            instances.add(jdbc.queryForObject("SELECT JOB_INSTANCE_ID FROM BATCH_JOB_EXECUTION WHERE JOB_EXECUTION_ID = ?", Long.class, id));
-            jdbc.update("DELETE FROM BATCH_STEP_EXECUTION_CONTEXT WHERE STEP_EXECUTION_ID IN (SELECT STEP_EXECUTION_ID FROM BATCH_STEP_EXECUTION WHERE JOB_EXECUTION_ID = ?)", id);
-            jdbc.update("DELETE FROM BATCH_STEP_EXECUTION WHERE JOB_EXECUTION_ID = ?", id);
-            jdbc.update("DELETE FROM BATCH_JOB_EXECUTION_CONTEXT WHERE JOB_EXECUTION_ID = ?", id);
-            jdbc.update("DELETE FROM BATCH_JOB_EXECUTION_PARAMS WHERE JOB_EXECUTION_ID = ?", id);
-            jdbc.update("DELETE FROM BATCH_JOB_EXECUTION WHERE JOB_EXECUTION_ID = ?", id);
-        }
-        instances.stream().distinct().forEach(i -> jdbc.update("DELETE FROM BATCH_JOB_INSTANCE WHERE JOB_INSTANCE_ID = ?", i));
+        BatchTestSupport.deleteBatchRuns(jdbc, job, param, value);
     }
 }

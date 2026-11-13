@@ -68,6 +68,28 @@ public class BatchController {
         return success(request.getHeader(), batchService.reconResults(body.getReconDate(), Boolean.TRUE.equals(body.getDiffOnly())));
     }
 
+    /**
+     * 보험료 자동이체(CMS) 배치를 실행한다. (POST /api/batch/cms-debit, OPERATOR/ADMIN)
+     *
+     * @throws BusinessException 요청 바디 없음(E-CMN-001), 날짜 없음·미래(E-BAT-001), 이미 완료(E-BAT-002), 실행 중(E-BAT-003)
+     */
+    @Operation(summary = "보험료 자동이체 배치를 실행한다", description = "결제원에 출금 동의 등록을 의뢰하고 결과를 반영한 뒤, 청약 계약의 남은 보험료를 출금 의뢰하고 결과를 수납으로 기록한다. 출금일당 한 번 완료되며, 결과 파일이 늦어 실패하면 같은 출금일로 다시 실행해 실패한 단계부터 이어서 한다. 매일 07:00 에 예약 작업이 돌린다.\n\n오류: 요청 바디 없음(E-CMN-001), 날짜 없음·미래(E-BAT-001), 이미 완료(E-BAT-002, 409), 실행 중(E-BAT-003, 409)")
+    @PostMapping("/cms-debit")
+    public CommonMessage<BatchService.Execution> cmsDebit(@RequestBody CommonMessage<BatchRequests.CmsDebit> request) {
+        return success(request.getHeader(), batchService.runCmsDebit(requireBody(request).getDebitDate(), request.getHeader().getEmpId()));
+    }
+
+    /**
+     * 출금일의 자동이체 현황을 조회한다. (POST /api/batch/cms-debit-list, OPERATOR/ADMIN)
+     *
+     * @throws BusinessException 날짜 없음(E-BAT-001)
+     */
+    @Operation(summary = "보험료 자동이체 현황을 조회한다", description = "출금일의 출금 건(실패가 먼저)과 결제원 파일 송수신 기록(건수·합계·해시).\n\n오류: 날짜 없음(E-BAT-001)")
+    @PostMapping("/cms-debit-list")
+    public CommonMessage<BatchService.CmsDay> cmsDebitList(@RequestBody CommonMessage<BatchRequests.CmsDebit> request) {
+        return success(request.getHeader(), batchService.cmsDay(requireBody(request).getDebitDate()));
+    }
+
     /** 배치 실행 이력을 조회한다. (POST /api/batch/executions, UNDERWRITER/OPERATOR/CLAIM/ADMIN) */
     @Operation(summary = "배치 실행 이력을 조회한다", description = "스프링 배치 실행 표(BATCH_*)에서 최근순으로 읽는다. 단계별 읽기·쓰기·걸러냄 건수를 함께 준다.")
     @PostMapping("/executions")

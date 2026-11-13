@@ -43,6 +43,18 @@ public final class BatchRequests {
         private Boolean diffOnly;
     }
 
+    /** 자동이체 배치 실행 */
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CmsDebit {
+        /** 출금일 (오늘 이전) */
+        @Schema(description = "출금일 (오늘 이전)")
+        private LocalDate debitDate;
+    }
+
     /** 실행 이력 조회 */
     @Getter
     @Setter
@@ -50,8 +62,8 @@ public final class BatchRequests {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Executions {
-        /** 작업 이름 (reserveCloseJob, payoutReconJob, 생략하면 전부) */
-        @Schema(description = "작업 이름 (reserveCloseJob, payoutReconJob, 생략하면 전부)")
+        /** 작업 이름 (reserveCloseJob, payoutReconJob, cmsDebitJob, 생략하면 전부) */
+        @Schema(description = "작업 이름 (reserveCloseJob, payoutReconJob, cmsDebitJob, 생략하면 전부)")
         private String jobName;
         /** 최대 건수 (1~100, 기본 20) */
         @Schema(description = "최대 건수 (1~100, 기본 20)")
