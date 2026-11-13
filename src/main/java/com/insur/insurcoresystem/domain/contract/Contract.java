@@ -33,6 +33,8 @@ public class Contract {
     public static final String INSR_CLS_DRIVER = "03";
     /** 보험종목: 해외여행 */
     public static final String INSR_CLS_TRAVEL = "04";
+    /** 보험종목: 실손의료 */
+    public static final String INSR_CLS_MEDICAL = "05";
     /** 계약상태: 청약 */
     public static final String CTR_STAT_APPLIED = "10";
 
@@ -49,7 +51,7 @@ public class Contract {
     @Column(name = "APPL_NO", length = 30, nullable = false, unique = true)
     private String applNo;
 
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
     @Column(name = "INSR_CLS_CD", length = 2, nullable = false)
     private String insrClsCd;
 

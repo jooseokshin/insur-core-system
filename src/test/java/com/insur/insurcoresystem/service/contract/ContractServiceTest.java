@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Optional;
 import com.insur.insurcoresystem.domain.claim.ClaimRepository;
 import com.insur.insurcoresystem.domain.product.ProductRepository;
+import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.product.ProductService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,8 @@ class ContractServiceTest {
     private static final String TX_ID = "tx-0001";
     private static final String EMP_ID = "E12345";
 
+    @Mock
+    MedicalCheckService medicalCheckService;
     @Mock
     ContractNumberGenerator contractNumberGenerator;
     @Mock
@@ -115,10 +118,10 @@ class ContractServiceTest {
         ContractHistoryRecorder historyRecorder = new ContractHistoryRecorder(historyRepository, SEOUL_CLOCK);
         contractService = new ContractService(contractNumberGenerator, contractRepository, coverageRepository,
                 historyRecorder, new PremiumService(premiumRateRepository, premiumFactorRepository, premiumFactorPolicyRepository, productService),
-                SEOUL_CLOCK, productService);
-        inquiryService = new ContractInquiryService(contractRepository, coverageRepository, historyRepository, productRepository);
+                SEOUL_CLOCK, productService, medicalCheckService);
+        inquiryService = new ContractInquiryService(contractRepository, coverageRepository, historyRepository, productRepository, medicalCheckService);
         statusService = new ContractStatusService(contractRepository, historyRepository, paymentRepository, historyRecorder,
-                claimRepository, SEOUL_CLOCK);
+                claimRepository, medicalCheckService, SEOUL_CLOCK);
     }
 
     @Test

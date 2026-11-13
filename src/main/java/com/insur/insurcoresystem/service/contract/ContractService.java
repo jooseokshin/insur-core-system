@@ -18,6 +18,7 @@ import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
 import com.insur.insurcoresystem.service.premium.PremiumService;
+import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.product.ProductService;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest.QuoteCoverageRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
@@ -75,6 +76,9 @@ public class ContractService {
     /** 상품을 지정한 새 청약의 판매 기간 확인 */
     private final ProductService productService;
 
+    /** 실손 중복가입 조회 (신용정보원) */
+    private final MedicalCheckService medicalCheckService;
+
     /**
      * 계약 청약을 처리한다. 하나의 트랜잭션으로 아래 순서로 수행하며, 중간에 실패하면 채번을 포함해 전체가 롤백된다.
      * <ol>
@@ -101,7 +105,8 @@ public class ContractService {
      *                           동일 거래 동시 접수 충돌(E-CTR-011, 409), 다른 사용자의 거래 UUID(E-CTR-015, 409),
      *                           같은 거래 UUID 로 다른 내용의 재전송(E-CTR-019, 409),
      *                           요율표에 없는 담보/담보코드 중복/요율 계수 오류(E-PRM-001~004), 산출 보험료와 불일치(E-CTR-020),
-     *                           채번 한도 초과(E-SEQ-002), 상품을 지정한 경우 상품 오류(E-PRD-001~006)
+     *                           채번 한도 초과(E-SEQ-002), 상품을 지정한 경우 상품 오류(E-PRD-001~006),
+     *                           실손의료보험의 신용정보 조회 동의 없음(E-MED-001)·상품코드 없음(E-MED-002)
      */
     @Transactional
     public ContractApplyResponse applyContract(String globalTxId, String empId, ContractApplyRequest request) {
@@ -119,6 +124,15 @@ public class ContractService {
     public ContractApplyResponse applyContract(String globalTxId, String empId, ContractApplyRequest request,
             String renewedFrom) {
         ProductType productType = ProductType.fromInsrClsCd(request.getInsrClsCd());
+        if (Contract.INSR_CLS_MEDICAL.equals(request.getInsrClsCd())) {
+            // 실손은 상품마다 보상 규칙(TB_PRD_MED_RULE)이 있어 상품 없이 받을 수 없고, 중복가입 조회에 신용정보 조회 동의가 필요하다
+            if (!StringUtils.hasText(request.getPrdCd())) {
+                throw new BusinessException("E-MED-002", "실손의료보험은 상품코드(prdCd)를 지정해야 합니다.");
+            }
+            if (!Boolean.TRUE.equals(request.getCreditInfoConsent())) {
+                throw new BusinessException("E-MED-001", "실손의료보험은 개인신용정보 조회 동의(creditInfoConsent)가 있어야 청약할 수 있습니다.");
+            }
+        }
         validatePremium(request);
         validateContractInfo(request);
         request.getCoverages().forEach(this::validateCoverage);
@@ -151,6 +165,7 @@ public class ContractService {
             productService.requireOnSale(request.getPrdCd(), request.getInsrClsCd());
         }
         verifyAgainstTariff(request);
+        LocalDateTime now = LocalDateTime.now(clock);
 
         ContractNumbers numbers = contractNumberGenerator.generate(productType);
 
@@ -167,7 +182,7 @@ public class ContractService {
                 .policyholderId(request.getPolicyholderId())
                 .insuredId(request.getInsuredId())
                 .totalPremium(request.getTotalPremium())
-                .sysRegDt(LocalDateTime.now(clock))
+                .sysRegDt(now)
                 .regEmpId(normalizeEmpId(empId))
                 .reqHash(requestHash)
                 .driverAge(request.getRating() == null ? null : request.getRating().getDriverAge())
@@ -188,6 +203,11 @@ public class ContractService {
                 .toList();
         coverageRepository.saveAll(coverages);
         historyRecorder.record(contract.getContractNo(), null, ContractStatus.APPLIED, globalTxId, empId);
+        if (Contract.INSR_CLS_MEDICAL.equals(contract.getInsrClsCd())) {
+            // 갱신은 원 계약의 동의를 잇는다 (동의 유효기간·재동의 정책은 회사 내규로 정한다)
+            LocalDateTime consentDt = renewedFrom == null ? now : medicalCheckService.consentOf(renewedFrom).orElse(now);
+            medicalCheckService.checkAtApplication(contract, consentDt, empId);
+        }
 
         log.info("청약 접수 완료: 증권번호={}, 청약번호={}, 담보 {}건",
                 contract.getContractNo(), contract.getApplNo(), coverages.size());

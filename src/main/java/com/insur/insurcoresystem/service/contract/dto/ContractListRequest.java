@@ -25,8 +25,8 @@ public class ContractListRequest {
     /** 청약번호 (앞부분 일치, 예: APP-FIRE) */
     @Schema(description = "청약번호 (앞부분 일치, 예: APP-FIRE)")
     private String applNo;
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
     /** 계약상태코드 (10:청약, 20:유효, 30:해지, 90:청약취소) */
     @Schema(description = "계약상태코드 (10:청약, 20:유효, 30:해지, 90:청약취소)")

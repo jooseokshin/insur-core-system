@@ -65,7 +65,7 @@ public class ContractPaymentService {
      * @throws BusinessException 거래 UUID 오류(E-CTR-008), 증권번호 누락(E-CTR-009), 금액 형식 오류(E-CTR-007),
      *                           계약 없음(E-CTR-010), 같은 거래 UUID 의 동시 처리 충돌(E-CTR-011), 다른 사용자의 거래 UUID(E-CTR-015),
      *                           같은 거래 UUID 로 다른 내용(E-CTR-019), 청약 상태가 아님(E-CTR-026),
-     *                           남은 보험료 초과(E-CTR-027), 지원하지 않는 납부 방법(E-CTR-029)
+     *                           남은 보험료 초과(E-CTR-027), 지원하지 않는 납부 방법(E-CTR-029), 자동이체 출금 진행 중(E-CTR-031)
      */
     @Transactional
     public PaymentResponse pay(String globalTxId, String empId, PaymentRequest request) {
@@ -101,6 +101,10 @@ public class ContractPaymentService {
                 .orElseThrow(ContractSupport::contractNotFound);
         if (!ContractStatus.APPLIED.getCode().equals(contract.getCtrStatCd())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-026", "청약(10) 상태의 계약만 납입할 수 있습니다.");
+        }
+        if (paymentRepository.countDebitsInFlight(contract.getContractNo()) > 0) {
+            throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-031",
+                    "보험료 자동이체 출금이 진행 중입니다. 출금 결과가 나온 뒤 남은 보험료를 수납해 주세요. (그 전에 받으면 과납이 될 수 있습니다)");
         }
         BigDecimal remaining = contract.getTotalPremium().subtract(paymentRepository.sumPaid(contract.getContractNo()));
         if (request.getPayAmt().compareTo(remaining) > 0) {

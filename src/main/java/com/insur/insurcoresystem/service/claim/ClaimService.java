@@ -27,6 +27,7 @@ import com.insur.insurcoresystem.domain.product.ProductRepository;
 import com.insur.insurcoresystem.service.claim.dto.ClaimRequests;
 import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
 import com.insur.insurcoresystem.service.contract.ContractSupport;
+import com.insur.insurcoresystem.service.medical.MedicalClaimService;
 import com.insur.insurcoresystem.service.sequence.ContractNumberGenerator;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import java.math.BigDecimal;
@@ -89,6 +90,7 @@ public class ClaimService {
     private final ProductRepository productRepository;
     private final ContractNumberGenerator numberGenerator;
     private final NamedParameterJdbcTemplate jdbc;
+    private final MedicalClaimService medicalClaimService;
     private final Clock clock;
 
     /**
@@ -101,7 +103,26 @@ public class ClaimService {
      */
     @Transactional
     public ClaimResponses.Detail report(String ownerEmpId, String globalTxId, String empId, ClaimRequests.Report request) {
+        return report(ownerEmpId, globalTxId, empId, request, MedicalClaimService.SOURCE_MANUAL);
+    }
+
+    /**
+     * 사고를 접수한다. 실손 진료 내역의 접수 경로(직원·채널 입력 / 실손 청구 전산화)를 함께 받는다. 규칙은
+     * {@link #report(String, String, String, ClaimRequests.Report)} 와 같고, 실손(05)은 진료 내역(E-MED-005)이 필수다.
+     */
+    @Transactional
+    public ClaimResponses.Detail report(String ownerEmpId, String globalTxId, String empId, ClaimRequests.Report request,
+                                        String sourceCd) {
         validateGlobalTxId(globalTxId);
+        boolean medical = request.getMedicalItems() != null;
+        if (medical) {
+            // 실손은 영수증(진료 내역)이 청구의 근거다. 사고일은 가장 이른 진료일, 청구 담보는 진료비 합계로 만든다
+            MedicalClaimService.validateItems(request.getMedicalItems());
+            if (request.getCoverages() != null && !request.getCoverages().isEmpty()) {
+                throw new BusinessException("E-MED-005", "실손 사고는 담보별 금액(coverages) 대신 진료 내역(medicalItems)만 입력합니다.");
+            }
+            request.setAcdtDt(MedicalClaimService.firstTreatDate(request.getMedicalItems()));
+        }
         if (isInvalidCode(request.getContractNo(), 30) || request.getAcdtDt() == null) {
             throw new BusinessException("E-CLM-001", "증권번호와 사고일을 입력해야 합니다.");
         }
@@ -111,7 +132,9 @@ public class ClaimService {
         if (request.getClaimantId() != null && request.getClaimantId().length() > 20) {
             throw new BusinessException("E-CLM-001", "청구인 ID 는 20자 이하여야 합니다.");
         }
-        List<ClaimRequests.ClaimAmount> coverages = requireAmounts(request.getCoverages(), false);
+        if (!medical) {
+            requireAmounts(request.getCoverages(), false);
+        }
         String requestHash = fingerprint(request);
 
         Optional<Claim> replay = claimRepository.findByGlobalTxId(globalTxId);
@@ -139,20 +162,36 @@ public class ClaimService {
             throw new BusinessException("E-CLM-003", "사고일이 보장 기간(" + contract.getStartDate() + " ~ " + coverageEnd.minusDays(1)
                     + ") 밖입니다.");
         }
+        if (medical != MedicalClaimService.isMedical(contract)) {
+            throw new BusinessException("E-MED-005", medical ? "실손의료보험 계약이 아니면 진료 내역을 받지 않습니다."
+                    : "실손의료보험 계약은 진료 내역(medicalItems)으로 접수해야 합니다.");
+        }
         Set<String> insured = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
                 .map(Coverage::getCvrgCd).collect(Collectors.toSet());
-        for (ClaimRequests.ClaimAmount c : coverages) {
-            if (!insured.contains(c.getCvrgCd())) {
-                throw new BusinessException("E-CLM-004", "계약에 가입하지 않은 담보입니다: " + c.getCvrgCd());
+        List<ClaimCoverage> items;
+        if (medical) {
+            for (ClaimRequests.MedicalItem item : request.getMedicalItems()) {
+                if (item.getTreatDt().isAfter(today) || item.getTreatDt().isBefore(contract.getStartDate())
+                        || !item.getTreatDt().isBefore(coverageEnd)) {
+                    throw new BusinessException("E-CLM-003", "진료일 " + item.getTreatDt() + "이(가) 보장 기간(" + contract.getStartDate()
+                            + " ~ " + coverageEnd.minusDays(1) + ") 밖이거나 미래입니다.");
+                }
             }
+            items = MedicalClaimService.claimCoverages(request.getMedicalItems(), insured);
+        } else {
+            for (ClaimRequests.ClaimAmount c : request.getCoverages()) {
+                if (!insured.contains(c.getCvrgCd())) {
+                    throw new BusinessException("E-CLM-004", "계약에 가입하지 않은 담보입니다: " + c.getCvrgCd());
+                }
+            }
+            items = request.getCoverages().stream().map(c -> new ClaimCoverage(c.getCvrgCd(), c.getAmount())).toList();
         }
 
         String clmNo = numberGenerator.generateClaimNo(ProductType.fromInsrClsCd(contract.getInsrClsCd()));
         LocalDateTime now = LocalDateTime.now(clock);
         Claim claim = Claim.report(clmNo, contract.getContractNo(), request.getAcdtDt(), request.getAcdtDesc().trim(),
                 StringUtils.hasText(request.getClaimantId()) ? request.getClaimantId().trim() : contract.getInsuredId(),
-                coverages.stream().map(c -> new ClaimCoverage(c.getCvrgCd(), c.getAmount())).toList(),
-                normalizeEmpId(empId), globalTxId, requestHash, now);
+                items, normalizeEmpId(empId), globalTxId, requestHash, now);
         try {
             claim = claimRepository.saveAndFlush(claim);
         } catch (DataIntegrityViolationException e) {
@@ -162,8 +201,11 @@ public class ClaimService {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CLM-014",
                     "같은 거래(globalTxId)가 동시에 처리 중입니다. 잠시 후 같은 globalTxId 로 다시 요청해 주세요.");
         }
+        if (medical) {
+            medicalClaimService.saveItems(clmNo, request.getMedicalItems(), sourceCd);
+        }
         record(claim, null, globalTxId, empId, null, now);
-        log.info("사고 접수: 사고번호={}, 증권번호={}, 담보 {}건, 청구 {}", clmNo, contract.getContractNo(), coverages.size(),
+        log.info("사고 접수: 사고번호={}, 증권번호={}, 담보 {}건, 청구 {}", clmNo, contract.getContractNo(), items.size(),
                 claim.getTotalClaimAmt());
         return detail(claim, contract);
     }
@@ -187,6 +229,13 @@ public class ClaimService {
                     + claim.getClmStatCd() + ")");
         }
         String memo = optionalMemo(request.getMemo());
+        Contract claimContract = contractRepository.findById(claim.getContractNo()).orElseThrow();
+        if (MedicalClaimService.isMedical(claimContract)) {
+            return assessMedical(claim, before, globalTxId, empId, memo, request);
+        }
+        if (request.getMedicalItems() != null) {
+            throw new BusinessException("E-MED-005", "실손의료보험 사고가 아니면 진료 인정액을 받지 않습니다.");
+        }
         Map<String, BigDecimal> assessed = requireAmounts(request.getCoverages(), true).stream()
                 .collect(Collectors.toMap(ClaimRequests.ClaimAmount::getCvrgCd, ClaimRequests.ClaimAmount::getAmount));
         Set<String> claimed = claim.getItems().stream().map(ClaimCoverage::getCvrgCd).collect(Collectors.toSet());
@@ -210,6 +259,27 @@ public class ClaimService {
         claim.assess(results, normalizeEmpId(empId), now);
         record(claim, before, globalTxId, empId, memo, now);
         log.info("손해사정: 사고번호={}, 지급액 합계={}", claim.getClmNo(), claim.getTotalPayAmt());
+        return detail(claim, contract);
+    }
+
+    /**
+     * 실손 손해사정: 사정 손해액을 사람이 넣지 않고 진료 내역으로 계산한다 ({@link MedicalClaimService#assess}).
+     * 신용정보원 조회(비례보상)를 계약 잠금 전에 하면 잠금 시간이 짧아지지만, 조회와 한도 계산 사이에 다른 사고가 지급될 수 있어 잠근 뒤에 한다.
+     */
+    private ClaimResponses.Detail assessMedical(Claim claim, ClaimStatus before, String globalTxId, String empId, String memo,
+                                                ClaimRequests.Assess request) {
+        if (request.getCoverages() != null && !request.getCoverages().isEmpty()) {
+            throw new BusinessException("E-MED-005", "실손 손해사정은 담보별 금액(coverages) 대신 진료별 인정액(medicalItems)만 받습니다.");
+        }
+        Contract contract = contractRepository.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
+        Set<String> held = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+                .map(Coverage::getCvrgCd).collect(Collectors.toSet());
+        Map<String, ClaimCoverage.Assessment> results = medicalClaimService.assess(claim, contract, held, request.getMedicalItems(),
+                remainingLimits(contract, claim));
+        LocalDateTime now = LocalDateTime.now(clock);
+        claim.assess(results, normalizeEmpId(empId), now);
+        record(claim, before, globalTxId, empId, memo, now);
+        log.info("손해사정(실손 자동 계산): 사고번호={}, 지급액 합계={}", claim.getClmNo(), claim.getTotalPayAmt());
         return detail(claim, contract);
     }
 
@@ -270,6 +340,9 @@ public class ClaimService {
                     }
                 }
                 claim.pay(normalizeEmpId(empId), memo, now);
+                if (MedicalClaimService.isMedical(contract)) {
+                    medicalClaimService.reportPayment(claim, contract);   // 지급정보 집중 (신용정보원, 대기열)
+                }
             }
             case DENIED -> {
                 if (memo == null) {
@@ -464,6 +537,8 @@ public class ClaimService {
                         .map(h -> ClaimResponses.History.builder().beforeStatCd(h.getBeforeStatCd()).afterStatCd(h.getAfterStatCd())
                                 .empId(h.getEmpId()).memo(h.getMemo()).chgDt(h.getChgDt()).build())
                         .toList())
+                .medicalItems(MedicalClaimService.isMedical(contract) ? medicalClaimService.items(claim.getClmNo()) : null)
+                .medicalShares(MedicalClaimService.isMedical(contract) ? medicalClaimService.shares(claim.getClmNo()) : null)
                 .build();
     }
 
@@ -503,10 +578,21 @@ public class ClaimService {
             String text = v.apply(part);
             canonical.append(text.length()).append(':').append(text).append(';');
         }
-        request.getCoverages().stream().sorted(Comparator.comparing(ClaimRequests.ClaimAmount::getCvrgCd)).forEach(c -> {
-            String text = c.getCvrgCd() + "=" + c.getAmount().stripTrailingZeros().toPlainString();
-            canonical.append(text.length()).append(':').append(text).append(';');
-        });
+        if (request.getCoverages() != null) {
+            request.getCoverages().stream().sorted(Comparator.comparing(ClaimRequests.ClaimAmount::getCvrgCd)).forEach(c -> {
+                String text = c.getCvrgCd() + "=" + c.getAmount().stripTrailingZeros().toPlainString();
+                canonical.append(text.length()).append(':').append(text).append(';');
+            });
+        }
+        // 실손 진료 내역은 있을 때만 넣는다 (실손 도입 전 지문이 그대로 같도록). 순서는 진료일·기관·금액으로 맞춘다
+        if (request.getMedicalItems() != null) {
+            request.getMedicalItems().stream()
+                    .map(m -> m.getTreatDt() + "|" + m.getCareType() + "|" + m.getFacilityType() + "|" + m.getFacilityNm().trim() + "|"
+                            + m.getCoveredAmt().stripTrailingZeros().toPlainString() + "|"
+                            + m.getNonCoveredAmt().stripTrailingZeros().toPlainString())
+                    .sorted()
+                    .forEach(text -> canonical.append("med").append(text.length()).append(':').append(text).append(';'));
+        }
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {

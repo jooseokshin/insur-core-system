@@ -31,6 +31,8 @@ public class ContractPayment {
     public static final String METHOD_TRANSFER = "TRANSFER";
     /** 납부 방법: 카드 */
     public static final String METHOD_CARD = "CARD";
+    /** 자동이체 출금 (CMS 배치만 기록, 직원 수납 API 는 받지 않는다) */
+    public static final String METHOD_CMS = "CMS";
 
     /** 납입 일련번호 (발생 순서) */
     @Id
@@ -46,7 +48,7 @@ public class ContractPayment {
     @Column(name = "PAY_AMT", precision = 15, scale = 0, nullable = false)
     private BigDecimal payAmt;
 
-    /** 납부 방법 (CASH, TRANSFER, CARD) */
+    /** 납부 방법 (CASH:현금, TRANSFER:계좌이체, CARD:카드, CMS:자동이체 출금) */
     @Column(name = "PAY_METHOD", length = 10, nullable = false)
     private String payMethod;
 

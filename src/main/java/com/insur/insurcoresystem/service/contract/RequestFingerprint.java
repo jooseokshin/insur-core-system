@@ -58,6 +58,12 @@ public final class RequestFingerprint {
             }
         }
 
+        // 신용정보 조회 동의도 나중에 생겨서, 입력했을 때만 넣는다
+        if (request.getCreditInfoConsent() != null) {
+            append(canonical, "consent");
+            append(canonical, request.getCreditInfoConsent());
+        }
+
         List<CoverageRequest> coverages = request.getCoverages() == null ? List.of() : request.getCoverages();
         coverages.stream()
                 .sorted(Comparator.comparing((CoverageRequest c) -> String.valueOf(c.getCvrgCd()))

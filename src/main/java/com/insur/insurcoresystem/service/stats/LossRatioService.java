@@ -49,7 +49,7 @@ public class LossRatioService {
             "COVERAGE", List.of("INSR_CLS_CD", "CVRG_CD"));
 
     /** 담보별 경과 일수: 집계 기간 [from, toExcl) 과 보장 기간 [시기, min(종기, 해지일)) 이 겹친 일수 */
-    private static final String EXPOSURE = """
+    static final String EXPOSURE = """
             SELECT L.CONTRACT_NO, L.INSR_CLS_CD, L.PRD_CD, V.CVRG_CD, V.PREM,
                    (L.END_DATE - L.START_DATE) AS TERM_DAYS,
                    GREATEST(0, LEAST(L.END_DATE, COALESCE(L.TERM_DT, L.END_DATE), :toExcl)

@@ -38,6 +38,7 @@ export const MENU = [
       { path: '/tariff/audits', label: '요율 변경 이력', roles: TARIFF_VIEWERS },
       { path: '/stats/loss-ratio', label: '손해율 분석', roles: ['UNDERWRITER', 'CLAIM', 'ADMIN'] },
       { path: '/stats/rate-impact', label: '요율 영향 시뮬레이션', roles: ['UNDERWRITER', 'ADMIN'] },
+      { path: '/stats/reserve', label: 'IBNR·지급준비금', roles: ['UNDERWRITER', 'CLAIM', 'ADMIN'] },
     ],
   },
   {
@@ -45,6 +46,7 @@ export const MENU = [
     items: [
       { path: '/admin/employees', label: '사원·권한 관리', roles: ['ADMIN'] },
       { path: '/admin/login-history', label: '로그인 이력', roles: ['ADMIN'] },
+      { path: '/admin/ops', label: '대외계·지급 운영', roles: ['OPERATOR', 'ADMIN'] },
     ],
   },
 ];

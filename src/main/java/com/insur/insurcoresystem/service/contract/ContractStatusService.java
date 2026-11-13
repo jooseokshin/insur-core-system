@@ -13,6 +13,7 @@ import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
+import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.premium.RefundCalculator;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -42,6 +43,8 @@ public class ContractStatusService {
     private final ContractHistoryRecorder historyRecorder;
     /** 진행 중인 사고가 있는 계약의 해지를 막는 데 쓴다 */
     private final ClaimRepository claimRepository;
+    /** 실손: 승인 전 중복가입 조회 확인, 성립·해지 계약정보 집중 */
+    private final MedicalCheckService medicalCheckService;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -62,6 +65,7 @@ public class ContractStatusService {
      * @throws BusinessException 증권번호/상태코드 누락(E-CTR-012), 지원하지 않는 상태코드(E-CTR-013),
      *                           거래 UUID 오류(E-CTR-008), 계약 없음(E-CTR-010, 404), 허용되지 않는 상태 변경(E-CTR-014, 409),
      *                           납입이 끝나지 않은 승인(E-CTR-028, 409), 진행 중인 사고가 있는 계약의 해지(E-CTR-030, 409),
+     *                           실손 중복가입 조회가 끝나지 않은 승인(E-MED-003, 409),
      *                           같은 거래 UUID 로 다른 상태 요청(E-CTR-019, 409)
      */
     @Transactional
@@ -110,6 +114,9 @@ public class ContractStatusService {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-028", "보험료 납입이 끝나야 승인(유효)할 수 있습니다. (납입 "
                         + paid.toPlainString() + "원 / 총보험료 " + contract.getTotalPremium().toPlainString() + "원)");
             }
+            if (Contract.INSR_CLS_MEDICAL.equals(contract.getInsrClsCd())) {
+                medicalCheckService.requireChecked(contract);
+            }
         }
 
         if (next == ContractStatus.TERMINATED && claimRepository.existsByContractNoAndClmStatCdIn(contract.getContractNo(),
@@ -125,6 +132,11 @@ public class ContractStatusService {
                     contract.getTotalPremium(), contract.getStartDate(), contract.getEndDate(), termDate));
         }
         historyRecorder.record(contract.getContractNo(), current, next, globalTxId, empId);
+        // 실손 성립·해지는 신용정보원에 집중한다 (대기열에 쌓고 따로 보낸다). 청약 단계 취소는 집중한 적이 없으므로 보내지 않는다
+        if (Contract.INSR_CLS_MEDICAL.equals(contract.getInsrClsCd())
+                && (next == ContractStatus.IN_FORCE || (next == ContractStatus.TERMINATED && current == ContractStatus.IN_FORCE))) {
+            medicalCheckService.reportContract(contract, next == ContractStatus.IN_FORCE);
+        }
         log.info("계약상태 변경: 증권번호={}, {} -> {}", contract.getContractNo(), current.getCode(), next.getCode());
         return ContractStatusChangeResponse.builder()
                 .contractNo(contract.getContractNo())

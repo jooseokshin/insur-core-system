@@ -29,6 +29,10 @@ export const contractApi = {
   mileageInquiry: (contractNo) => call('/api/contract/mileage/inquiry', { contractNo }),
   mileageRegister: (contractNo, odometerKm, txId) => call('/api/contract/mileage/register', { contractNo, odometerKm }, { txId }),
   mileageSettle: (contractNo, odometerKm, txId) => call('/api/contract/mileage/settle', { contractNo, odometerKm }, { txId }),
+  medicalDupCheck: (contractNo) => call('/api/contract/medical/dup-check', { contractNo }),
+  autoDebitInquiry: (contractNo) => call('/api/contract/autodebit/inquiry', { contractNo }),
+  autoDebitRegister: (body, txId) => call('/api/contract/autodebit/register', body, { txId }),
+  autoDebitCancel: (contractNo) => call('/api/contract/autodebit/cancel', { contractNo }),
 };
 
 export const productApi = {
@@ -37,7 +41,7 @@ export const productApi = {
 
 export const claimApi = {
   report: (body, txId) => call('/api/claim/report', body, { txId }),
-  assess: (clmNo, coverages, memo, txId) => call('/api/claim/assess', { clmNo, coverages, memo }, { txId }),
+  assess: (clmNo, coverages, memo, txId, medicalItems) => call('/api/claim/assess', { clmNo, coverages, memo, medicalItems }, { txId }),
   decide: (clmNo, decision, memo, txId) => call('/api/claim/decide', { clmNo, decision, memo }, { txId }),
   inquiry: (clmNo) => call('/api/claim/inquiry', { clmNo }),
   list: (cond) => call('/api/claim/list', cond),
@@ -46,6 +50,31 @@ export const claimApi = {
 export const statsApi = {
   lossRatio: (cond) => call('/api/stats/loss-ratio', cond),
   rateImpact: (cond) => call('/api/stats/rate-impact', cond),
+  ibnr: (cond) => call('/api/stats/ibnr', cond),
+};
+
+export const batchApi = {
+  reserveClose: (closeDate) => call('/api/batch/reserve-close', { closeDate }),
+  reserveCloseList: (closeDate) => call('/api/batch/reserve-close-list', { closeDate }),
+  payoutRecon: (reconDate) => call('/api/batch/payout-recon', { reconDate }),
+  payoutReconList: (reconDate, diffOnly) => call('/api/batch/payout-recon-list', { reconDate, diffOnly }),
+  executions: (jobName, limit = 20) => call('/api/batch/executions', { jobName, limit }),
+  cmsDebit: (debitDate) => call('/api/batch/cms-debit', { debitDate }),
+  cmsDebitList: (debitDate) => call('/api/batch/cms-debit-list', { debitDate }),
+};
+
+export const payoutApi = {
+  verify: (body) => call('/api/payout/account-verify', body),
+  request: (body, txId) => call('/api/payout/request', body, { txId }),
+  list: (cond) => call('/api/payout/list', cond),
+};
+
+export const fepApi = {
+  institutions: () => call('/api/admin/fep/inst-list', {}),
+  signOn: (instCd) => call('/api/admin/fep/sign-on', { instCd }),
+  signOff: (instCd) => call('/api/admin/fep/sign-off', { instCd }),
+  echo: (instCd) => call('/api/admin/fep/echo', { instCd }),
+  messages: (cond) => call('/api/admin/fep/msg-log', cond),
 };
 
 export const premiumApi = {
@@ -60,6 +89,11 @@ export const tariffApi = {
   policyList: (cond) => call('/api/admin/premium/policy-list', cond),
   policyRevise: (body, txId) => call('/api/admin/premium/policy-revise', body, { txId }),
   auditList: (cond) => call('/api/admin/premium/audit-list', cond),
+};
+
+export const extApi = {
+  outboxList: (cond) => call('/api/admin/ext/outbox-list', cond),
+  outboxRetry: (outboxId) => call('/api/admin/ext/outbox-retry', { outboxId }),
 };
 
 export const employeeApi = {

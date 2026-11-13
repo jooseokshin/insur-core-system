@@ -15,6 +15,7 @@ import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository
 import com.insur.insurcoresystem.domain.contract.CoverageRepository;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryResponse;
+import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.contract.dto.ContractListRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractListResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractSummaryResponse;
@@ -51,6 +52,7 @@ public class ContractInquiryService {
     private final CoverageRepository coverageRepository;
     private final ContractStatusHistoryRepository historyRepository;
     private final ProductRepository productRepository;
+    private final MedicalCheckService medicalCheckService;
 
     /** LIKE 조건의 이스케이프 문자 */
     private static final char LIKE_ESCAPE = '\\';
@@ -113,6 +115,7 @@ public class ContractInquiryService {
                 .termDate(contract.getTermDate())
                 .refundPremium(contract.getRefundPremium())
                 .coverages(coverages)
+                .medicalCheck(medicalCheckService.find(contract.getContractNo()).orElse(null))
                 .build();
     }
 

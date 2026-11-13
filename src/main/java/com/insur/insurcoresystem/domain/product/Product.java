@@ -35,7 +35,7 @@ public class Product {
     @Column(name = "PRD_NM", length = 100, nullable = false)
     private String prdNm;
 
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
     @Column(name = "INSR_CLS_CD", length = 2, nullable = false)
     private String insrClsCd;
 
