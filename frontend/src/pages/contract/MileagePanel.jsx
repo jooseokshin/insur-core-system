@@ -4,6 +4,7 @@ import { newTxId } from '../../api/http';
 import { useAuth } from '../../auth/AuthProvider';
 import { date, dateTime, money, parseAmount, seoulDate } from '../../common/format';
 import { Badge, ErrorBox, Field, InfoGrid, Modal, Panel, useLoad } from '../../components/ui';
+import { PayoutPanel } from '../claim/PayoutPanel';
 
 // 자동차 계약의 마일리지 특약. 시작 주행거리를 등록하고 만기 무렵 만기 주행거리로 정산한다. 계산과 기간 규칙은 서버가 정한다.
 
@@ -20,7 +21,7 @@ export function MileagePanel({ contract, version, onDone }) {
   const registerable = m && !m.milStatCd && ['10', '20'].includes(contract.ctrStatCd) && today <= m.registerUntil;
   const settleable = m?.milStatCd === '10' && contract.ctrStatCd === '20' && today >= m.settleFrom && today <= m.settleUntil;
 
-  return (
+  const panel = (
     <Panel title="마일리지 특약" actions={canEdit && m && (
       <>
         {registerable && <button type="button" id="mileage-register" className="btn" onClick={() => setMode('register')}>시작 주행거리 등록</button>}
@@ -54,6 +55,13 @@ export function MileagePanel({ contract, version, onDone }) {
       )}
     </Panel>
   );
+  const payout = m?.milStatCd === '20' && Number(m.refundAmt) > 0 && hasAny('CLAIM', 'OPERATOR', 'ADMIN');
+  return payout ? (
+    <>
+      {panel}
+      <PayoutPanel srcType="MILEAGE" srcNo={contract.contractNo} payable amount={m.refundAmt} />
+    </>
+  ) : panel;
 }
 
 function MileageModal({ contract, mileage, mode, onClose, onDone }) {

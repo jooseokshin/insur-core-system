@@ -8,9 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -42,9 +43,9 @@ class ClaimIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
 
     private String agent;
     private Contract contract;
@@ -60,14 +61,14 @@ class ClaimIntegrationTest {
     /** CAR-STD-2026 계약: 대인 1억, 대물 2천만, 자기차량 1천만 */
     private Contract contract(String statCd, LocalDate start, LocalDate end, LocalDate termDate) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        Contract saved = contractRepository.save(Contract.builder()
+        Contract saved = TestRows.insert(contractMapper::insert, Contract.builder()
                 .contractNo("POL-C-" + suffix).applNo("APP-C-" + suffix).insrClsCd("01").prdCd("CAR-STD-2026").ctrStatCd(statCd)
                 .startDate(start).endDate(end).termDate(termDate).policyholderId("C-HOLDER").insuredId("C-INSURED")
                 .totalPremium(new BigDecimal("1000000")).sysRegDt(LocalDateTime.now()).regEmpId(agent)
                 .driverAge(35).discountGrade("3").build());
-        coverageRepository.save(Coverage.builder().contract(saved).cvrgCd("CA001").isrdAmt(new BigDecimal("100000000")).prem(new BigDecimal("500000")).build());
-        coverageRepository.save(Coverage.builder().contract(saved).cvrgCd("CA002").isrdAmt(new BigDecimal("20000000")).prem(new BigDecimal("350000")).build());
-        coverageRepository.save(Coverage.builder().contract(saved).cvrgCd("CA004").isrdAmt(new BigDecimal("10000000")).prem(new BigDecimal("150000")).build());
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(saved.getContractNo()).cvrgCd("CA001").isrdAmt(new BigDecimal("100000000")).prem(new BigDecimal("500000")).build());
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(saved.getContractNo()).cvrgCd("CA002").isrdAmt(new BigDecimal("20000000")).prem(new BigDecimal("350000")).build());
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(saved.getContractNo()).cvrgCd("CA004").isrdAmt(new BigDecimal("10000000")).prem(new BigDecimal("150000")).build());
         return saved;
     }
 

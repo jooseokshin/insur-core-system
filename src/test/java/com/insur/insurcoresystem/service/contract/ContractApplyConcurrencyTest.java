@@ -5,20 +5,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewRequest;
-import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
-import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.support.TestRows;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -31,7 +32,6 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.Pageable;
 
 /**
  * 같은 거래 UUID 의 동시 청약 검증. 서로 다른 트랜잭션으로 실제 커밋되므로 테스트 트랜잭션을 쓰지 않고,
@@ -49,15 +49,15 @@ class ContractApplyConcurrencyTest {
     @Autowired
     ContractStatusService statusService;
     @Autowired
-    ContractPaymentRepository paymentRepository;
+    ContractPaymentMapper paymentMapper;
     @Autowired
     ContractPaymentService paymentService;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
     @Autowired
-    ContractStatusHistoryRepository historyRepository;
+    ContractStatusHistoryMapper historyMapper;
 
     @Test
     void 같은_거래UUID가_동시에_들어오면_계약은_한_건만_저장되고_나머지는_기존_결과이거나_409다() throws Exception {
@@ -92,9 +92,9 @@ class ContractApplyConcurrencyTest {
                 }
             }
 
-            Contract saved = contractRepository.findByGlobalTxId(txId).orElseThrow();
+            Contract saved = contractMapper.findByGlobalTxId(txId).orElseThrow();
             assertThat(saved.getContractNo()).isEqualTo(contractNo);
-            assertThat(coverageRepository.findByContractContractNo(contractNo)).hasSize(1);
+            assertThat(coverageMapper.findByContractNo(contractNo)).hasSize(1);
         } finally {
             pool.shutdownNow();
             cleanup(txId);
@@ -109,7 +109,7 @@ class ContractApplyConcurrencyTest {
         CountDownLatch go = new CountDownLatch(1);
         try {
             String contractNo = contractService.applyContract(txId, "E12345", request()).getContractNo();
-            paymentRepository.save(ContractPayment.builder().contractNo(contractNo).payAmt(new BigDecimal("500000"))
+            TestRows.insert(paymentMapper::insert, ContractPayment.builder().contractNo(contractNo).payAmt(new BigDecimal("500000"))
                     .payMethod("CASH").empId("E12345").globalTxId(txId + "-pay").paidDt(java.time.LocalDateTime.now()).build());
 
             List<Future<Object>> futures = new ArrayList<>();
@@ -140,7 +140,7 @@ class ContractApplyConcurrencyTest {
 
             assertThat(succeeded).hasSize(1);
             assertThat(succeeded.get(0).getBeforeCtrStatCd()).isEqualTo("10");
-            assertThat(contractRepository.findById(contractNo).orElseThrow().getCtrStatCd())
+            assertThat(contractMapper.findById(contractNo).orElseThrow().getCtrStatCd())
                     .isEqualTo(succeeded.get(0).getAfterCtrStatCd());
         } finally {
             pool.shutdownNow();
@@ -183,7 +183,7 @@ class ContractApplyConcurrencyTest {
                 }
             }
             assertThat(succeeded).isEqualTo(1);
-            assertThat(paymentRepository.sumPaid(contractNo)).isEqualByComparingTo("500000");   // 초과 납입이 없다
+            assertThat(paymentMapper.sumPaid(contractNo)).isEqualByComparingTo("500000");   // 초과 납입이 없다
         } finally {
             pool.shutdownNow();
             cleanup(txId);
@@ -194,12 +194,12 @@ class ContractApplyConcurrencyTest {
     void 같은_계약의_갱신이_서로_다른_거래로_동시에_들어오면_하나만_성공하고_나머지는_409다() throws Exception {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         LocalDate end = LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).plusDays(10);
-        Contract source = contractRepository.save(Contract.builder()
+        Contract source = TestRows.insert(contractMapper::insert, Contract.builder()
                 .contractNo("POL-C-" + tag).applNo("APP-C-" + tag).insrClsCd("01").ctrStatCd("20")
                 .startDate(end.minusYears(1)).endDate(end).policyholderId("C0001").insuredId("C0002")
                 .totalPremium(new BigDecimal("500000")).sysRegDt(java.time.LocalDateTime.now()).regEmpId("E12345")
                 .driverAge(35).discountGrade("3").build());
-        coverageRepository.save(com.insur.insurcoresystem.domain.contract.Coverage.builder().contract(source).cvrgCd("CA001")
+        TestRows.insert(coverageMapper::insert, com.insur.insurcoresystem.domain.contract.Coverage.builder().contractNo(source.getContractNo()).cvrgCd("CA001")
                 .isrdAmt(new BigDecimal("100000000")).prem(new BigDecimal("500000")).build());
         String txPrefix = "tx-conc-rn-" + tag;
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -233,26 +233,24 @@ class ContractApplyConcurrencyTest {
                 }
             }
             assertThat(succeeded).isEqualTo(1);
-            assertThat(contractRepository.findFirstByRenewedFromAndCtrStatCdNot(source.getContractNo(), "90")).isPresent();
+            assertThat(contractMapper.findFirstByRenewedFromAndCtrStatCdNot(source.getContractNo(), "90")).isPresent();
         } finally {
             pool.shutdownNow();
             for (int i = 0; i < 2; i++) {
                 cleanup(txPrefix + "-" + i);
             }
-            coverageRepository.deleteAll(coverageRepository.findByContractContractNo(source.getContractNo()));
-            contractRepository.delete(source);
+            coverageMapper.deleteByContractNo(source.getContractNo());
+            contractMapper.deleteById(source.getContractNo());
         }
     }
 
     /** 테스트가 커밋한 계약과 담보를 지운다. */
     private void cleanup(String txId) {
-        contractRepository.findByGlobalTxId(txId).ifPresent(contract -> {
-            paymentRepository.deleteAll(
-                    paymentRepository.findByContractNo(contract.getContractNo(), Pageable.unpaged()).getContent());
-            historyRepository.deleteAll(
-                    historyRepository.findByContractNo(contract.getContractNo(), Pageable.unpaged()).getContent());
-            coverageRepository.deleteAll(coverageRepository.findByContractContractNo(contract.getContractNo()));
-            contractRepository.delete(contract);
+        contractMapper.findByGlobalTxId(txId).ifPresent(contract -> {
+            paymentMapper.deleteByContractNo(contract.getContractNo());
+            historyMapper.deleteByContractNo(contract.getContractNo());
+            coverageMapper.deleteByContractNo(contract.getContractNo());
+            contractMapper.deleteById(contract.getContractNo());
         });
     }
 

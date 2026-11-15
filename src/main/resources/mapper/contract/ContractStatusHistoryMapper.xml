@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 계약 상태 변경 이력 TB_CTR_STAT_HIST -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper">
+
+    <sql id="columns">HIST_ID, CONTRACT_NO, BEFORE_STAT_CD, AFTER_STAT_CD, EMP_ID, GLOBAL_TX_ID, CHG_DT</sql>
+
+    <select id="findPageByContractNo" resultType="com.insur.insurcoresystem.domain.contract.ContractStatusHistory">
+        SELECT <include refid="columns"/> FROM TB_CTR_STAT_HIST WHERE CONTRACT_NO = #{contractNo}
+         ORDER BY HIST_ID
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countByContractNo" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_STAT_HIST WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findFirstChange" resultType="com.insur.insurcoresystem.domain.contract.ContractStatusHistory">
+        SELECT <include refid="columns"/> FROM TB_CTR_STAT_HIST
+         WHERE CONTRACT_NO = #{contractNo} AND GLOBAL_TX_ID = #{globalTxId} AND BEFORE_STAT_CD IS NOT NULL
+         ORDER BY HIST_ID
+         LIMIT 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="histId" keyColumn="hist_id">
+        INSERT INTO TB_CTR_STAT_HIST (CONTRACT_NO, BEFORE_STAT_CD, AFTER_STAT_CD, EMP_ID, GLOBAL_TX_ID, CHG_DT)
+        VALUES (#{contractNo}, #{beforeStatCd}, #{afterStatCd}, #{empId}, #{globalTxId}, #{chgDt})
+    </insert>
+
+    <delete id="deleteByContractNo">
+        DELETE FROM TB_CTR_STAT_HIST WHERE CONTRACT_NO = #{contractNo}
+    </delete>
+</mapper>

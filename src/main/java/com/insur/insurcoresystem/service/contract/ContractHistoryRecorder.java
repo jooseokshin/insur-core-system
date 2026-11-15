@@ -4,7 +4,7 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ContractHistoryRecorder {
 
-    private final ContractStatusHistoryRepository historyRepository;
+    private final ContractStatusHistoryMapper historyMapper;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -29,7 +29,7 @@ public class ContractHistoryRecorder {
      */
     public void record(String contractNo, ContractStatus before, ContractStatus after,
                                String globalTxId, String empId) {
-        historyRepository.save(ContractStatusHistory.builder()
+        historyMapper.insert(ContractStatusHistory.builder()
                 .contractNo(contractNo)
                 .beforeStatCd(before == null ? null : before.getCode())
                 .afterStatCd(after.getCode())

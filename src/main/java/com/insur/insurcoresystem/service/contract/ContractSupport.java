@@ -3,11 +3,10 @@ package com.insur.insurcoresystem.service.contract;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import org.hibernate.exception.ConstraintViolationException;
+import org.postgresql.util.PSQLException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -37,14 +36,15 @@ public final class ContractSupport {
     }
 
     /**
-     * 데이터 무결성 오류가 이름이 {@code constraint} 로 끝나는 제약 위반인지 판단한다. 오류 메시지 문장이 아니라 Hibernate 가 DB 오류에서
-     * 뽑아 둔 제약명({@link ConstraintViolationException#getConstraintName()})을 소문자로 바꿔 끝부분만 비교하므로(스키마가 붙을 수 있다)
+     * 데이터 무결성 오류가 이름이 {@code constraint} 로 끝나는 제약 위반인지 판단한다. 오류 메시지 문장이 아니라 PostgreSQL 이 오류 응답에
+     * 따로 담아 보내는 제약명({@code ServerErrorMessage#getConstraint()})을 소문자로 바꿔 끝부분만 비교하므로
      * DB 메시지 형식이나 언어 설정에 영향받지 않는다. 제약명을 알 수 없으면 false 다.
      */
     public static boolean isConstraintViolation(DataIntegrityViolationException e, String constraint) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ConstraintViolationException violation && violation.getConstraintName() != null) {
-                return violation.getConstraintName().toLowerCase().endsWith(constraint);
+            if (cause instanceof PSQLException psql && psql.getServerErrorMessage() != null
+                    && psql.getServerErrorMessage().getConstraint() != null) {
+                return psql.getServerErrorMessage().getConstraint().toLowerCase().endsWith(constraint.toLowerCase());
             }
         }
         return false;
@@ -56,18 +56,18 @@ public final class ContractSupport {
     }
 
     /**
-     * 페이지 번호와 크기를 검증해 조회용 PageRequest 를 만든다. 생략하면 0페이지, 기본 크기를 쓴다.
+     * 페이지 번호와 크기를 검증해 조회용 페이지 요청을 만든다. 생략하면 0페이지, 기본 크기를 쓴다. 정렬은 매퍼 SQL 이 정한다.
      *
      * @throws BusinessException 페이지 번호가 음수이거나 크기가 1~{@value #MAX_PAGE_SIZE} 범위를 벗어난 경우(E-CTR-016)
      */
-    public static PageRequest pageRequest(Integer page, Integer size, Sort sort) {
+    public static PageQuery pageRequest(Integer page, Integer size) {
         int pageNo = page == null ? 0 : page;
         int pageSize = size == null ? DEFAULT_PAGE_SIZE : size;
         if (pageNo < 0 || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
             throw new BusinessException("E-CTR-016",
                     "페이지 번호는 0 이상, 페이지 크기는 1~" + MAX_PAGE_SIZE + " 사이여야 합니다.");
         }
-        return PageRequest.of(pageNo, pageSize, sort);
+        return PageQuery.of(pageNo, pageSize);
     }
 
     /** 거래 UUID 가 비었거나 컬럼 길이(64)를 넘으면 업무 오류(E-CTR-008)로 처리한다. */

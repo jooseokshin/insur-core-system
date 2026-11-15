@@ -9,9 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.insur.auth.common.paging.PageQuery;
 import com.insur.auth.domain.Employee;
-import com.insur.auth.domain.EmployeeRepository;
-import com.insur.auth.domain.LoginHistoryRepository;
+import com.insur.auth.mapper.EmployeeMapper;
+import com.insur.auth.mapper.LoginHistoryMapper;
 import com.jayway.jsonpath.JsonPath;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -56,9 +56,9 @@ class AuthIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    EmployeeRepository employeeRepository;
+    EmployeeMapper employeeMapper;
     @Autowired
-    LoginHistoryRepository loginHistoryRepository;
+    LoginHistoryMapper loginHistoryMapper;
     @Autowired
     PasswordEncoder passwordEncoder;
     @Autowired
@@ -77,8 +77,10 @@ class AuthIntegrationTest {
     }
 
     private Employee employee(String empId, Set<String> roles, boolean passwordChangeRequired) {
-        return employeeRepository.save(Employee.create(empId, "테스트" + empId, "테스트팀", roles,
-                passwordEncoder.encode(PASSWORD), passwordChangeRequired, "TEST", LocalDateTime.now()));
+        Employee employee = Employee.create(empId, "테스트" + empId, "테스트팀", roles,
+                passwordEncoder.encode(PASSWORD), passwordChangeRequired, "TEST", LocalDateTime.now());
+        employeeMapper.insert(employee);
+        return employee;
     }
 
     private ResultActions call(MockHttpServletRequestBuilder builder, String body) throws Exception {
@@ -197,7 +199,7 @@ class AuthIntegrationTest {
         assertThat(jwt.getClaimAsString("name")).isEqualTo("테스트" + agentId);
         assertThat(jwt.getExpiresAt()).isAfter(jwt.getIssuedAt());
         assertThat(jwtDecoder.decode(JsonPath.read(res, "$.id_token")).getClaimAsString("name")).isEqualTo("테스트" + agentId);
-        assertThat(loginHistoryRepository.findByEmpId(agentId, PageRequest.of(0, 10)).getContent())
+        assertThat(loginHistoryMapper.findPage(agentId, PageQuery.of(0, 10)))
                 .singleElement().satisfies(h -> assertThat(h.getResultCd()).isEqualTo("SUCCESS"));
 
         // 받은 토큰으로 본인 정보를 조회할 수 있다
@@ -259,10 +261,10 @@ class AuthIntegrationTest {
         formLogin(session, agentId, PASSWORD);
         assertThat(loginError(session)).contains("계정이 잠겼습니다");
 
-        Employee locked = employeeRepository.findById(agentId).orElseThrow();
+        Employee locked = employeeMapper.findById(agentId).orElseThrow();
         assertThat(locked.isLocked()).isTrue();
         assertThat(locked.getLoginFailCnt()).isEqualTo(5);
-        assertThat(loginHistoryRepository.findByEmpId(agentId, PageRequest.of(0, 10)).getContent())
+        assertThat(loginHistoryMapper.findPage(agentId, PageQuery.of(0, 10)))
                 .extracting("resultCd").containsOnly("BAD_CREDENTIALS", "LOCKED");
     }
 
@@ -270,7 +272,7 @@ class AuthIntegrationTest {
     void 로그인_폼은_CSRF_토큰이_없으면_거절한다() throws Exception {
         mockMvc.perform(post("/auth/login").param("empId", agentId).param("password", PASSWORD))
                 .andExpect(status().isForbidden());
-        assertThat(employeeRepository.findById(agentId).orElseThrow().getLastLoginDt()).isNull();
+        assertThat(employeeMapper.findById(agentId).orElseThrow().getLastLoginDt()).isNull();
     }
 
     @Test
@@ -279,7 +281,7 @@ class AuthIntegrationTest {
         formLogin(session, agentId, "wrong");
         formLogin(session, agentId, "wrong");
         assertThat(location(formLogin(session, agentId, PASSWORD))).isEqualTo("/");
-        assertThat(employeeRepository.findById(agentId).orElseThrow().getLoginFailCnt()).isZero();
+        assertThat(employeeMapper.findById(agentId).orElseThrow().getLoginFailCnt()).isZero();
     }
 
     @Test
@@ -330,7 +332,7 @@ class AuthIntegrationTest {
         String res = exchange(code, pkce.verifier()).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(jwtDecoder.decode(JsonPath.<String>read(res, "$.access_token")).getClaimAsStringList("roles"))
                 .containsExactly("UNDERWRITER");
-        assertThat(employeeRepository.findById(newbie).orElseThrow().isPasswordChangeRequired()).isFalse();
+        assertThat(employeeMapper.findById(newbie).orElseThrow().isPasswordChangeRequired()).isFalse();
     }
 
     private ResultActions changeForm(MockHttpSession session, String current, String next, String confirm) throws Exception {

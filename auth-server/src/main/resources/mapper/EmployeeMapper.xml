@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 사원 TB_EMP, 사원 역할 TB_EMP_ROLE -->
+<mapper namespace="com.insur.auth.mapper.EmployeeMapper">
+
+    <resultMap id="employee" type="com.insur.auth.domain.Employee" autoMapping="true">
+        <id property="empId" column="EMP_ID"/>
+        <result property="active" column="USE_YN"/>
+        <result property="locked" column="LOCK_YN"/>
+        <result property="passwordChangeRequired" column="PWD_CHG_REQ_YN"/>
+        <collection property="roles" column="EMP_ID" select="findRoles" javaType="java.util.HashSet" ofType="string"/>
+    </resultMap>
+
+    <sql id="columns">
+        EMP_ID, EMP_NM, DEPT_NM, PWD_HASH, USE_YN, LOCK_YN, PWD_CHG_REQ_YN, LOGIN_FAIL_CNT, PWD_CHG_DT, LAST_LOGIN_DT,
+        REG_DT, REG_EMP_ID, UPD_DT, UPD_EMP_ID
+    </sql>
+
+    <select id="findRoles" resultType="string">
+        SELECT ROLE_CD FROM TB_EMP_ROLE WHERE EMP_ID = #{empId}
+    </select>
+
+    <select id="findById" resultMap="employee">
+        SELECT <include refid="columns"/> FROM TB_EMP WHERE EMP_ID = #{empId}
+    </select>
+
+    <select id="findForUpdateByEmpId" resultMap="employee">
+        SELECT <include refid="columns"/> FROM TB_EMP WHERE EMP_ID = #{empId} FOR UPDATE
+    </select>
+
+    <select id="existsById" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_EMP WHERE EMP_ID = #{empId})
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM TB_EMP
+    </select>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="c.keyword != null">
+                AND (E.EMP_ID LIKE (#{c.keyword} || '%') ESCAPE '\' OR E.EMP_NM LIKE ('%' || #{c.keyword} || '%') ESCAPE '\')
+            </if>
+            <if test="c.roleCd != null">
+                AND EXISTS (SELECT 1 FROM TB_EMP_ROLE R WHERE R.EMP_ID = E.EMP_ID AND R.ROLE_CD = #{c.roleCd})
+            </if>
+            <if test="c.active != null">AND E.USE_YN = #{c.active}</if>
+            <if test="c.lockedOnly">AND E.LOCK_YN = TRUE</if>
+        </where>
+    </sql>
+
+    <select id="search" resultMap="employee">
+        SELECT <include refid="columns"/> FROM TB_EMP E
+        <include refid="searchWhere"/>
+         ORDER BY E.EMP_ID
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) FROM TB_EMP E <include refid="searchWhere"/>
+    </select>
+
+    <insert id="insertRow">
+        INSERT INTO TB_EMP (<include refid="columns"/>)
+        VALUES (#{empId}, #{empNm}, #{deptNm}, #{pwdHash}, #{active}, #{locked}, #{passwordChangeRequired}, #{loginFailCnt},
+                #{pwdChgDt}, #{lastLoginDt}, #{regDt}, #{regEmpId}, #{updDt}, #{updEmpId})
+    </insert>
+
+    <update id="updateRow">
+        UPDATE TB_EMP
+           SET EMP_NM = #{empNm}, DEPT_NM = #{deptNm}, PWD_HASH = #{pwdHash}, USE_YN = #{active}, LOCK_YN = #{locked},
+               PWD_CHG_REQ_YN = #{passwordChangeRequired}, LOGIN_FAIL_CNT = #{loginFailCnt}, PWD_CHG_DT = #{pwdChgDt},
+               LAST_LOGIN_DT = #{lastLoginDt}, UPD_DT = #{updDt}, UPD_EMP_ID = #{updEmpId}
+         WHERE EMP_ID = #{empId}
+    </update>
+
+    <insert id="insertRole">
+        INSERT INTO TB_EMP_ROLE (EMP_ID, ROLE_CD) VALUES (#{empId}, #{roleCd})
+    </insert>
+
+    <delete id="deleteRoles">
+        DELETE FROM TB_EMP_ROLE WHERE EMP_ID = #{empId}
+    </delete>
+</mapper>

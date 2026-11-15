@@ -24,8 +24,8 @@ public class ProductResponse {
     /** 상품명 */
     @Schema(description = "상품명")
     private String prdNm;
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
     /** 상품 설명 */
     @Schema(description = "상품 설명")

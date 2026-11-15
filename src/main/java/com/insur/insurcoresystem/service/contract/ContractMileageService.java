@@ -8,9 +8,9 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.validat
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractMileage;
-import com.insur.insurcoresystem.domain.contract.ContractMileageRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMileageMapper;
 import com.insur.insurcoresystem.service.contract.dto.MileageRequest;
 import com.insur.insurcoresystem.service.contract.dto.MileageResponse;
 import java.math.BigDecimal;
@@ -24,8 +24,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,15 +49,8 @@ public class ContractMileageService {
     static final int SETTLE_AFTER_DAYS = 60;
     static final int MAX_ODOMETER_KM = 9_999_999;
 
-    private static final String RATE_SQL = """
-            SELECT REFUND_RATE FROM TB_PRM_MILEAGE_RATE
-             WHERE :annualKm BETWEEN KM_FROM AND KM_TO
-               AND EFF_FROM <= :startDate AND (EFF_TO IS NULL OR EFF_TO >= :startDate)
-            """;
-
-    private final ContractRepository contractRepository;
-    private final ContractMileageRepository mileageRepository;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final ContractMapper contractMapper;
+    private final ContractMileageMapper mileageMapper;
     private final Clock clock;
 
     /**
@@ -73,7 +64,7 @@ public class ContractMileageService {
     @Transactional
     public MileageResponse register(String ownerEmpId, String globalTxId, String empId, MileageRequest request) {
         validate(globalTxId, request);
-        var replay = mileageRepository.findByStartTxId(globalTxId);
+        var replay = mileageMapper.findByStartTxId(globalTxId);
         if (replay.isPresent()) {
             ContractMileage done = replay.get();
             requireSameRequest(done.getContractNo(), done.getStartOdoKm(), request);
@@ -87,17 +78,18 @@ public class ContractMileageService {
             throw new BusinessException(HttpStatus.CONFLICT, "E-MIL-003", "시작 주행거리는 보험시기 " + REGISTER_DAYS
                     + "일 뒤(" + until + ")까지만 등록할 수 있습니다.");
         }
-        if (mileageRepository.existsById(contract.getContractNo())) {
+        if (mileageMapper.existsById(contract.getContractNo())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-MIL-004", "이미 마일리지 특약에 가입한 계약입니다.");
         }
-        ContractMileage saved = mileageRepository.saveAndFlush(ContractMileage.builder()
+        ContractMileage saved = ContractMileage.builder()
                 .contractNo(contract.getContractNo())
                 .milStatCd(ContractMileage.STAT_REGISTERED)
                 .startOdoKm(request.getOdometerKm())
                 .startRegDt(LocalDateTime.now(clock))
                 .startEmpId(normalizeEmpId(empId))
                 .startTxId(globalTxId)
-                .build());
+                .build();
+        mileageMapper.insert(saved);
         log.info("마일리지 시작 등록: 증권번호={}, 주행거리={}km", contract.getContractNo(), request.getOdometerKm());
         return response(contract, saved);
     }
@@ -112,7 +104,7 @@ public class ContractMileageService {
     @Transactional
     public MileageResponse settle(String ownerEmpId, String globalTxId, String empId, MileageRequest request) {
         validate(globalTxId, request);
-        var replay = mileageRepository.findByEndTxId(globalTxId);
+        var replay = mileageMapper.findByEndTxId(globalTxId);
         if (replay.isPresent()) {
             ContractMileage done = replay.get();
             requireSameRequest(done.getContractNo(), done.getEndOdoKm(), request);
@@ -120,7 +112,7 @@ public class ContractMileageService {
         }
         Contract contract = lockedContract(request.getContractNo(), ownerEmpId);
         requireCar(contract, Set.of(ContractStatus.IN_FORCE.getCode()));
-        ContractMileage mileage = mileageRepository.findById(contract.getContractNo())
+        ContractMileage mileage = mileageMapper.findById(contract.getContractNo())
                 .filter(m -> ContractMileage.STAT_REGISTERED.equals(m.getMilStatCd()))
                 .orElseThrow(() -> new BusinessException(HttpStatus.CONFLICT, "E-MIL-004",
                         "시작 주행거리를 등록하지 않았거나 이미 정산한 계약입니다."));
@@ -139,15 +131,13 @@ public class ContractMileageService {
         long termDays = ChronoUnit.DAYS.between(contract.getStartDate(), contract.getEndDate());
         int annual = BigDecimal.valueOf(driven).multiply(BigDecimal.valueOf(365))
                 .divide(BigDecimal.valueOf(termDays), 0, RoundingMode.HALF_UP).intValueExact();
-        BigDecimal rate = jdbc.query(RATE_SQL, new MapSqlParameterSource()
-                        .addValue("annualKm", annual).addValue("startDate", contract.getStartDate()),
-                (rs, i) -> rs.getBigDecimal("REFUND_RATE")).stream().findFirst().orElse(BigDecimal.ZERO);
+        BigDecimal rate = mileageMapper.findRefundRate(annual, contract.getStartDate()).orElse(BigDecimal.ZERO);
         BigDecimal base = contract.getTotalPremium();
         BigDecimal refund = base.multiply(rate).setScale(0, RoundingMode.DOWN);
 
         mileage.settle(request.getOdometerKm(), driven, annual, rate, base, refund, normalizeEmpId(empId), globalTxId,
                 LocalDateTime.now(clock));
-        mileageRepository.saveAndFlush(mileage);
+        mileageMapper.updateSettlement(mileage);
         log.info("마일리지 정산: 증권번호={}, 주행 {}km(1년 환산 {}km), 환급률 {}, 환급액 {}", contract.getContractNo(), driven, annual, rate, refund);
         return response(contract, mileage);
     }
@@ -162,13 +152,13 @@ public class ContractMileageService {
         if (isInvalidCode(contractNo, 30)) {
             throw new BusinessException("E-CTR-009", "증권번호를 입력해야 합니다.");
         }
-        Contract contract = contractRepository.findById(contractNo)
+        Contract contract = contractMapper.findById(contractNo)
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
         if (!Contract.INSR_CLS_CAR.equals(contract.getInsrClsCd())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-MIL-002", "마일리지 특약은 자동차 계약에만 있습니다.");
         }
-        return response(contract, mileageRepository.findById(contractNo).orElse(null));
+        return response(contract, mileageMapper.findById(contractNo).orElse(null));
     }
 
     private static void validate(String globalTxId, MileageRequest request) {
@@ -191,7 +181,7 @@ public class ContractMileageService {
 
     /** 계약 행을 잠가 읽는다 (같은 계약의 등록·정산이 동시에 반영되지 않게). 범위 밖이면 없는 계약과 같은 오류 */
     private Contract lockedContract(String contractNo, String ownerEmpId) {
-        return contractRepository.findForUpdateByContractNo(contractNo)
+        return contractMapper.findForUpdateByContractNo(contractNo)
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
     }

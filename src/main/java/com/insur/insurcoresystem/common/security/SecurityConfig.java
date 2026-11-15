@@ -108,6 +108,45 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/contract/mileage/inquiry")
                         .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
                         // 채널 시스템은 PG 결제가 확정된 납입을 자기 채널 계약에 기록한다
+                        // IBNR 산출(저장 없음)은 손해율 분석과 같은 역할
+                        .requestMatchers(HttpMethod.POST, "/api/stats/ibnr")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.CLAIM, Roles.ADMIN)
+                        // 배치: 결산 실행은 관리자, 대사 실행은 운영, 결과·이력 조회는 업무 담당
+                        .requestMatchers(HttpMethod.POST, "/api/batch/reserve-close")
+                        .hasRole(Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/reserve-close-list")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.CLAIM, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/payout-recon")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/payout-recon-list")
+                        .hasAnyRole(Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/executions")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN)
+                        // 보험료 자동이체: 등록·해지는 청약 접수 쪽(설계사·운영·채널), 조회는 계약을 보는 역할 전부
+                        .requestMatchers(HttpMethod.POST, "/api/contract/autodebit/register", "/api/contract/autodebit/cancel")
+                        .hasAnyRole(Roles.AGENT, Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/autodebit/inquiry")
+                        .hasAnyRole(Roles.AGENT, Roles.UNDERWRITER, Roles.OPERATOR, Roles.CLAIM, Roles.ADMIN, Roles.CHANNEL)
+                        .requestMatchers(HttpMethod.POST, "/api/batch/cms-debit", "/api/batch/cms-debit-list")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        // 지급: 보상(보험금)·운영(환급금)
+                        .requestMatchers(HttpMethod.POST, "/api/payout/account-verify", "/api/payout/request", "/api/payout/list")
+                        .hasAnyRole(Roles.CLAIM, Roles.OPERATOR, Roles.ADMIN)
+                        // FEP 운영: 조회·에코는 운영, 개시·종료는 관리자
+                        .requestMatchers(HttpMethod.POST, "/api/admin/fep/inst-list", "/api/admin/fep/echo", "/api/admin/fep/msg-log")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/admin/fep/sign-on", "/api/admin/fep/sign-off")
+                        .hasRole(Roles.ADMIN)
+                        // 보험개발원 실손 청구 전산화(실손24) 수신. 대외기관 시스템 토큰(EXTERNAL)만
+                        .requestMatchers(HttpMethod.POST, "/api/ext/kidi/**")
+                        .hasRole(Roles.EXTERNAL)
+                        // 실손 중복가입 다시 조회 (심사·운영), 대외기관 전송 대기열 (운영 조회, 관리자 재전송)
+                        .requestMatchers(HttpMethod.POST, "/api/contract/medical/dup-check")
+                        .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/admin/ext/outbox-list")
+                        .hasAnyRole(Roles.OPERATOR, Roles.ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/admin/ext/outbox-retry")
+                        .hasRole(Roles.ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment")
                         .hasAnyRole(Roles.OPERATOR, Roles.ADMIN, Roles.CHANNEL)
                         .requestMatchers(HttpMethod.POST, "/api/contract/payment-history")
@@ -117,7 +156,7 @@ public class SecurityConfig {
                         // 상태 변경은 여기서 심사/관리 담당자만 통과시키고, 변경할 상태별 세부 권한은 ContractAccessPolicy 가 확인한다.
                         .requestMatchers(HttpMethod.POST, "/api/contract/status-change")
                         .hasAnyRole(Roles.UNDERWRITER, Roles.OPERATOR, Roles.ADMIN)
-                        // 위에 규칙이 없는 경로는 직원 토큰만 통과한다. 채널 시스템은 명시적으로 연 API 만 쓸 수 있어야 해서,
+                        // 위에 규칙이 없는 경로는 직원 토큰만 통과한다. 채널·대외기관 시스템은 명시적으로 연 API 만 쓸 수 있어야 해서,
                         // 나중에 규칙 없이 추가된 API 가 채널에 열리는 일이 없게 기본값을 거절로 둔다.
                         .anyRequest().access((authentication, context) -> new AuthorizationDecision(isStaff(authentication.get()))))
                 .oauth2ResourceServer(oauth2 -> oauth2
@@ -136,7 +175,8 @@ public class SecurityConfig {
     private static boolean isStaff(Authentication authentication) {
         return authentication != null && !(authentication instanceof AnonymousAuthenticationToken)
                 && authentication.isAuthenticated()
-                && authentication.getAuthorities().stream().noneMatch(a -> ("ROLE_" + Roles.CHANNEL).equals(a.getAuthority()));
+                && authentication.getAuthorities().stream().noneMatch(a -> ("ROLE_" + Roles.CHANNEL).equals(a.getAuthority())
+                        || ("ROLE_" + Roles.EXTERNAL).equals(a.getAuthority()));
     }
 
     /**

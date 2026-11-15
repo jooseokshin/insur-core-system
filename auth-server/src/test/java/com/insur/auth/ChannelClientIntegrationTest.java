@@ -27,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
         "app.oauth.channels[0].client-secret=test-channel-secret-0123456789abcdef",
         "app.oauth.channels[0].channel-cd=20",
         "app.oauth.channels[0].name=테스트 다이렉트",
+        "app.oauth.partners[0].client-id=partner-test",
+        "app.oauth.partners[0].client-secret=test-partner-secret-0123456789abcdef",
+        "app.oauth.partners[0].name=테스트 중계",
 })
 @AutoConfigureMockMvc
 @Transactional
@@ -40,10 +43,14 @@ class ChannelClientIntegrationTest {
     JwtDecoder jwtDecoder;
 
     private ResultActions token(String clientId, String secret) throws Exception {
+        return token(clientId, secret, "channel");
+    }
+
+    private ResultActions token(String clientId, String secret, String scope) throws Exception {
         String basic = Base64.getEncoder().encodeToString((clientId + ":" + secret).getBytes(StandardCharsets.UTF_8));
         return mockMvc.perform(post("/auth/oauth2/token").header("Authorization", "Basic " + basic).accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("grant_type", "client_credentials").param("scope", "channel"));
+                .param("grant_type", "client_credentials").param("scope", scope));
     }
 
     private String accessToken() throws Exception {
@@ -64,6 +71,17 @@ class ChannelClientIntegrationTest {
         assertThat(jwt.getClaimAsStringList("roles")).containsExactly("CHANNEL");
         assertThat(jwt.getClaimAsString("channel_cd")).isEqualTo("20");
         assertThat(jwt.getClaimAsString("name")).isEqualTo("테스트 다이렉트");
+    }
+
+    @Test
+    void 대외기관_시스템은_EXTERNAL_역할만_든_토큰을_받는다() throws Exception {
+        String res = token("partner-test", "test-partner-secret-0123456789abcdef", "partner").andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        Jwt jwt = jwtDecoder.decode(JsonPath.read(res, "$.access_token"));
+        assertThat(jwt.getSubject()).isEqualTo("partner-test");
+        assertThat(jwt.getClaimAsStringList("roles")).containsExactly("EXTERNAL");
+        assertThat(jwt.getClaims()).doesNotContainKey("channel_cd");
+        assertThat(jwt.getClaimAsString("name")).isEqualTo("테스트 중계");
     }
 
     @Test

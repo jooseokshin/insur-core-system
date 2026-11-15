@@ -1,10 +1,5 @@
 package com.insur.insurcoresystem.domain.contract;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -17,8 +12,6 @@ import lombok.NoArgsConstructor;
 /**
  * 계약 원장
  */
-@Entity
-@Table(name = "TB_CTR_LGD")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -33,105 +26,82 @@ public class Contract {
     public static final String INSR_CLS_DRIVER = "03";
     /** 보험종목: 해외여행 */
     public static final String INSR_CLS_TRAVEL = "04";
+    /** 보험종목: 실손의료 */
+    public static final String INSR_CLS_MEDICAL = "05";
     /** 계약상태: 청약 */
     public static final String CTR_STAT_APPLIED = "10";
 
     /** 증권번호 */
-    @Id
-    @Column(name = "CONTRACT_NO", length = 30)
     private String contractNo;
 
     /** 청약 접수 거래 UUID (멱등성 키, 최대 64자). 마이그레이션 이전 계약은 null */
-    @Column(name = "GLOBAL_TX_ID", length = 64, unique = true)
     private String globalTxId;
 
     /** 청약번호 */
-    @Column(name = "APPL_NO", length = 30, nullable = false, unique = true)
     private String applNo;
 
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Column(name = "INSR_CLS_CD", length = 2, nullable = false)
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
     private String insrClsCd;
 
     /** 계약상태코드 (10:청약, 20:유효, 30:해지, 90:청약취소). 변경은 {@link #changeStatus(ContractStatus)} 로만 한다 */
-    @Column(name = "CTR_STAT_CD", length = 2, nullable = false)
     private String ctrStatCd;
 
     /** 보험시기 */
-    @Column(name = "START_DATE", nullable = false)
     private LocalDate startDate;
 
     /** 보험종기 */
-    @Column(name = "END_DATE", nullable = false)
     private LocalDate endDate;
 
     /** 계약자 ID */
-    @Column(name = "POLICYHOLDER_ID", length = 20, nullable = false)
     private String policyholderId;
 
     /** 피보험자 ID */
-    @Column(name = "INSURED_ID", length = 20, nullable = false)
     private String insuredId;
 
     /** 총보험료 */
-    @Column(name = "TOTAL_PREMIUM", precision = 15, scale = 0, nullable = false)
     private BigDecimal totalPremium;
 
     /** 시스템 등록일시 */
-    @Column(name = "SYS_REG_DT", nullable = false)
     private LocalDateTime sysRegDt;
 
     /** 청약을 접수한 사번 (최대 64자). 데이터 단위 권한(본인 접수 계약만 조회)의 기준. 이력 이전에 접수된 계약은 null */
-    @Column(name = "REG_EMP_ID", length = 64)
     private String regEmpId;
 
     /** 청약 요청 내용의 지문(SHA-256 16진수 64자). 같은 거래 UUID 재전송이 처음과 같은 내용인지 비교한다. 이 컬럼 이전 계약은 null */
-    @Column(name = "REQ_HASH", length = 64)
     private String reqHash;
 
     /** 보험료 산출에 쓴 운전자 만 나이 (자동차, 입력하지 않았으면 null) */
-    @Column(name = "DRIVER_AGE")
     private Integer driverAge;
 
     /** 보험료 산출에 쓴 할인할증 등급 (자동차, 입력하지 않았으면 null) */
-    @Column(name = "DISCOUNT_GRADE", length = 10)
     private String discountGrade;
 
     /** 보험료 산출에 쓴 건물 구조 등급 (화재, 입력하지 않았으면 null) */
-    @Column(name = "STRUCTURE_GRADE", length = 10)
     private String structureGrade;
 
     /** 해지일 (해지(30)로 바꾼 날, 업무 시간대 기준). 해지하지 않았으면 null */
-    @Column(name = "TERM_DT")
     private LocalDate termDate;
 
     /** 해지 환급보험료 (원). 해지하지 않았으면 null */
-    @Column(name = "REFUND_PREM", precision = 15, scale = 0)
     private BigDecimal refundPremium;
 
     /** 상품코드. 상품 도입 전 계약이나 상품 없이 접수한 청약은 null */
-    @Column(name = "PRD_CD", length = 20)
     private String prdCd;
 
     /** 보험료 산출에 쓴 여행 지역 (해외여행, 입력하지 않았으면 null) */
-    @Column(name = "TRAVEL_REGION", length = 10)
     private String travelRegion;
 
     /** 보험료 산출에 쓴 피보험자 만 나이 (해외여행, 입력하지 않았으면 null) */
-    @Column(name = "INSURED_AGE")
     private Integer insuredAge;
 
     /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM). 갱신 계약은 원 계약의 채널을 잇는다 */
-    @Column(name = "SALES_CHNL_CD", length = 2, nullable = false)
     private String salesChnlCd;
 
     /** 이 계약이 갱신으로 만들어진 경우 원 계약의 증권번호. 갱신 계약이 아니면 null */
-    @Column(name = "RENEWED_FROM", length = 30)
     private String renewedFrom;
 
-    /** 판매채널을 정하지 않고 저장하면 대면(10)으로 본다 (DB 기본값과 같은 규칙. JPA 는 null 을 그대로 넣으므로 여기서 채운다) */
-    @PrePersist
-    void defaultSalesChannel() {
+    /** 판매채널을 정하지 않고 저장하면 대면(10)으로 본다 (DB 기본값과 같은 규칙. 매퍼 INSERT 는 null 을 그대로 넣으므로 ContractMapper.insert 가 이 메서드로 채운다) */
+    public void defaultSalesChannel() {
         if (salesChnlCd == null) {
             salesChnlCd = "10";
         }

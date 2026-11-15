@@ -7,25 +7,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.Roles;
+import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import com.insur.insurcoresystem.common.security.Roles;
-import com.insur.insurcoresystem.common.security.TestAuth;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,17 +51,17 @@ class ContractApplyIntegrationTest {
     @Autowired
     ContractService contractService;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
     @Autowired
-    ContractPaymentRepository paymentRepository;
+    ContractPaymentMapper paymentMapper;
     @Autowired
     org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired
-    PremiumRateRepository premiumRateRepository;
+    PremiumRateMapper premiumRateMapper;
     @Autowired
-    PremiumFactorRepository premiumFactorRepository;
+    PremiumFactorMapper premiumFactorMapper;
 
     @Test
     void 청약_요청시_계약원장과_담보가_저장된다() throws Exception {
@@ -100,7 +101,7 @@ class ContractApplyIntegrationTest {
         assertThat(applNo).matches(APP_NO_PATTERN);
 
         // TB_CTR_LGD
-        Contract saved = contractRepository.findById(contractNo).orElseThrow();
+        Contract saved = contractMapper.findById(contractNo).orElseThrow();
         assertThat(saved.getApplNo()).isEqualTo(applNo);
         assertThat(saved.getInsrClsCd()).isEqualTo("01");
         assertThat(saved.getCtrStatCd()).isEqualTo("10");
@@ -112,7 +113,7 @@ class ContractApplyIntegrationTest {
         assertThat(saved.getSysRegDt()).isNotNull();
 
         // TB_CTR_CVRG
-        List<Coverage> coverages = coverageRepository.findByContractContractNo(contractNo);
+        List<Coverage> coverages = coverageMapper.findByContractNo(contractNo);
         assertThat(coverages).hasSize(2);
         assertThat(coverages).extracting(Coverage::getCvrgCd).containsExactlyInAnyOrder("CA001", "CA002");
         assertThat(coverages).extracting(Coverage::getPrem)
@@ -164,7 +165,7 @@ class ContractApplyIntegrationTest {
                 .andExpect(jsonPath("$.body.beforeCtrStatCd").value("20"))
                 .andExpect(jsonPath("$.body.afterCtrStatCd").value("30"));
 
-        assertThat(contractRepository.findById(contractNo).orElseThrow().getCtrStatCd()).isEqualTo("30");
+        assertThat(contractMapper.findById(contractNo).orElseThrow().getCtrStatCd()).isEqualTo("30");
 
         // 상태 이력 조회 API: 청약 접수 → 유효 → 해지
         historyPage(contractNo, "", TestAuth.emp())
@@ -207,7 +208,7 @@ class ContractApplyIntegrationTest {
                 .andExpect(jsonPath("$.body.ctrStatCd").value("30"))
                 .andExpect(jsonPath("$.body.termDate").value(today.toString()))
                 .andExpect(jsonPath("$.body.refundPremium").value(363014));
-        assertThat(contractRepository.findById(contractNo).orElseThrow().getRefundPremium()).isEqualByComparingTo("363014");
+        assertThat(contractMapper.findById(contractNo).orElseThrow().getRefundPremium()).isEqualByComparingTo("363014");
     }
 
     @Test
@@ -409,10 +410,10 @@ class ContractApplyIntegrationTest {
         if (!"20".equals(ctrStatCd)) {
             return;
         }
-        contractRepository.findById(contractNo).ifPresent(contract -> {
-            java.math.BigDecimal remaining = contract.getTotalPremium().subtract(paymentRepository.sumPaid(contractNo));
+        contractMapper.findById(contractNo).ifPresent(contract -> {
+            java.math.BigDecimal remaining = contract.getTotalPremium().subtract(paymentMapper.sumPaid(contractNo));
             if (remaining.signum() > 0) {
-                paymentRepository.saveAndFlush(ContractPayment.builder().contractNo(contractNo).payAmt(remaining)
+                TestRows.insert(paymentMapper::insert, ContractPayment.builder().contractNo(contractNo).payAmt(remaining)
                         .payMethod("CASH").empId("E100").globalTxId("pay-" + java.util.UUID.randomUUID())
                         .paidDt(java.time.LocalDateTime.now()).build());
             }
@@ -642,7 +643,7 @@ class ContractApplyIntegrationTest {
         String contractNo = contractService.applyContract("tx-long-emp", longEmpId, carRequest("100000", "100000"))
                 .getContractNo();
 
-        assertThat(contractRepository.findById(contractNo).orElseThrow().getRegEmpId()).isEqualTo("E".repeat(64));
+        assertThat(contractMapper.findById(contractNo).orElseThrow().getRegEmpId()).isEqualTo("E".repeat(64));
         inquiryAs(contractNo, TestAuth.as(longEmpId, Roles.AGENT)).andExpect(status().isOk());
         listAs("\"contractNo\": \"" + contractNo + "\"", TestAuth.as(longEmpId, Roles.AGENT))
                 .andExpect(jsonPath("$.body.totalElements").value(1));
@@ -688,9 +689,9 @@ class ContractApplyIntegrationTest {
     @Test
     void 같은_거래UUID로_다른_내용을_보내면_409로_거절하고_기존_계약은_바뀌지_않는다() {
         var first = contractService.applyContract("tx-hash-1", "E100", carRequest("100000", "100000"));
-        long contractCount = contractRepository.count();
+        long contractCount = contractMapper.count();
 
-        assertThat(contractRepository.findById(first.getContractNo()).orElseThrow().getReqHash()).matches("[0-9a-f]{64}");
+        assertThat(contractMapper.findById(first.getContractNo()).orElseThrow().getReqHash()).matches("[0-9a-f]{64}");
         // 같은 내용(금액 표기만 다름)은 기존 결과
         assertThat(contractService.applyContract("tx-hash-1", "E100", carRequest("100000.00", "100000.00"))
                 .getContractNo()).isEqualTo(first.getContractNo());
@@ -699,8 +700,8 @@ class ContractApplyIntegrationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo("E-CTR-019");
 
-        assertThat(contractRepository.count()).isEqualTo(contractCount);
-        assertThat(contractRepository.findById(first.getContractNo()).orElseThrow().getTotalPremium())
+        assertThat(contractMapper.count()).isEqualTo(contractCount);
+        assertThat(contractMapper.findById(first.getContractNo()).orElseThrow().getTotalPremium())
                 .isEqualByComparingTo("100000");
     }
 
@@ -727,8 +728,8 @@ class ContractApplyIntegrationTest {
 
     @Test
     void 합계만_맞추고_담보별_보험료를_바꾼_청약은_400_E_CTR_020으로_거절하고_저장하지_않는다() throws Exception {
-        long contractCount = contractRepository.count();
-        long coverageCount = coverageRepository.count();
+        long contractCount = contractMapper.count();
+        long coverageCount = coverageMapper.count();
         // 산출 보험료는 대인 500,000 + 대물 350,000 = 850,000. 합계는 같지만 담보별 금액을 임의로 바꿨다
         String json = """
                 { "header": { "globalTxId": "tx-tamper" },
@@ -745,8 +746,8 @@ class ContractApplyIntegrationTest {
                 .andExpect(jsonPath("$.header.responseCode").value("E-CTR-020"))
                 .andExpect(jsonPath("$.header.responseMsg").value(org.hamcrest.Matchers.containsString("CA001")));
 
-        assertThat(contractRepository.count()).isEqualTo(contractCount);
-        assertThat(coverageRepository.count()).isEqualTo(coverageCount);
+        assertThat(contractMapper.count()).isEqualTo(contractCount);
+        assertThat(coverageMapper.count()).isEqualTo(coverageCount);
         // 요율표에 없는 담보코드로도 접수할 수 없다
         mockMvc.perform(post("/api/contract/apply").with(TestAuth.emp())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -808,11 +809,11 @@ class ContractApplyIntegrationTest {
     void 요율을_개정하면_보험시기에_따라_개정_전후_요율과_계수가_적용된다() throws Exception {
         // 대인배상 요율을 2027-01-01 부터 0.5% → 0.6% 로, 만 18~25세 계수를 1.5 → 1.8 로 개정한다 (테스트 트랜잭션 안이라 롤백된다)
         jdbcTemplate.update("update tb_prm_rate set eff_to = date '2026-12-31' where insr_cls_cd = '01' and cvrg_cd = 'CA001'");
-        premiumRateRepository.save(PremiumRate.builder().insrClsCd("01").cvrgCd("CA001").cvrgNm("대인배상")
+        TestRows.insert(premiumRateMapper::insert, PremiumRate.builder().insrClsCd("01").cvrgCd("CA001").cvrgNm("대인배상")
                 .annualRate(new BigDecimal("0.006")).effFrom(LocalDate.of(2027, 1, 1)).build());
         jdbcTemplate.update("update tb_prm_factor set eff_to = date '2026-12-31' "
                 + "where insr_cls_cd = '01' and factor_type = 'DRIVER_AGE' and range_from = 18");
-        premiumFactorRepository.save(PremiumFactor.builder().insrClsCd("01").factorType("DRIVER_AGE")
+        TestRows.insert(premiumFactorMapper::insert, PremiumFactor.builder().insrClsCd("01").factorType("DRIVER_AGE")
                 .rangeFrom(18).rangeTo(25).factorNm("만 18~25세(개정)").factorValue(new BigDecimal("1.8000"))
                 .effFrom(LocalDate.of(2027, 1, 1)).build());
 
@@ -923,27 +924,27 @@ class ContractApplyIntegrationTest {
 
     @Test
     void 같은_거래UUID로_재요청하면_계약이_추가되지_않고_기존_결과를_돌려준다() {
-        long contractCount = contractRepository.count();
+        long contractCount = contractMapper.count();
 
         var first = contractService.applyContract("tx-idem-1", "E12345", carRequest("100000", "100000"));
         var retry = contractService.applyContract("tx-idem-1", "E12345", carRequest("100000", "100000"));
 
         assertThat(retry.getContractNo()).isEqualTo(first.getContractNo());
         assertThat(retry.getCoverageCount()).isEqualTo(1);
-        assertThat(contractRepository.count()).isEqualTo(contractCount + 1);
+        assertThat(contractMapper.count()).isEqualTo(contractCount + 1);
     }
 
     @Test
     void 총보험료와_담보보험료_합계가_다르면_BusinessException이_발생하고_저장되지_않는다() {
-        long contractCount = contractRepository.count();
-        long coverageCount = coverageRepository.count();
+        long contractCount = contractMapper.count();
+        long coverageCount = coverageMapper.count();
 
         assertThatThrownBy(() -> contractService.applyContract("tx-fail", "E12345", carRequest("900000", "500000", "350000")))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo("E-CTR-003");
 
-        assertThat(contractRepository.count()).isEqualTo(contractCount);
-        assertThat(coverageRepository.count()).isEqualTo(coverageCount);
+        assertThat(contractMapper.count()).isEqualTo(contractCount);
+        assertThat(coverageMapper.count()).isEqualTo(coverageCount);
     }
 
     @Test

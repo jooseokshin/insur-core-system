@@ -2,14 +2,15 @@ package com.insur.auth.service;
 
 import com.insur.auth.common.BusinessException;
 import com.insur.auth.common.Roles;
+import com.insur.auth.common.paging.PageQuery;
+import com.insur.auth.common.paging.PageResult;
 import com.insur.auth.domain.Employee;
 import com.insur.auth.domain.EmployeeAudit;
-import com.insur.auth.domain.EmployeeAuditRepository;
-import com.insur.auth.domain.EmployeeRepository;
 import com.insur.auth.domain.LoginHistory;
-import com.insur.auth.domain.LoginHistoryRepository;
+import com.insur.auth.mapper.EmployeeAuditMapper;
+import com.insur.auth.mapper.EmployeeMapper;
+import com.insur.auth.mapper.LoginHistoryMapper;
 import com.insur.auth.service.dto.EmployeeDto;
-import jakarta.persistence.criteria.Predicate;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -20,10 +21,6 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -44,40 +41,29 @@ public class EmployeeAdminService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
 
-    private final EmployeeRepository employeeRepository;
-    private final EmployeeAuditRepository auditRepository;
-    private final LoginHistoryRepository loginHistoryRepository;
+    private final EmployeeMapper employeeMapper;
+    private final EmployeeAuditMapper auditMapper;
+    private final LoginHistoryMapper loginHistoryMapper;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
 
     /** 사원 목록을 검색한다. 사번순으로 돌려준다. */
     @Transactional(readOnly = true)
     public EmployeeDto.ListResponse list(EmployeeDto.ListRequest request) {
-        PageRequest pageable = page(request.getPage(), request.getSize(), Sort.by("empId"));
+        PageQuery pageable = page(request.getPage(), request.getSize());
         if (StringUtils.hasText(request.getRoleCd())) {
             requireRole(request.getRoleCd());
         }
-        Specification<Employee> spec = (root, query, cb) -> {
-            List<Predicate> conditions = new ArrayList<>();
-            if (StringUtils.hasText(request.getKeyword())) {
-                String keyword = request.getKeyword().trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-                conditions.add(cb.or(
-                        cb.like(root.get("empId"), keyword + "%", '\\'),
-                        cb.like(root.get("empNm"), "%" + keyword + "%", '\\')));
-            }
-            if (StringUtils.hasText(request.getRoleCd())) {
-                query.distinct(true);
-                conditions.add(cb.isMember(request.getRoleCd(), root.get("roles")));
-            }
-            if (request.getActive() != null) {
-                conditions.add(cb.equal(root.get("active"), request.getActive()));
-            }
-            if (Boolean.TRUE.equals(request.getLockedOnly())) {
-                conditions.add(cb.isTrue(root.get("locked")));
-            }
-            return cb.and(conditions.toArray(new Predicate[0]));
-        };
-        Page<Employee> result = employeeRepository.findAll(spec, pageable);
+        EmployeeMapper.SearchCondition condition = EmployeeMapper.SearchCondition.builder()
+                // 사번은 앞부분, 이름은 일부 일치. 입력의 와일드카드는 글자 그대로 비교한다
+                .keyword(StringUtils.hasText(request.getKeyword())
+                        ? request.getKeyword().trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") : null)
+                .roleCd(StringUtils.hasText(request.getRoleCd()) ? request.getRoleCd() : null)
+                .active(request.getActive())
+                .lockedOnly(Boolean.TRUE.equals(request.getLockedOnly()))
+                .build();
+        PageResult<Employee> result = new PageResult<>(employeeMapper.search(condition, pageable), pageable,
+                employeeMapper.countSearch(condition));
         return EmployeeDto.ListResponse.builder()
                 .page(pageable.getPageNumber())
                 .size(pageable.getPageSize())
@@ -94,10 +80,10 @@ public class EmployeeAdminService {
      */
     @Transactional(readOnly = true)
     public EmployeeDto.DetailResponse detail(String empId) {
-        Employee employee = employeeRepository.findById(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
+        Employee employee = employeeMapper.findById(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
         return EmployeeDto.DetailResponse.builder()
                 .employee(toItem(employee))
-                .audits(auditRepository.findByEmpIdOrderByAuditIdDesc(employee.getEmpId()).stream()
+                .audits(auditMapper.findByEmpIdOrderByAuditIdDesc(employee.getEmpId()).stream()
                         .map(a -> EmployeeDto.Audit.builder().action(a.getAction()).detail(a.getDetail())
                                 .actEmpId(a.getActEmpId()).actDt(a.getActDt()).build())
                         .toList())
@@ -117,13 +103,14 @@ public class EmployeeAdminService {
         }
         String empNm = requireName(request.getEmpNm());
         Set<String> roles = requireRoles(request.getRoles());
-        if (employeeRepository.existsById(empId)) {
+        if (employeeMapper.existsById(empId)) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-EMP-002", "이미 등록된 사번입니다: " + empId);
         }
         String temporary = PasswordPolicy.temporary();
         LocalDateTime now = LocalDateTime.now(clock);
-        Employee employee = employeeRepository.save(Employee.create(empId, empNm, trimToNull(request.getDeptNm()), roles,
-                passwordEncoder.encode(temporary), true, actorEmpId, now));
+        Employee employee = Employee.create(empId, empNm, trimToNull(request.getDeptNm()), roles,
+                passwordEncoder.encode(temporary), true, actorEmpId, now);
+        employeeMapper.insert(employee);
         audit(empId, "CREATE", "이름=" + empNm + ", 부서=" + employee.getDeptNm() + ", 역할=" + new TreeSet<>(roles),
                 actorEmpId, globalTxId, now);
         log.info("사원 등록: 사번={}, 역할={}, 처리={}", empId, roles, actorEmpId);
@@ -138,7 +125,7 @@ public class EmployeeAdminService {
      */
     @Transactional
     public EmployeeDto.Item update(EmployeeDto.UpdateRequest request, String actorEmpId, String globalTxId) {
-        Employee employee = employeeRepository.findForUpdateByEmpId(nonBlank(request.getEmpId())).orElseThrow(EmployeeAdminService::notFound);
+        Employee employee = employeeMapper.findForUpdateByEmpId(nonBlank(request.getEmpId())).orElseThrow(EmployeeAdminService::notFound);
         String empNm = requireName(request.getEmpNm());
         String deptNm = trimToNull(request.getDeptNm());
         Set<String> roles = requireRoles(request.getRoles());
@@ -165,6 +152,7 @@ public class EmployeeAdminService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         employee.update(empNm, deptNm, roles, active, actorEmpId, now);
+        employeeMapper.update(employee);
         audit(employee.getEmpId(), "UPDATE", String.join(", ", changes), actorEmpId, globalTxId, now);
         log.info("사원 정보 변경: 사번={}, {}, 처리={}", employee.getEmpId(), changes, actorEmpId);
         return toItem(employee);
@@ -177,10 +165,11 @@ public class EmployeeAdminService {
      */
     @Transactional
     public EmployeeDto.TemporaryPasswordResponse resetPassword(String empId, String actorEmpId, String globalTxId) {
-        Employee employee = employeeRepository.findForUpdateByEmpId(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
+        Employee employee = employeeMapper.findForUpdateByEmpId(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
         String temporary = PasswordPolicy.temporary();
         LocalDateTime now = LocalDateTime.now(clock);
         employee.resetPassword(passwordEncoder.encode(temporary), actorEmpId, now);
+        employeeMapper.updateRow(employee);
         audit(employee.getEmpId(), "RESET_PASSWORD", "임시 비밀번호 발급, 잠금 해제", actorEmpId, globalTxId, now);
         log.info("비밀번호 초기화: 사번={}, 처리={}", employee.getEmpId(), actorEmpId);
         return EmployeeDto.TemporaryPasswordResponse.builder().employee(toItem(employee)).temporaryPassword(temporary).build();
@@ -193,12 +182,13 @@ public class EmployeeAdminService {
      */
     @Transactional
     public EmployeeDto.Item unlock(String empId, String actorEmpId, String globalTxId) {
-        Employee employee = employeeRepository.findForUpdateByEmpId(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
+        Employee employee = employeeMapper.findForUpdateByEmpId(nonBlank(empId)).orElseThrow(EmployeeAdminService::notFound);
         if (!employee.isLocked()) {
             throw new BusinessException("E-EMP-007", "잠기지 않은 계정입니다.");
         }
         LocalDateTime now = LocalDateTime.now(clock);
         employee.unlock(actorEmpId, now);
+        employeeMapper.updateRow(employee);
         audit(employee.getEmpId(), "UNLOCK", "잠금 해제", actorEmpId, globalTxId, now);
         log.info("잠금 해제: 사번={}, 처리={}", employee.getEmpId(), actorEmpId);
         return toItem(employee);
@@ -207,10 +197,10 @@ public class EmployeeAdminService {
     /** 로그인 이력을 최근 순으로 조회한다. 사번을 생략하면 전체 이력이다. */
     @Transactional(readOnly = true)
     public EmployeeDto.LoginHistoryResponse loginHistory(EmployeeDto.LoginHistoryRequest request) {
-        PageRequest pageable = page(request.getPage(), request.getSize(), Sort.by(Sort.Direction.DESC, "histId"));
-        Page<LoginHistory> result = StringUtils.hasText(request.getEmpId())
-                ? loginHistoryRepository.findByEmpId(request.getEmpId().trim(), pageable)
-                : loginHistoryRepository.findAll(pageable);
+        PageQuery pageable = page(request.getPage(), request.getSize());
+        String empId = StringUtils.hasText(request.getEmpId()) ? request.getEmpId().trim() : null;
+        PageResult<LoginHistory> result = new PageResult<>(loginHistoryMapper.findPage(empId, pageable), pageable,
+                loginHistoryMapper.countByEmpId(empId));
         return EmployeeDto.LoginHistoryResponse.builder()
                 .page(pageable.getPageNumber())
                 .size(pageable.getPageSize())
@@ -234,18 +224,18 @@ public class EmployeeAdminService {
     }
 
     private void audit(String empId, String action, String detail, String actorEmpId, String globalTxId, LocalDateTime now) {
-        auditRepository.save(EmployeeAudit.builder().empId(empId).action(action)
+        auditMapper.insert(EmployeeAudit.builder().empId(empId).action(action)
                 .detail(detail.length() > 500 ? detail.substring(0, 500) : detail)
                 .actEmpId(actorEmpId).globalTxId(globalTxId).actDt(now).build());
     }
 
-    private static PageRequest page(Integer page, Integer size, Sort sort) {
+    private static PageQuery page(Integer page, Integer size) {
         int pageNo = page == null ? 0 : page;
         int pageSize = size == null ? DEFAULT_PAGE_SIZE : size;
         if (pageNo < 0 || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
             throw new BusinessException("E-EMP-001", "페이지 번호는 0 이상, 페이지 크기는 1~" + MAX_PAGE_SIZE + " 사이여야 합니다.");
         }
-        return PageRequest.of(pageNo, pageSize, sort);
+        return PageQuery.of(pageNo, pageSize);
     }
 
     private static String nonBlank(String empId) {

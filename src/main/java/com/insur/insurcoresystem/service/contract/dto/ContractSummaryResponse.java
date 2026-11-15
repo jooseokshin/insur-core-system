@@ -24,8 +24,8 @@ public class ContractSummaryResponse {
     /** 청약번호 */
     @Schema(description = "청약번호")
     private String applNo;
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
     /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM) */
     @Schema(description = "판매채널코드 (10:대면, 20:다이렉트, 30:TM)")

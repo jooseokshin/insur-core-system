@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param signingKey             서명용 RSA 개인키. PKCS#8 PEM 본문이나 그 파일 경로. 비우면 기동할 때마다 새로 만든다(개발용)
  * @param web                    현업 화면(SPA) 클라이언트
  * @param channels               채널계 시스템 클라이언트 (다이렉트·TM 등). 비밀값이 비어 있는 항목은 등록하지 않는다
+ * @param partners               대외기관 시스템 클라이언트 (보험개발원 실손 청구 전산화 중계 등). 비밀값이 비어 있는 항목은 등록하지 않는다
  */
 @ConfigurationProperties("app.oauth")
 public record OAuthProperties(
@@ -19,7 +20,8 @@ public record OAuthProperties(
         @DefaultValue("60") long accessTokenTtlMinutes,
         @DefaultValue("") String signingKey,
         Client web,
-        @DefaultValue List<ChannelClient> channels) {
+        @DefaultValue List<ChannelClient> channels,
+        @DefaultValue List<PartnerClient> partners) {
 
     /**
      * 공개 클라이언트(비밀값 없음, PKCE 필수) 설정.
@@ -42,5 +44,17 @@ public record OAuthProperties(
      */
     public record ChannelClient(String clientId, String clientSecret, String channelCd, String name,
                                 @DefaultValue("10") long tokenTtlMinutes) {
+    }
+
+    /**
+     * 대외기관 시스템 클라이언트. 우리 쪽 API 를 부르는 다른 기관의 서버이고, 채널과 같이 client credentials 로 토큰을 받는다.
+     * 토큰에는 EXTERNAL 역할만 들어가며 판매채널이 없다(계약을 만들지 않는다).
+     *
+     * @param clientId        클라이언트 ID (토큰의 sub, 코어가 접수자로 남긴다)
+     * @param clientSecret    클라이언트 비밀값 (32자 이상, 환경변수로 주입)
+     * @param name            기관 이름 (토큰의 name 클레임)
+     * @param tokenTtlMinutes 토큰 유효시간(분)
+     */
+    public record PartnerClient(String clientId, String clientSecret, String name, @DefaultValue("10") long tokenTtlMinutes) {
     }
 }

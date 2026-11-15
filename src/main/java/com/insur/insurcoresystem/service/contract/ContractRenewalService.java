@@ -8,10 +8,11 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.validat
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.service.cms.CmsMandateService;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewPreviewResponse;
@@ -47,10 +48,12 @@ public class ContractRenewalService {
     /** 보험종기 며칠 전부터 갱신할 수 있는지 */
     public static final int RENEWAL_WINDOW_DAYS = 60;
 
-    private final ContractRepository contractRepository;
-    private final CoverageRepository coverageRepository;
+    private final ContractMapper contractMapper;
+    private final CoverageMapper coverageMapper;
     private final ContractService contractService;
     private final PremiumService premiumService;
+    /** 원 계약의 보험료 자동이체를 갱신 계약에 잇는다 */
+    private final CmsMandateService cmsMandateService;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -82,7 +85,7 @@ public class ContractRenewalService {
             throw new BusinessException("E-CTR-009", "갱신할 계약의 증권번호를 입력해야 합니다.");
         }
 
-        var replay = contractRepository.findByGlobalTxId(globalTxId);
+        var replay = contractMapper.findByGlobalTxId(globalTxId);
         if (replay.isPresent()) {
             return replayResponse(replay.get(), empId, request.getContractNo());
         }
@@ -98,12 +101,14 @@ public class ContractRenewalService {
                 .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate)
                 .policyholderId(source.getPolicyholderId()).insuredId(source.getInsuredId())
                 .totalPremium(quote.getTotalPremium()).rating(rating)
+                .creditInfoConsent(Contract.INSR_CLS_MEDICAL.equals(source.getInsrClsCd()) ? Boolean.TRUE : null)
                 // 갱신 계약은 원 계약의 판매채널을 잇는다 (누가 갱신을 눌렀든 같은 채널 요율로 산출·검증)
                 .salesChnlCd(source.getSalesChnlCd())
                 .coverages(quote.getCoverages().stream().map(c -> CoverageRequest.builder()
                         .cvrgCd(c.getCvrgCd()).isrdAmt(c.getIsrdAmt()).prem(c.getPrem()).build()).toList())
                 .build(), source.getContractNo());
 
+        cmsMandateService.inheritForRenewal(source.getContractNo(), applied.getContractNo(), empId);
         log.info("계약 갱신 접수: 원 계약={}, 갱신 계약={}, 총보험료 {} -> {}", source.getContractNo(), applied.getContractNo(),
                 source.getTotalPremium(), applied.getTotalPremium());
         return ContractRenewResponse.builder()
@@ -144,7 +149,7 @@ public class ContractRenewalService {
 
     /** 갱신 계획: 원 계약 확인, 갱신 보험기간 계산, 갱신 시점 요율로 보험료 산출. 갱신과 미리보기가 함께 쓴다. */
     private Plan plan(String ownerEmpId, ContractRenewRequest request) {
-        Contract source = contractRepository.findById(request.getContractNo())
+        Contract source = contractMapper.findById(request.getContractNo())
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
         validateRenewable(source);
@@ -155,7 +160,7 @@ public class ContractRenewalService {
         LocalDate endDate = term.getDays() == 0 ? startDate.plus(term)
                 : startDate.plusDays(ChronoUnit.DAYS.between(source.getStartDate(), source.getEndDate()));
         RatingInput rating = request.getRating() != null ? request.getRating() : storedRating(source);
-        List<Coverage> sourceCoverages = coverageRepository.findByContractContractNo(source.getContractNo());
+        List<Coverage> sourceCoverages = coverageMapper.findByContractNo(source.getContractNo());
 
         PremiumQuoteResponse quote = premiumService.quote(PremiumQuoteRequest.builder()
                 .insrClsCd(source.getInsrClsCd()).prdCd(source.getPrdCd()).startDate(startDate).endDate(endDate).rating(rating)
@@ -184,12 +189,12 @@ public class ContractRenewalService {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-019",
                     "같은 거래 UUID(globalTxId)로 이전과 다른 내용의 요청이 들어왔습니다. 새 거래 UUID 로 다시 요청해 주세요.");
         }
-        Contract source = contractRepository.findById(renewal.getRenewedFrom()).orElseThrow(ContractSupport::contractNotFound);
+        Contract source = contractMapper.findById(renewal.getRenewedFrom()).orElseThrow(ContractSupport::contractNotFound);
         return ContractRenewResponse.builder()
                 .contractNo(renewal.getContractNo()).applNo(renewal.getApplNo()).ctrStatCd(renewal.getCtrStatCd())
                 .renewedFrom(source.getContractNo()).startDate(renewal.getStartDate()).endDate(renewal.getEndDate())
                 .previousTotalPremium(source.getTotalPremium()).totalPremium(renewal.getTotalPremium())
-                .coverageCount(coverageRepository.findByContractContractNo(renewal.getContractNo()).size())
+                .coverageCount(coverageMapper.findByContractNo(renewal.getContractNo()).size())
                 .build();
     }
 
@@ -203,7 +208,7 @@ public class ContractRenewalService {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-024",
                     "보험종기 " + RENEWAL_WINDOW_DAYS + "일 전부터 보험종기까지만 갱신할 수 있습니다. (보험종기 " + source.getEndDate() + ")");
         }
-        if (contractRepository.findFirstByRenewedFromAndCtrStatCdNot(source.getContractNo(), ContractStatus.CANCELED.getCode()).isPresent()) {
+        if (contractMapper.findFirstByRenewedFromAndCtrStatCdNot(source.getContractNo(), ContractStatus.CANCELED.getCode()).isPresent()) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-025", "이미 갱신된 계약입니다.");
         }
     }

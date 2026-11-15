@@ -10,10 +10,11 @@ import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,11 +48,11 @@ class WorkIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    ContractPaymentRepository paymentRepository;
+    ContractPaymentMapper paymentMapper;
     @Autowired
-    ContractStatusHistoryRepository historyRepository;
+    ContractStatusHistoryMapper historyMapper;
 
     private String agent;
     private Contract unpaidToday;
@@ -67,7 +68,7 @@ class WorkIntegrationTest {
 
     private Contract contract(String statCd, LocalDateTime regDt, LocalDate endDate, String regEmpId, String renewedFrom) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        return contractRepository.save(Contract.builder()
+        return TestRows.insert(contractMapper::insert, Contract.builder()
                 .contractNo("POL-W-" + suffix).applNo("APP-W-" + suffix).insrClsCd("01").ctrStatCd(statCd)
                 .startDate(endDate.minusYears(1)).endDate(endDate).policyholderId("C0001").insuredId("C0002")
                 .totalPremium(new BigDecimal("500000")).sysRegDt(regDt).regEmpId(regEmpId).renewedFrom(renewedFrom)
@@ -91,10 +92,10 @@ class WorkIntegrationTest {
         // 갱신 계약은 다른 사번이 접수했다. 설계사의 집계에는 안 잡히지만 원 계약은 이미 갱신된 것으로 본다
         contract("10", NOW.minusYears(1), TODAY.plusDays(395), "E-OTHER", dueRenewed.getContractNo());
 
-        paymentRepository.save(ContractPayment.builder().contractNo(paidToday.getContractNo())
+        TestRows.insert(paymentMapper::insert, ContractPayment.builder().contractNo(paidToday.getContractNo())
                 .payAmt(new BigDecimal("500000")).payMethod("CARD").empId("E-OP").globalTxId("tx-wk-" + agent)
                 .paidDt(NOW).build());
-        historyRepository.save(ContractStatusHistory.builder().contractNo(dueSoon.getContractNo())
+        TestRows.insert(historyMapper::insert, ContractStatusHistory.builder().contractNo(dueSoon.getContractNo())
                 .beforeStatCd("10").afterStatCd("20").empId("E-UW").globalTxId("tx-wk-h-" + agent).chgDt(NOW).build());
     }
 

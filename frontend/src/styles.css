@@ -265,3 +265,7 @@ input:disabled, select:disabled { background: var(--bg); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+
+/* 패널 머리의 짧은 입력 + 버튼 (결산 기준일, 대사일 등) */
+.inline-form { display: flex; align-items: center; gap: 6px; }
+.inline-form input, .inline-form select { width: auto; }

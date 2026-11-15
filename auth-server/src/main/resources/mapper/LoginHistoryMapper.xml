@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 로그인 이력 TB_LOGIN_HIST -->
+<mapper namespace="com.insur.auth.mapper.LoginHistoryMapper">
+
+    <select id="findPage" resultType="com.insur.auth.domain.LoginHistory">
+        SELECT HIST_ID, EMP_ID, RESULT_CD, CLIENT_IP, LOGIN_DT FROM TB_LOGIN_HIST
+        <where><if test="empId != null">EMP_ID = #{empId}</if></where>
+         ORDER BY HIST_ID DESC
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countByEmpId" resultType="long">
+        SELECT COUNT(*) FROM TB_LOGIN_HIST <where><if test="empId != null">EMP_ID = #{empId}</if></where>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="histId" keyColumn="hist_id">
+        INSERT INTO TB_LOGIN_HIST (EMP_ID, RESULT_CD, CLIENT_IP, LOGIN_DT) VALUES (#{empId}, #{resultCd}, #{clientIp}, #{loginDt})
+    </insert>
+</mapper>

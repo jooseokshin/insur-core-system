@@ -17,14 +17,16 @@ public enum ProductType {
     /** 운전자보험 */
     DRIVER("03"),
     /** 해외여행자보험 */
-    TRAVEL("04");
+    TRAVEL("04"),
+    /** 실손의료보험 */
+    MEDICAL("05");
 
     private final String insrClsCd;
 
     /**
      * 보험종목코드로 상품구분을 조회한다.
      *
-     * @param insrClsCd 보험종목코드 (01: 자동차, 02: 화재, 03: 운전자, 04: 해외여행)
+     * @param insrClsCd 보험종목코드 (01: 자동차, 02: 화재, 03: 운전자, 04: 해외여행, 05: 실손의료)
      * @return 코드에 대응하는 상품구분
      * @throws BusinessException 정의되지 않은 보험종목코드인 경우(E-SEQ-001)
      */

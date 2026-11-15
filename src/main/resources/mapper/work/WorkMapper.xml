@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 현업 화면 집계 (읽기 전용). 인덱스는 V19 -->
+<mapper namespace="com.insur.insurcoresystem.mapper.work.WorkMapper">
+
+    <!-- 본인 접수 계약만 (C = TB_CTR_LGD) -->
+    <sql id="owner"><if test="c.owner != null">AND C.REG_EMP_ID = #{c.owner}</if></sql>
+
+    <sql id="paidJoin">
+        LEFT JOIN (SELECT CONTRACT_NO, SUM(PAY_AMT) AS PAID FROM TB_CTR_PAYMENT GROUP BY CONTRACT_NO) P
+               ON P.CONTRACT_NO = C.CONTRACT_NO
+    </sql>
+
+    <!-- 할 일 유형: 모두 청약(10) 상태 -->
+    <sql id="todoCondition">
+        C.CTR_STAT_CD = '10'
+        <choose>
+            <when test="c.todoType == 'PENDING_APPROVAL'">AND COALESCE(P.PAID, 0) &gt;= C.TOTAL_PREMIUM</when>
+            <when test="c.todoType == 'UNPAID'">AND COALESCE(P.PAID, 0) &lt; C.TOTAL_PREMIUM</when>
+            <otherwise>AND C.SYS_REG_DT &lt; #{c.staleBefore}</otherwise>
+        </choose>
+        <include refid="owner"/>
+    </sql>
+
+    <!-- 만기·갱신 대상: 유효(20), 만기가 오늘~dueTo, 청약취소(90)가 아닌 갱신 계약 없음 (V17 인덱스와 같은 규칙) -->
+    <sql id="renewalCondition">
+        C.CTR_STAT_CD = '20' AND C.END_DATE BETWEEN #{c.today} AND #{c.dueTo}
+        AND NOT EXISTS (SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = C.CONTRACT_NO AND R.CTR_STAT_CD &lt;&gt; '90')
+        <include refid="owner"/>
+        <if test="c.insrClsCd != null">AND C.INSR_CLS_CD = #{c.insrClsCd}</if>
+    </sql>
+
+    <select id="countByStatus" resultType="com.insur.insurcoresystem.service.work.dto.DashboardResponse$StatusCount">
+        SELECT C.CTR_STAT_CD, COUNT(*) AS COUNT, COALESCE(SUM(C.TOTAL_PREMIUM), 0) AS TOTAL_PREMIUM
+          FROM TB_CTR_LGD C
+         WHERE 1 = 1 <include refid="owner"/>
+         GROUP BY C.CTR_STAT_CD
+         ORDER BY C.CTR_STAT_CD
+    </select>
+
+    <select id="todayStats" resultType="com.insur.insurcoresystem.service.work.dto.DashboardResponse$Today">
+        SELECT (SELECT COUNT(*) FROM TB_CTR_LGD C
+                 WHERE C.SYS_REG_DT &gt;= #{c.dayStart} AND C.SYS_REG_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS APPLIED_COUNT,
+               (SELECT COALESCE(SUM(C.TOTAL_PREMIUM), 0) FROM TB_CTR_LGD C
+                 WHERE C.SYS_REG_DT &gt;= #{c.dayStart} AND C.SYS_REG_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS APPLIED_PREMIUM,
+               (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
+                 WHERE H.AFTER_STAT_CD = '20' AND H.CHG_DT &gt;= #{c.dayStart} AND H.CHG_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS APPROVED_COUNT,
+               (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
+                 WHERE H.AFTER_STAT_CD = '90' AND H.CHG_DT &gt;= #{c.dayStart} AND H.CHG_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS CANCELED_COUNT,
+               (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
+                 WHERE H.AFTER_STAT_CD = '30' AND H.CHG_DT &gt;= #{c.dayStart} AND H.CHG_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS TERMINATED_COUNT,
+               (SELECT COUNT(*) FROM TB_CTR_PAYMENT X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO
+                 WHERE X.PAID_DT &gt;= #{c.dayStart} AND X.PAID_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS PAID_COUNT,
+               (SELECT COALESCE(SUM(X.PAY_AMT), 0) FROM TB_CTR_PAYMENT X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO
+                 WHERE X.PAID_DT &gt;= #{c.dayStart} AND X.PAID_DT &lt; #{c.dayEnd} <include refid="owner"/>) AS PAID_AMOUNT
+    </select>
+
+    <select id="claimCounts" resultType="com.insur.insurcoresystem.service.work.dto.DashboardResponse$Claims">
+        SELECT COUNT(*) FILTER (WHERE X.CLM_STAT_CD = '10') AS REPORTED_COUNT,
+               COUNT(*) FILTER (WHERE X.CLM_STAT_CD = '20') AS ASSESSED_COUNT,
+               COUNT(*) FILTER (WHERE X.CLM_STAT_CD = '20' AND X.TOTAL_PAY_AMT &gt; #{c.threshold}) AS HIGH_VALUE_PENDING_COUNT,
+               COUNT(*) FILTER (WHERE X.RPT_DT &gt;= #{c.dayStart} AND X.RPT_DT &lt; #{c.dayEnd}) AS TODAY_REPORTED_COUNT,
+               COUNT(*) FILTER (WHERE X.CLM_STAT_CD = '40' AND X.DECIDE_DT &gt;= #{c.dayStart} AND X.DECIDE_DT &lt; #{c.dayEnd}) AS TODAY_PAID_COUNT,
+               COALESCE(SUM(X.TOTAL_PAY_AMT) FILTER (WHERE X.CLM_STAT_CD = '40'
+                        AND X.DECIDE_DT &gt;= #{c.dayStart} AND X.DECIDE_DT &lt; #{c.dayEnd}), 0) AS TODAY_PAID_AMOUNT
+          FROM TB_CLM X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO
+         WHERE 1 = 1 <include refid="owner"/>
+    </select>
+
+    <select id="countTodo" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_LGD C <include refid="paidJoin"/> WHERE <include refid="todoCondition"/>
+    </select>
+
+    <select id="findTodo" resultType="com.insur.insurcoresystem.mapper.work.WorkMapper$TodoRow">
+        SELECT C.CONTRACT_NO, C.APPL_NO, C.INSR_CLS_CD, C.POLICYHOLDER_ID, C.START_DATE, C.TOTAL_PREMIUM,
+               COALESCE(P.PAID, 0) AS PAID, C.SYS_REG_DT, C.REG_EMP_ID
+          FROM TB_CTR_LGD C <include refid="paidJoin"/>
+         WHERE <include refid="todoCondition"/>
+         ORDER BY C.SYS_REG_DT, C.CONTRACT_NO
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countRenewalTargets" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_LGD C WHERE <include refid="renewalCondition"/>
+    </select>
+
+    <select id="findRenewalTargets" resultType="com.insur.insurcoresystem.mapper.work.WorkMapper$RenewalRow">
+        SELECT C.CONTRACT_NO, C.INSR_CLS_CD, C.POLICYHOLDER_ID, C.INSURED_ID, C.START_DATE, C.END_DATE, C.TOTAL_PREMIUM, C.REG_EMP_ID
+          FROM TB_CTR_LGD C
+         WHERE <include refid="renewalCondition"/>
+         ORDER BY C.END_DATE, C.CONTRACT_NO
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+</mapper>

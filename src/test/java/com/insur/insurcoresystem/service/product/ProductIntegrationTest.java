@@ -10,9 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -42,9 +43,9 @@ class ProductIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
 
     private ResultActions call(String path, String txId, String body) throws Exception {
         return mockMvc.perform(post(path).with(TestAuth.emp()).contentType(MediaType.APPLICATION_JSON)
@@ -119,7 +120,7 @@ class ProductIntegrationTest {
                 + "{ \"cvrgCd\": \"CA002\", \"isrdAmt\": 20000000, \"prem\": " + prem2 + " }] }")
                 .andExpect(status().isOk());
 
-        Contract saved = contractRepository.findByGlobalTxId(txId).orElseThrow();
+        Contract saved = contractMapper.findByGlobalTxId(txId).orElseThrow();
         assertThat(saved.getPrdCd()).isEqualTo("CAR-STD-2026");
         call("/api/contract/inquiry", "i", "{ \"contractNo\": \"" + saved.getContractNo() + "\" }")
                 .andExpect(jsonPath("$.body.prdCd").value("CAR-STD-2026"))
@@ -141,20 +142,20 @@ class ProductIntegrationTest {
     void 판매가_끝난_상품의_계약도_같은_상품으로_갱신된다() throws Exception {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         LocalDate end = TODAY.plusDays(20);
-        Contract source = contractRepository.save(Contract.builder()
+        Contract source = TestRows.insert(contractMapper::insert, Contract.builder()
                 .contractNo("POL-P-" + suffix).applNo("APP-P-" + suffix).insrClsCd("01").prdCd("CAR-STD-2025").ctrStatCd("20")
                 .startDate(end.minusYears(1)).endDate(end).policyholderId("C1").insuredId("C1")
                 .totalPremium(new BigDecimal("850000")).sysRegDt(LocalDateTime.now()).regEmpId("E12345")
                 .driverAge(35).discountGrade("3").build());
-        coverageRepository.save(Coverage.builder().contract(source).cvrgCd("CA001")
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(source.getContractNo()).cvrgCd("CA001")
                 .isrdAmt(new BigDecimal("100000000")).prem(new BigDecimal("500000")).build());
-        coverageRepository.save(Coverage.builder().contract(source).cvrgCd("CA002")
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(source.getContractNo()).cvrgCd("CA002")
                 .isrdAmt(new BigDecimal("20000000")).prem(new BigDecimal("350000")).build());
 
         String txId = "tx-prd-rn-" + suffix;
         call("/api/contract/renew", txId, "{ \"contractNo\": \"" + source.getContractNo() + "\" }")
                 .andExpect(status().isOk());
-        assertThat(contractRepository.findByGlobalTxId(txId).orElseThrow().getPrdCd()).isEqualTo("CAR-STD-2025");
+        assertThat(contractMapper.findByGlobalTxId(txId).orElseThrow().getPrdCd()).isEqualTo("CAR-STD-2025");
     }
 
     @Test
@@ -164,7 +165,7 @@ class ProductIntegrationTest {
                 + TODAY.plusDays(1).plusYears(1) + "\", \"policyholderId\": \"C1\", \"insuredId\": \"C1\", \"totalPremium\": 500000, "
                 + RATING + ", \"coverages\": [{ \"cvrgCd\": \"CA001\", \"isrdAmt\": 100000000, \"prem\": 500000 }] }")
                 .andExpect(status().isOk());
-        assertThat(contractRepository.findByGlobalTxId(txId).orElseThrow().getPrdCd()).isNull();
+        assertThat(contractMapper.findByGlobalTxId(txId).orElseThrow().getPrdCd()).isNull();
     }
 
     @Test

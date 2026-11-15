@@ -2,10 +2,10 @@ package com.insur.insurcoresystem.service.product;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
 import com.insur.insurcoresystem.domain.product.Product;
 import com.insur.insurcoresystem.domain.product.ProductCoverage;
-import com.insur.insurcoresystem.domain.product.ProductRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.product.dto.ProductListRequest;
 import com.insur.insurcoresystem.service.product.dto.ProductListResponse;
 import com.insur.insurcoresystem.service.product.dto.ProductResponse;
@@ -33,8 +33,8 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ProductService {
 
-    private final ProductRepository productRepository;
-    private final PremiumRateRepository premiumRateRepository;
+    private final ProductMapper productMapper;
+    private final PremiumRateMapper premiumRateMapper;
     private final Clock clock;
 
     /** 담보코드와 가입금액 (구성 검증 입력) */
@@ -51,12 +51,12 @@ public class ProductService {
         LocalDate today = LocalDate.now(clock);
         List<Product> products;
         if (StringUtils.hasText(request.getPrdCd())) {
-            products = productRepository.findById(request.getPrdCd()).stream().toList();
+            products = productMapper.findById(request.getPrdCd()).stream().toList();
         } else if (StringUtils.hasText(request.getInsrClsCd())) {
             ProductType.fromInsrClsCd(request.getInsrClsCd());
-            products = productRepository.findByInsrClsCdOrderByPrdCd(request.getInsrClsCd());
+            products = productMapper.findByInsrClsCdOrderByPrdCd(request.getInsrClsCd());
         } else {
-            products = productRepository.findAllByOrderByInsrClsCdAscPrdCdAsc();
+            products = productMapper.findAllByOrderByInsrClsCdAscPrdCdAsc();
         }
         boolean onSaleOnly = Boolean.TRUE.equals(request.getOnSaleOnly());
         return ProductListResponse.builder()
@@ -74,7 +74,7 @@ public class ProductService {
      */
     @Transactional(readOnly = true)
     public Product require(String prdCd, String insrClsCd) {
-        Product product = productRepository.findById(prdCd)
+        Product product = productMapper.findById(prdCd)
                 .orElseThrow(() -> new BusinessException("E-PRD-001", "없는 상품코드입니다: " + prdCd));
         if (!product.getInsrClsCd().equals(insrClsCd)) {
             throw new BusinessException("E-PRD-002",
@@ -145,7 +145,7 @@ public class ProductService {
     }
 
     private ProductResponse toResponse(Product product, LocalDate today) {
-        Map<String, String> names = premiumRateRepository.findEffective(product.getInsrClsCd(),
+        Map<String, String> names = premiumRateMapper.findEffective(product.getInsrClsCd(),
                         product.getCoverages().stream().map(ProductCoverage::getCvrgCd).toList(), today)
                 .stream().collect(Collectors.toMap(PremiumRate::getCvrgCd, PremiumRate::getCvrgNm, (a, b) -> a));
         return ProductResponse.builder()
@@ -173,7 +173,7 @@ public class ProductService {
     /** 상품명 조회용 (없는 코드면 null) */
     @Transactional(readOnly = true)
     public Map<String, String> names(Set<String> prdCds) {
-        return productRepository.findAllById(prdCds).stream()
+        return productMapper.findAllById(prdCds).stream()
                 .collect(Collectors.toMap(Product::getPrdCd, Product::getPrdNm, (a, b) -> a));
     }
 }

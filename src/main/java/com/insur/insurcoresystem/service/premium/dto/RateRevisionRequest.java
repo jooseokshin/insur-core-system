@@ -20,8 +20,8 @@ import lombok.Setter;
 @AllArgsConstructor
 public class RateRevisionRequest {
 
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
     /** 담보코드 (최대 10자) */
     @Schema(description = "담보코드 (최대 10자)")

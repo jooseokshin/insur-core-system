@@ -14,6 +14,8 @@ import { QuotePage } from './pages/contract/QuotePage';
 import { ProductPage } from './pages/contract/ProductPage';
 import { LossRatioPage } from './pages/admin/LossRatioPage';
 import { RateImpactPage } from './pages/admin/RateImpactPage';
+import { ReservePage } from './pages/admin/ReservePage';
+import { OpsPage } from './pages/admin/OpsPage';
 import { ClaimDetailPage, ClaimListPage } from './pages/claim/ClaimPages';
 import { FactorPage, PolicyPage, RatePage, TariffAuditPage } from './pages/admin/TariffPages';
 import { EmployeePage, LoginHistoryPage } from './pages/admin/EmployeePages';
@@ -43,6 +45,8 @@ export function App() {
         <Route path="tariff/audits" element={<RequireRole roles={TARIFF}><TariffAuditPage /></RequireRole>} />
         <Route path="stats/loss-ratio" element={<RequireRole roles={['UNDERWRITER', 'CLAIM', 'ADMIN']}><LossRatioPage /></RequireRole>} />
         <Route path="stats/rate-impact" element={<RequireRole roles={['UNDERWRITER', 'ADMIN']}><RateImpactPage /></RequireRole>} />
+        <Route path="stats/reserve" element={<RequireRole roles={['UNDERWRITER', 'CLAIM', 'ADMIN']}><ReservePage /></RequireRole>} />
+        <Route path="admin/ops" element={<RequireRole roles={['OPERATOR', 'ADMIN']}><OpsPage /></RequireRole>} />
         <Route path="admin/employees" element={<RequireRole roles={['ADMIN']}><EmployeePage /></RequireRole>} />
         <Route path="admin/login-history" element={<RequireRole roles={['ADMIN']}><LoginHistoryPage /></RequireRole>} />
         <Route path="account/password" element={<PasswordPage />} />

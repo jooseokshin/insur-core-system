@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 요율 관리 감사 이력 TB_PRM_AUDIT -->
+<mapper namespace="com.insur.insurcoresystem.mapper.premium.PremiumAuditMapper">
+
+    <sql id="columns">AUDIT_ID, TARGET_TYPE, TARGET_KEY, ACTION, BEFORE_VAL, AFTER_VAL, EFF_FROM, EMP_ID, GLOBAL_TX_ID, CHG_DT</sql>
+
+    <select id="findByTargetTypeAndGlobalTxId" resultType="com.insur.insurcoresystem.domain.premium.PremiumAudit">
+        SELECT <include refid="columns"/> FROM TB_PRM_AUDIT
+         WHERE TARGET_TYPE = #{targetType} AND GLOBAL_TX_ID = #{globalTxId}
+         ORDER BY AUDIT_ID
+         LIMIT 1
+    </select>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="c.targetType != null">AND TARGET_TYPE = #{c.targetType}</if>
+            <if test="c.targetKeyLike != null">AND TARGET_KEY LIKE #{c.targetKeyLike} ESCAPE '\'</if>
+            <if test="c.empId != null">AND EMP_ID = #{c.empId}</if>
+            <if test="c.chgFrom != null">AND CHG_DT &gt;= #{c.chgFrom}</if>
+            <if test="c.chgTo != null">AND CHG_DT &lt; #{c.chgTo}</if>
+        </where>
+    </sql>
+
+    <select id="search" resultType="com.insur.insurcoresystem.domain.premium.PremiumAudit">
+        SELECT <include refid="columns"/> FROM TB_PRM_AUDIT
+        <include refid="searchWhere"/>
+         ORDER BY CHG_DT DESC, AUDIT_ID DESC
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) FROM TB_PRM_AUDIT <include refid="searchWhere"/>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="auditId" keyColumn="audit_id">
+        INSERT INTO TB_PRM_AUDIT (TARGET_TYPE, TARGET_KEY, ACTION, BEFORE_VAL, AFTER_VAL, EFF_FROM, EMP_ID, GLOBAL_TX_ID, CHG_DT)
+        VALUES (#{targetType}, #{targetKey}, #{action}, #{beforeVal}, #{afterVal}, #{effFrom}, #{empId}, #{globalTxId}, #{chgDt})
+    </insert>
+</mapper>

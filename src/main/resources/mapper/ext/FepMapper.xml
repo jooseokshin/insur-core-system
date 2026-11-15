@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- FEP 기관 TB_FEP_INST, 전문 로그 TB_FEP_MSG_LOG -->
+<mapper namespace="com.insur.insurcoresystem.mapper.ext.FepMapper">
+
+    <select id="nextTraceSeq" resultType="long">
+        SELECT nextval('SQ_EXT_TRACE')
+    </select>
+
+    <select id="findSignOn" resultType="java.lang.Boolean">
+        SELECT SIGN_ON_YN FROM TB_FEP_INST WHERE INST_CD = #{instCd}
+    </select>
+
+    <select id="existsInst" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_FEP_INST WHERE INST_CD = #{instCd})
+    </select>
+
+    <select id="findInstitutions" resultType="com.insur.insurcoresystem.mapper.ext.FepMapper$InstRow">
+        SELECT I.INST_CD, I.INST_NM, I.SIGN_ON_YN, I.LAST_ECHO_DT, I.LAST_ECHO_OK, I.UPD_DT, I.UPD_EMP_ID,
+               COUNT(L.LOG_ID) AS CNT,
+               COUNT(L.LOG_ID) FILTER (WHERE L.RESULT_CD = 'ERROR') AS ERR,
+               COUNT(L.LOG_ID) FILTER (WHERE L.RESULT_CD = 'TIMEOUT') AS TMO,
+               COUNT(L.LOG_ID) FILTER (WHERE L.RESULT_CD = 'BLOCKED') AS BLK,
+               ROUND(AVG(L.ELAPSED_MS) FILTER (WHERE L.RESULT_CD IN ('OK', 'ERROR'))) AS AVG_MS
+          FROM TB_FEP_INST I
+          LEFT JOIN TB_FEP_MSG_LOG L ON L.INST_CD = I.INST_CD AND L.REQ_DT &gt;= #{from} AND L.REQ_DT &lt; #{to}
+         GROUP BY I.INST_CD, I.INST_NM, I.SIGN_ON_YN, I.LAST_ECHO_DT, I.LAST_ECHO_OK, I.UPD_DT, I.UPD_EMP_ID
+         ORDER BY I.INST_CD
+    </select>
+
+    <update id="updateSignOn">
+        UPDATE TB_FEP_INST SET SIGN_ON_YN = #{on}, UPD_DT = #{now}, UPD_EMP_ID = #{empId} WHERE INST_CD = #{instCd}
+    </update>
+
+    <update id="updateEcho">
+        UPDATE TB_FEP_INST SET LAST_ECHO_DT = #{now}, LAST_ECHO_OK = #{ok} WHERE INST_CD = #{instCd}
+    </update>
+
+    <insert id="insertMessageLog">
+        INSERT INTO TB_FEP_MSG_LOG (INST_CD, TX_TYPE, TRACE_NO, REQ_DT, ELAPSED_MS, RESULT_CD, RESPONSE_CD, REQ_BYTES, RES_BYTES,
+                                    REQ_HASH, ERROR_MSG)
+        VALUES (#{instCd}, #{txType}, #{traceNo}, #{reqDt}, #{elapsedMs}, #{resultCd}, #{responseCd}, #{reqBytes}, #{resBytes},
+                #{reqHash}, #{errorMsg})
+    </insert>
+
+    <select id="findMessageLogs" resultType="com.insur.insurcoresystem.mapper.ext.FepMapper$MessageLogRow">
+        SELECT LOG_ID, INST_CD, TX_TYPE, TRACE_NO, REQ_DT, ELAPSED_MS, RESULT_CD, RESPONSE_CD, REQ_BYTES, RES_BYTES, REQ_HASH, ERROR_MSG
+          FROM TB_FEP_MSG_LOG
+        <where>
+            <if test="c.instCd != null">AND INST_CD = #{c.instCd}</if>
+            <if test="c.traceNo != null">AND TRACE_NO = #{c.traceNo}</if>
+            <if test="c.resultCd != null">AND RESULT_CD = #{c.resultCd}</if>
+            <if test="c.reqFrom != null">AND REQ_DT &gt;= #{c.reqFrom} AND REQ_DT &lt; #{c.reqTo}</if>
+        </where>
+         ORDER BY LOG_ID DESC
+         LIMIT #{c.limit}
+    </select>
+</mapper>

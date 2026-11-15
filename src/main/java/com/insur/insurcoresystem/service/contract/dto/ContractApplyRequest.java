@@ -22,8 +22,8 @@ import lombok.Setter;
 @AllArgsConstructor
 public class ContractApplyRequest {
 
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
 
     /** 상품코드 (선택). 지정하면 오늘 판매 중인 상품이어야 하고 담보 구성을 상품 규칙으로 검증한다. 생략하면 상품 없이(기존 연계 채널 방식) 접수한다 */
@@ -51,6 +51,9 @@ public class ContractApplyRequest {
     @Schema(hidden = true)
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String salesChnlCd;
+    /** 개인신용정보 조회 동의 (실손의료보험 05 는 필수. 한국신용정보원에서 다른 보험사 실손 가입 여부를 조회하는 데 쓴다) */
+    @Schema(description = "개인신용정보 조회 동의 (실손의료보험 05 는 필수. 한국신용정보원에서 다른 보험사 실손 가입 여부를 조회하는 데 쓴다)")
+    private Boolean creditInfoConsent;
     /** 가입 담보 목록 (1건 이상) */
     @Schema(description = "가입 담보 목록 (1건 이상)")
     private List<CoverageRequest> coverages;

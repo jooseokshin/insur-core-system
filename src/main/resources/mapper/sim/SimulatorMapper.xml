@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 모의 기관 표 (개발·시험 전용) -->
+<mapper namespace="com.insur.insurcoresystem.mapper.sim.SimulatorMapper">
+
+    <select id="findKcisContracts" resultType="com.insur.insurcoresystem.mapper.sim.SimulatorMapper$KcisContract">
+        SELECT INSURER_CD, POLICY_NO, KIND_CD, START_DATE, END_DATE, COVERED_YN, NON_COVERED_YN
+          FROM TB_SIM_KCIS_CONTRACT
+         WHERE INSURED_ID = #{insuredId} AND START_DATE &lt;= #{baseDate} AND END_DATE &gt; #{baseDate}
+         ORDER BY INSURER_CD, POLICY_NO
+    </select>
+
+    <insert id="insertKcisContract">
+        INSERT INTO TB_SIM_KCIS_CONTRACT (INSURED_ID, INSURER_CD, POLICY_NO, KIND_CD, START_DATE, END_DATE, COVERED_YN, NON_COVERED_YN)
+        VALUES (#{insuredId}, #{c.insurerCd}, #{c.policyNo}, #{c.kindCd}, #{c.startDate}, #{c.endDate}, #{c.coveredYn}, #{c.nonCoveredYn})
+        ON CONFLICT (INSURER_CD, POLICY_NO) DO NOTHING
+    </insert>
+
+    <update id="updateKcisContractEnd">
+        UPDATE TB_SIM_KCIS_CONTRACT SET END_DATE = #{endDate} WHERE INSURER_CD = #{insurerCd} AND POLICY_NO = #{policyNo}
+    </update>
+
+    <insert id="insertKcisReceipt">
+        INSERT INTO TB_SIM_KCIS_RECEIPT (TX_TYPE, TRACE_NO, MESSAGE, RECEIVED_DT) VALUES (#{txType}, #{traceNo}, #{message}, #{receivedDt})
+    </insert>
+
+    <select id="findBankAccount" resultType="com.insur.insurcoresystem.mapper.sim.SimulatorMapper$BankAccount">
+        SELECT HOLDER_NM, STAT_CD, BALANCE FROM TB_SIM_BANK_ACCOUNT WHERE BANK_CD = #{bankCd} AND ACCOUNT_NO = #{accountNo}
+    </select>
+
+    <sql id="transferColumns">TRACE_NO, BANK_CD, ACCOUNT_NO, AMOUNT, RECIPIENT_NM, PROC_DT</sql>
+
+    <select id="findBankTransfer" resultType="com.insur.insurcoresystem.mapper.sim.SimulatorMapper$BankTransfer">
+        SELECT <include refid="transferColumns"/> FROM TB_SIM_BANK_TRANSFER WHERE TRACE_NO = #{traceNo}
+    </select>
+
+    <insert id="insertBankTransfer">
+        INSERT INTO TB_SIM_BANK_TRANSFER (<include refid="transferColumns"/>)
+        VALUES (#{traceNo}, #{bankCd}, #{accountNo}, #{amount}, #{recipientNm}, #{procDt})
+    </insert>
+
+    <select id="findBankTransfers" resultType="com.insur.insurcoresystem.mapper.sim.SimulatorMapper$BankTransfer">
+        SELECT <include refid="transferColumns"/> FROM TB_SIM_BANK_TRANSFER
+         WHERE PROC_DT &gt;= #{from} AND PROC_DT &lt; #{to}
+         ORDER BY TRACE_NO
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="debitBankAccount">
+        UPDATE TB_SIM_BANK_ACCOUNT SET BALANCE = BALANCE - #{amount} WHERE BANK_CD = #{bankCd} AND ACCOUNT_NO = #{accountNo}
+    </update>
+
+    <insert id="upsertCmsMandate">
+        INSERT INTO TB_SIM_CMS_MANDATE (ORG_CODE, PAYER_NO, BANK_CD, ACCOUNT_NO, REG_DT)
+        VALUES (#{orgCode}, #{payerNo}, #{bankCd}, #{accountNo}, #{regDt})
+        ON CONFLICT (ORG_CODE, PAYER_NO) DO UPDATE SET BANK_CD = EXCLUDED.BANK_CD, ACCOUNT_NO = EXCLUDED.ACCOUNT_NO, REG_DT = EXCLUDED.REG_DT
+    </insert>
+
+    <select id="existsCmsMandate" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_SIM_CMS_MANDATE
+                        WHERE ORG_CODE = #{orgCode} AND PAYER_NO = #{payerNo} AND BANK_CD = #{bankCd} AND ACCOUNT_NO = #{accountNo})
+    </select>
+
+    <insert id="upsertCmsFile">
+        INSERT INTO TB_SIM_CMS_FILE (FILE_TYPE, FILE_DT, CONTENT, CREATED_DT) VALUES (#{fileType}, #{fileDt}, #{content}, #{createdDt})
+        ON CONFLICT (FILE_TYPE, FILE_DT) DO UPDATE SET CONTENT = EXCLUDED.CONTENT, CREATED_DT = EXCLUDED.CREATED_DT
+    </insert>
+
+    <select id="findCmsFile" resultType="string">
+        SELECT CONTENT FROM TB_SIM_CMS_FILE WHERE FILE_TYPE = #{fileType} AND FILE_DT = #{fileDt}
+    </select>
+</mapper>

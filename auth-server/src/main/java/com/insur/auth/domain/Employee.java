@@ -1,13 +1,5 @@
 package com.insur.auth.domain;
 
-import jakarta.persistence.CollectionTable;
-import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -19,69 +11,49 @@ import lombok.NoArgsConstructor;
 /**
  * 사원 계정. 상태는 아래 메서드로만 바꾼다.
  */
-@Entity
-@Table(name = "TB_EMP")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Employee {
 
     /** 사번 (JWT 의 sub) */
-    @Id
-    @Column(name = "EMP_ID", length = 20)
     private String empId;
 
     /** 이름 */
-    @Column(name = "EMP_NM", length = 50, nullable = false)
     private String empNm;
 
     /** 부서명 */
-    @Column(name = "DEPT_NM", length = 50)
     private String deptNm;
 
     /** 비밀번호 BCrypt 해시 */
-    @Column(name = "PWD_HASH", length = 100, nullable = false)
     private String pwdHash;
 
     /** 사용 여부. false 면 로그인할 수 없다 */
-    @Column(name = "USE_YN", nullable = false)
     private boolean active;
 
     /** 잠금 여부. 비밀번호를 연속으로 틀리면 잠기고, 관리자가 풀어야 한다 */
-    @Column(name = "LOCK_YN", nullable = false)
     private boolean locked;
 
     /** 비밀번호 변경 필요 여부 (최초 등록, 관리자 초기화 직후) */
-    @Column(name = "PWD_CHG_REQ_YN", nullable = false)
     private boolean passwordChangeRequired;
 
     /** 연속 로그인 실패 횟수. 성공하면 0 으로 돌아간다 */
-    @Column(name = "LOGIN_FAIL_CNT", nullable = false)
     private int loginFailCnt;
 
     /** 비밀번호 변경 일시 */
-    @Column(name = "PWD_CHG_DT")
     private LocalDateTime pwdChgDt;
 
     /** 마지막 로그인 성공 일시 */
-    @Column(name = "LAST_LOGIN_DT")
     private LocalDateTime lastLoginDt;
 
-    @Column(name = "REG_DT", nullable = false)
     private LocalDateTime regDt;
 
-    @Column(name = "REG_EMP_ID", length = 20)
     private String regEmpId;
 
-    @Column(name = "UPD_DT", nullable = false)
     private LocalDateTime updDt;
 
-    @Column(name = "UPD_EMP_ID", length = 20)
     private String updEmpId;
 
     /** 역할 (AGENT, UNDERWRITER, OPERATOR, ADMIN) */
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "TB_EMP_ROLE", joinColumns = @JoinColumn(name = "EMP_ID"))
-    @Column(name = "ROLE_CD", length = 20)
     private Set<String> roles = new HashSet<>();
 
     /**

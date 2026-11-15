@@ -64,11 +64,19 @@ public class TokenClaimsCustomizer implements OAuth2TokenCustomizer<JwtEncodingC
     }
 
     /**
+     * 채널계·대외기관 시스템 토큰 (client credentials). 대외기관은 EXTERNAL 역할만 넣는다.
      * 채널계 시스템 토큰 (client credentials). sub 는 클라이언트 ID(기본값)이고, 사람 역할 대신 CHANNEL 하나와 판매채널코드를 넣는다.
      * 채널 클라이언트로 등록하지 않은 클라이언트가 이 방식으로 토큰을 받으면(설정 실수) 거절한다.
      */
     private static void customizeChannel(JwtEncodingContext context) {
         if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+            return;
+        }
+        if (Boolean.TRUE.equals(context.getRegisteredClient().getClientSettings().getSetting(SecurityConfig.PARTNER_SETTING))) {
+            // 대외기관 시스템: EXTERNAL 역할만 (판매채널 없음)
+            context.getClaims()
+                    .claim("roles", new ArrayList<>(List.of("EXTERNAL")))
+                    .claim("name", context.getRegisteredClient().getClientName());
             return;
         }
         Object channelCd = context.getRegisteredClient().getClientSettings().getSetting(SecurityConfig.CHANNEL_CD_SETTING);

@@ -22,10 +22,10 @@ public enum RatingFactorType {
     STRUCTURE_GRADE(false, "structureGrade", Set.of("02"), RatingInput::getStructureGrade),
     /** 여행 지역 (해외여행) */
     TRAVEL_REGION(false, "travelRegion", Set.of("04"), RatingInput::getTravelRegion),
-    /** 피보험자 나이 (해외여행) */
-    INSURED_AGE(true, "insuredAge", Set.of("04"), r -> r.getInsuredAge() == null ? null : String.valueOf(r.getInsuredAge())),
+    /** 피보험자 나이 (해외여행, 실손의료) */
+    INSURED_AGE(true, "insuredAge", Set.of("04", "05"), r -> r.getInsuredAge() == null ? null : String.valueOf(r.getInsuredAge())),
     /** 판매채널(10 대면, 20 다이렉트, 30 TM). 서버가 정한다 */
-    SALES_CHANNEL(false, null, Set.of("01", "02", "03", "04"), r -> null);
+    SALES_CHANNEL(false, null, Set.of("01", "02", "03", "04", "05"), r -> null);
 
     private final boolean range;
     private final String inputField;

@@ -1,0 +1,219 @@
+-- 실손의료보험(보험종목 05)과 대외기관(한국신용정보원) 연계.
+-- 보상 구조는 4세대 실손의료보험(2021년 7월 출시)의 표준 구조를 따른다:
+--   급여 자기부담 20%, 비급여 자기부담 30%, 통원은 최소 공제금액(급여 의원·병원 1만원 / 종합·상급종합 2만원, 비급여 3만원)과
+--   비율 공제 중 큰 금액을 공제, 연간 한도는 급여·비급여 각각 5천만원.
+-- 요율·나이 계수·통원 1회 한도는 개발용 예시 값이다. 실제 값은 상품 약관과 보험업감독업무시행세칙의 표준약관으로 확인한다.
+
+-- 상품과 담보 -------------------------------------------------------------------------------------
+INSERT INTO TB_PRM_RATE (INSR_CLS_CD, CVRG_CD, CVRG_NM, ANNUAL_RATE, EFF_FROM) VALUES
+    ('05', 'ME001', '급여 실손의료비',   0.002400, DATE '2000-01-01'),
+    ('05', 'ME002', '비급여 실손의료비', 0.002000, DATE '2000-01-01');
+
+INSERT INTO TB_PRM_FACTOR (INSR_CLS_CD, FACTOR_TYPE, FACTOR_KEY, RANGE_FROM, RANGE_TO, FACTOR_NM, FACTOR_VALUE, EFF_FROM) VALUES
+    ('05', 'INSURED_AGE', NULL, 0, 19,  '만 0~19세',  0.6000, DATE '2000-01-01'),
+    ('05', 'INSURED_AGE', NULL, 20, 39, '만 20~39세', 0.8000, DATE '2000-01-01'),
+    ('05', 'INSURED_AGE', NULL, 40, 59, '만 40~59세', 1.0000, DATE '2000-01-01'),
+    ('05', 'INSURED_AGE', NULL, 60, 69, '만 60~69세', 1.6000, DATE '2000-01-01'),
+    ('05', 'INSURED_AGE', NULL, 70, 79, '만 70~79세', 2.2000, DATE '2000-01-01');
+
+INSERT INTO TB_PRM_FACTOR_POLICY (INSR_CLS_CD, FACTOR_TYPE, REQUIRED_YN, EFF_FROM) VALUES
+    ('05', 'INSURED_AGE', TRUE, DATE '2000-01-01');
+
+-- 가입금액 = 연간 보상 한도 (급여·비급여 각각 5천만원으로 고정)
+INSERT INTO TB_PRD (PRD_CD, PRD_NM, INSR_CLS_CD, PRD_DESC, SALE_FROM, SALE_TO, MIN_TERM_DAYS, MAX_TERM_DAYS) VALUES
+    ('MED-STD-2026', '실손의료보험 표준형', '05',
+     '4세대 구조. 급여를 기본으로 비급여를 특약으로 더한다. 1년 단위 계약이며 연간 한도는 급여·비급여 각 5천만원',
+     DATE '2026-01-01', NULL, 365, 366);
+INSERT INTO TB_PRD_CVRG (PRD_CD, CVRG_CD, CVRG_TYPE, REQUIRED_YN, MIN_ISRD_AMT, MAX_ISRD_AMT, DEDUCTIBLE_AMT, SORT_ORD) VALUES
+    ('MED-STD-2026', 'ME001', 'MAIN',  TRUE,  50000000, 50000000, 0, 1),
+    ('MED-STD-2026', 'ME002', 'RIDER', FALSE, 50000000, 50000000, 0, 2);
+
+-- 상품별 실손 보상 규칙 ---------------------------------------------------------------------------------
+CREATE TABLE TB_PRD_MED_RULE (
+    PRD_CD           VARCHAR(20)    NOT NULL,
+    CVRG_CD          VARCHAR(10)    NOT NULL,
+    CARE_TYPE        VARCHAR(3)     NOT NULL,
+    FACILITY_GRADE   VARCHAR(10)    NOT NULL,
+    COPAY_RATE       NUMERIC(5, 4)  NOT NULL,
+    MIN_DEDUCT_AMT   NUMERIC(15, 0) NOT NULL,
+    PER_VISIT_LIMIT  NUMERIC(15, 0),
+    CONSTRAINT PK_PRD_MED_RULE PRIMARY KEY (PRD_CD, CVRG_CD, CARE_TYPE, FACILITY_GRADE),
+    CONSTRAINT FK_PRD_MED_RULE_PRD FOREIGN KEY (PRD_CD) REFERENCES TB_PRD (PRD_CD),
+    CONSTRAINT CK_PRD_MED_RULE_CARE CHECK (CARE_TYPE IN ('IN', 'OUT')),
+    CONSTRAINT CK_PRD_MED_RULE_GRADE CHECK (FACILITY_GRADE IN ('ALL', 'CLINIC', 'GENERAL')),
+    CONSTRAINT CK_PRD_MED_RULE_RATE CHECK (COPAY_RATE >= 0 AND COPAY_RATE < 1 AND MIN_DEDUCT_AMT >= 0)
+);
+COMMENT ON TABLE TB_PRD_MED_RULE IS '실손 보상 규칙. 상품·담보·입원/통원·의료기관 등급별 자기부담률과 최소 공제금액, 통원 1회 한도';
+COMMENT ON COLUMN TB_PRD_MED_RULE.PRD_CD IS '상품코드 (TB_PRD)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.CVRG_CD IS '담보코드 (ME001 급여, ME002 비급여)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.CARE_TYPE IS '진료 구분 (IN:입원, OUT:통원)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.FACILITY_GRADE IS '의료기관 등급 (ALL:구분 없음, CLINIC:의원·병원, GENERAL:종합병원·상급종합병원)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.COPAY_RATE IS '자기부담률 (보장대상의료비에 곱한다, 예 0.2000 = 20%)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.MIN_DEDUCT_AMT IS '최소 공제금액 (원). 공제금액 = max(최소 공제금액, 보장대상의료비 × 자기부담률)';
+COMMENT ON COLUMN TB_PRD_MED_RULE.PER_VISIT_LIMIT IS '통원 1회 보상 한도 (원, 예시 값). null 이면 1회 한도 없음 (입원)';
+
+INSERT INTO TB_PRD_MED_RULE (PRD_CD, CVRG_CD, CARE_TYPE, FACILITY_GRADE, COPAY_RATE, MIN_DEDUCT_AMT, PER_VISIT_LIMIT) VALUES
+    ('MED-STD-2026', 'ME001', 'IN',  'ALL',     0.2000,     0,   NULL),
+    ('MED-STD-2026', 'ME001', 'OUT', 'CLINIC',  0.2000, 10000, 200000),
+    ('MED-STD-2026', 'ME001', 'OUT', 'GENERAL', 0.2000, 20000, 200000),
+    ('MED-STD-2026', 'ME002', 'IN',  'ALL',     0.3000,     0,   NULL),
+    ('MED-STD-2026', 'ME002', 'OUT', 'ALL',     0.3000, 30000, 200000);
+
+-- 실손 사고의 진료 내역 (영수증 한 장 = 한 행) --------------------------------------------------------------
+CREATE TABLE TB_CLM_MED_ITEM (
+    CLM_NO            VARCHAR(30)    NOT NULL,
+    SEQ               INTEGER        NOT NULL,
+    TREAT_DT          DATE           NOT NULL,
+    CARE_TYPE         VARCHAR(3)     NOT NULL,
+    FACILITY_TYPE     VARCHAR(10)    NOT NULL,
+    FACILITY_NM       VARCHAR(100)   NOT NULL,
+    COVERED_AMT       NUMERIC(15, 0) NOT NULL,
+    NON_COVERED_AMT   NUMERIC(15, 0) NOT NULL,
+    COVERED_ASSESSED  NUMERIC(15, 0),
+    NON_COVERED_ASSESSED NUMERIC(15, 0),
+    COVERED_DEDUCT    NUMERIC(15, 0),
+    COVERED_PAY       NUMERIC(15, 0),
+    NON_COVERED_DEDUCT NUMERIC(15, 0),
+    NON_COVERED_PAY   NUMERIC(15, 0),
+    SOURCE_CD         VARCHAR(10)    NOT NULL,
+    CONSTRAINT PK_CLM_MED_ITEM PRIMARY KEY (CLM_NO, SEQ),
+    CONSTRAINT FK_CLM_MED_ITEM_CLM FOREIGN KEY (CLM_NO) REFERENCES TB_CLM (CLM_NO),
+    CONSTRAINT CK_CLM_MED_ITEM_CARE CHECK (CARE_TYPE IN ('IN', 'OUT')),
+    CONSTRAINT CK_CLM_MED_ITEM_FACILITY CHECK (FACILITY_TYPE IN ('CLINIC', 'HOSPITAL', 'GENERAL', 'TERTIARY')),
+    CONSTRAINT CK_CLM_MED_ITEM_AMT CHECK (COVERED_AMT >= 0 AND NON_COVERED_AMT >= 0 AND COVERED_AMT + NON_COVERED_AMT > 0),
+    CONSTRAINT CK_CLM_MED_ITEM_SOURCE CHECK (SOURCE_CD IN ('MANUAL', 'KIDI'))
+);
+COMMENT ON TABLE TB_CLM_MED_ITEM IS '실손 사고의 진료 내역. 진료비 영수증 한 장(진료일·의료기관 한 번)이 한 행이며 손해사정 결과를 행마다 남긴다';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.CLM_NO IS '사고번호 (TB_CLM)';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.SEQ IS '사고 안의 순번 (1부터)';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.TREAT_DT IS '진료일 (입원은 입원 시작일). 보장 기간 안이어야 한다';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.CARE_TYPE IS '진료 구분 (IN:입원, OUT:통원)';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.FACILITY_TYPE IS '요양기관 종별 (CLINIC:의원, HOSPITAL:병원, GENERAL:종합병원, TERTIARY:상급종합병원)';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.FACILITY_NM IS '의료기관명';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.COVERED_AMT IS '급여 본인부담금 (원, 진료비 영수증의 급여 항목 중 환자가 낸 금액). 급여 실손의 보장대상의료비';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.NON_COVERED_AMT IS '비급여 금액 (원). 비급여 실손의 보장대상의료비';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.COVERED_ASSESSED IS '손해사정에서 인정한 급여 본인부담금 (원, 청구액 이하). 손해사정 전 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.NON_COVERED_ASSESSED IS '손해사정에서 인정한 비급여 금액 (원, 청구액 이하. 미용·보장 제외 항목을 빼는 데 쓴다). 손해사정 전 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.COVERED_DEDUCT IS '급여 공제금액 (원). 손해사정 전 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.COVERED_PAY IS '급여 보상책임액 (원, 공제·통원 1회 한도 적용 후, 연간 한도·비례보상 전). 손해사정 전 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.NON_COVERED_DEDUCT IS '비급여 공제금액 (원). 비급여 특약이 없거나 손해사정 전이면 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.NON_COVERED_PAY IS '비급여 보상책임액 (원). 비급여 특약이 없거나 손해사정 전이면 null';
+COMMENT ON COLUMN TB_CLM_MED_ITEM.SOURCE_CD IS '접수 경로 (MANUAL:직원·채널 입력, KIDI:실손 청구 전산화로 의료기관이 전송)';
+
+-- 비례보상 내역 (다른 보험사 실손 계약이 있을 때) ----------------------------------------------------------
+CREATE TABLE TB_CLM_MED_SHARE (
+    CLM_NO          VARCHAR(30)    NOT NULL,
+    CVRG_CD         VARCHAR(10)    NOT NULL,
+    INSURER_CD      VARCHAR(3)     NOT NULL,
+    POLICY_NO       VARCHAR(30)    NOT NULL,
+    LIABILITY_AMT   NUMERIC(15, 0) NOT NULL,
+    SHARE_AMT       NUMERIC(15, 0) NOT NULL,
+    CONSTRAINT PK_CLM_MED_SHARE PRIMARY KEY (CLM_NO, CVRG_CD, INSURER_CD, POLICY_NO),
+    CONSTRAINT FK_CLM_MED_SHARE_CLM FOREIGN KEY (CLM_NO) REFERENCES TB_CLM (CLM_NO)
+);
+COMMENT ON TABLE TB_CLM_MED_SHARE IS '실손 비례보상 계산 내역. 손해사정 때 신용정보원에서 조회한 다른 보험사 실손 계약과 우리 계약의 보상책임액·분담액';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.CLM_NO IS '사고번호 (TB_CLM)';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.CVRG_CD IS '담보코드 (ME001 급여, ME002 비급여)';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.INSURER_CD IS '보험회사 코드 (신용정보원 기관코드, 우리 회사는 K99)';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.POLICY_NO IS '증권번호 (다른 보험사 계약은 신용정보원이 준 마스킹된 번호)';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.LIABILITY_AMT IS '다른 계약이 없다고 보고 계산한 이 계약의 보상책임액 (원)';
+COMMENT ON COLUMN TB_CLM_MED_SHARE.SHARE_AMT IS '비례보상 후 이 계약이 분담할 금액 (원). 우리 회사 행이 실제 지급액의 근거';
+
+-- 청약 시 신용정보 조회 동의와 중복가입 조회 결과 ---------------------------------------------------------
+CREATE TABLE TB_CTR_MED_CHECK (
+    CONTRACT_NO      VARCHAR(30)   NOT NULL,
+    CONSENT_DT       TIMESTAMP     NOT NULL,
+    CHECK_STAT_CD    VARCHAR(2)    NOT NULL,
+    OTHER_COUNT      INTEGER,
+    CHECKED_DT       TIMESTAMP,
+    CHECK_EMP_ID     VARCHAR(64),
+    LAST_ERROR       VARCHAR(200),
+    CONSTRAINT PK_CTR_MED_CHECK PRIMARY KEY (CONTRACT_NO),
+    CONSTRAINT FK_CTR_MED_CHECK_CONTRACT FOREIGN KEY (CONTRACT_NO) REFERENCES TB_CTR_LGD (CONTRACT_NO),
+    CONSTRAINT CK_CTR_MED_CHECK_STAT CHECK (CHECK_STAT_CD IN ('10', '80'))
+);
+COMMENT ON TABLE TB_CTR_MED_CHECK IS '실손 청약의 신용정보 조회 동의와 중복가입 조회 결과. 조회가 끝나야(10) 승인할 수 있다';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.CONTRACT_NO IS '증권번호 (TB_CTR_LGD, 실손 계약)';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.CONSENT_DT IS '개인신용정보 조회 동의 일시 (동의 없이는 청약을 받지 않는다)';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.CHECK_STAT_CD IS '중복가입 조회 상태 (10:조회 완료, 80:조회 실패 - 대외기관 장애 등으로 다시 조회해야 함)';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.OTHER_COUNT IS '조회된 다른 보험사 실손 계약 수 (조회 실패면 null)';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.CHECKED_DT IS '마지막 조회 일시';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.CHECK_EMP_ID IS '마지막 조회 처리자';
+COMMENT ON COLUMN TB_CTR_MED_CHECK.LAST_ERROR IS '마지막 조회 실패 사유 (성공하면 null)';
+
+-- 대외기관 전송 대기열 (트랜잭셔널 아웃박스) ---------------------------------------------------------------
+CREATE TABLE TB_EXT_OUTBOX (
+    OUTBOX_ID      BIGINT GENERATED BY DEFAULT AS IDENTITY,
+    AGENCY_CD      VARCHAR(10)   NOT NULL,
+    TX_TYPE        VARCHAR(4)    NOT NULL,
+    BIZ_KEY        VARCHAR(40)   NOT NULL,
+    PAYLOAD        TEXT          NOT NULL,
+    STAT_CD        VARCHAR(2)    NOT NULL,
+    ATTEMPTS       INTEGER       NOT NULL DEFAULT 0,
+    NEXT_TRY_DT    TIMESTAMP     NOT NULL,
+    LAST_ERROR     VARCHAR(200),
+    CREATED_DT     TIMESTAMP     NOT NULL,
+    SENT_DT        TIMESTAMP,
+    CONSTRAINT PK_EXT_OUTBOX PRIMARY KEY (OUTBOX_ID),
+    CONSTRAINT UK_EXT_OUTBOX UNIQUE (AGENCY_CD, TX_TYPE, BIZ_KEY),
+    CONSTRAINT CK_EXT_OUTBOX_STAT CHECK (STAT_CD IN ('10', '20', '90'))
+);
+CREATE INDEX IX_EXT_OUTBOX_DUE ON TB_EXT_OUTBOX (STAT_CD, NEXT_TRY_DT);
+COMMENT ON TABLE TB_EXT_OUTBOX IS '대외기관 전송 대기열. 업무 거래와 같은 트랜잭션에 쌓고 별도 작업이 보낸다(트랜잭셔널 아웃박스). 기관 장애가 업무를 멈추지 않게 한다';
+COMMENT ON COLUMN TB_EXT_OUTBOX.OUTBOX_ID IS '대기열 일련번호';
+COMMENT ON COLUMN TB_EXT_OUTBOX.AGENCY_CD IS '대외기관 코드 (KCIS:한국신용정보원)';
+COMMENT ON COLUMN TB_EXT_OUTBOX.TX_TYPE IS '거래 구분 (R001:실손 계약정보 집중, R002:실손 보험금 지급정보 집중)';
+COMMENT ON COLUMN TB_EXT_OUTBOX.BIZ_KEY IS '업무 키 (증권번호·사고번호에 변경 구분을 붙인 값). 같은 내용을 두 번 쌓지 않게 유니크';
+COMMENT ON COLUMN TB_EXT_OUTBOX.PAYLOAD IS '보낼 전문 (고정길이, 기관 문자셋으로 바꾸기 전 문자열)';
+COMMENT ON COLUMN TB_EXT_OUTBOX.STAT_CD IS '상태 (10:전송 대기, 20:전송 완료, 90:재시도 한도 초과 - 담당자 확인 필요)';
+COMMENT ON COLUMN TB_EXT_OUTBOX.ATTEMPTS IS '전송 시도 횟수';
+COMMENT ON COLUMN TB_EXT_OUTBOX.NEXT_TRY_DT IS '다음 전송 시도 일시 (실패할 때마다 간격을 늘린다)';
+COMMENT ON COLUMN TB_EXT_OUTBOX.LAST_ERROR IS '마지막 전송 실패 사유';
+COMMENT ON COLUMN TB_EXT_OUTBOX.CREATED_DT IS '쌓은 일시';
+COMMENT ON COLUMN TB_EXT_OUTBOX.SENT_DT IS '전송 완료 일시';
+
+-- 모의 신용정보원 (개발·테스트 전용) ---------------------------------------------------------------------
+-- 실제 기관 대신 같은 전문을 받아 답하는 모의 기관이 쓰는 표. 운영에서는 이 표를 쓰지 않는다(app.ext.kcis.mode=simulator 일 때만).
+CREATE TABLE TB_SIM_KCIS_CONTRACT (
+    INSURED_ID     VARCHAR(20)   NOT NULL,
+    INSURER_CD     VARCHAR(3)    NOT NULL,
+    POLICY_NO      VARCHAR(30)   NOT NULL,
+    KIND_CD        VARCHAR(2)    NOT NULL,
+    START_DATE     DATE          NOT NULL,
+    END_DATE       DATE          NOT NULL,
+    COVERED_YN     BOOLEAN       NOT NULL,
+    NON_COVERED_YN BOOLEAN       NOT NULL,
+    CONSTRAINT PK_SIM_KCIS_CONTRACT PRIMARY KEY (INSURER_CD, POLICY_NO),
+    CONSTRAINT CK_SIM_KCIS_KIND CHECK (KIND_CD IN ('01', '02'))
+);
+COMMENT ON TABLE TB_SIM_KCIS_CONTRACT IS '모의 신용정보원이 가진 다른 보험사 실손 계약 (개발·테스트 전용, 우리 회사가 집중한 계약도 여기에 쌓인다)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.INSURED_ID IS '피보험자 식별값 (실제 기관은 주민등록번호. 여기서는 피보험자 ID)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.INSURER_CD IS '보험회사 코드 (K99 는 우리 회사)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.POLICY_NO IS '증권번호 (조회 응답에서는 마스킹)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.KIND_CD IS '계약 구분 (01:개인 실손, 02:단체 실손)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.START_DATE IS '보장 시작일 (포함)';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.END_DATE IS '보장 종료일 (이 날은 보장하지 않음). 해지되면 해지일로 바뀐다';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.COVERED_YN IS '급여 보장 여부';
+COMMENT ON COLUMN TB_SIM_KCIS_CONTRACT.NON_COVERED_YN IS '비급여 보장 여부';
+
+CREATE TABLE TB_SIM_KCIS_RECEIPT (
+    RECEIPT_ID   BIGINT GENERATED BY DEFAULT AS IDENTITY,
+    TX_TYPE      VARCHAR(4)    NOT NULL,
+    TRACE_NO     VARCHAR(20)   NOT NULL,
+    MESSAGE      TEXT          NOT NULL,
+    RECEIVED_DT  TIMESTAMP     NOT NULL,
+    CONSTRAINT PK_SIM_KCIS_RECEIPT PRIMARY KEY (RECEIPT_ID)
+);
+COMMENT ON TABLE TB_SIM_KCIS_RECEIPT IS '모의 신용정보원이 받은 집중 전문 기록 (개발·테스트 전용)';
+COMMENT ON COLUMN TB_SIM_KCIS_RECEIPT.RECEIPT_ID IS '수신 일련번호';
+COMMENT ON COLUMN TB_SIM_KCIS_RECEIPT.TX_TYPE IS '거래 구분 (R001 계약정보, R002 지급정보)';
+COMMENT ON COLUMN TB_SIM_KCIS_RECEIPT.TRACE_NO IS '추적번호 (보낸 쪽 전문의 추적번호)';
+COMMENT ON COLUMN TB_SIM_KCIS_RECEIPT.MESSAGE IS '받은 전문 원문';
+COMMENT ON COLUMN TB_SIM_KCIS_RECEIPT.RECEIVED_DT IS '수신 일시';
+
+-- 개발용 예시: 피보험자 DUP-001 은 다른 보험사(K11)에 개인 실손이 이미 있다 (비례보상 확인용)
+INSERT INTO TB_SIM_KCIS_CONTRACT (INSURED_ID, INSURER_CD, POLICY_NO, KIND_CD, START_DATE, END_DATE, COVERED_YN, NON_COVERED_YN) VALUES
+    ('DUP-001', 'K11', 'K11-2025-0000123', '01', DATE '2025-01-01', DATE '2028-01-01', TRUE, TRUE);
+
+-- 대외기관 전문 추적번호 일련번호 (기관코드 3 + 날짜 8 + 일련번호 9 = 20자리)
+CREATE SEQUENCE SQ_EXT_TRACE START WITH 1 INCREMENT BY 1 MAXVALUE 999999999 CYCLE;

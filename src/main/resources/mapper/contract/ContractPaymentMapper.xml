@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 보험료 납입 내역 TB_CTR_PAYMENT -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper">
+
+    <sql id="columns">PAYMENT_ID, CONTRACT_NO, PAY_AMT, PAY_METHOD, EMP_ID, GLOBAL_TX_ID, PAID_DT</sql>
+
+    <select id="findPageByContractNo" resultType="com.insur.insurcoresystem.domain.contract.ContractPayment">
+        SELECT <include refid="columns"/> FROM TB_CTR_PAYMENT WHERE CONTRACT_NO = #{contractNo}
+         ORDER BY PAYMENT_ID
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countByContractNo" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_PAYMENT WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findByGlobalTxId" resultType="com.insur.insurcoresystem.domain.contract.ContractPayment">
+        SELECT <include refid="columns"/> FROM TB_CTR_PAYMENT WHERE GLOBAL_TX_ID = #{globalTxId}
+    </select>
+
+    <select id="sumPaid" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(PAY_AMT), 0) FROM TB_CTR_PAYMENT WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="countDebitsInFlight" resultType="long">
+        SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE CONTRACT_NO = #{contractNo} AND STAT_CD IN ('10', '20')
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="paymentId" keyColumn="payment_id">
+        INSERT INTO TB_CTR_PAYMENT (CONTRACT_NO, PAY_AMT, PAY_METHOD, EMP_ID, GLOBAL_TX_ID, PAID_DT)
+        VALUES (#{contractNo}, #{payAmt}, #{payMethod}, #{empId}, #{globalTxId}, #{paidDt})
+    </insert>
+
+    <delete id="deleteByContractNo">
+        DELETE FROM TB_CTR_PAYMENT WHERE CONTRACT_NO = #{contractNo}
+    </delete>
+</mapper>

@@ -9,12 +9,14 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.pageReq
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
+import com.insur.insurcoresystem.common.paging.PageResult;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryResponse;
 import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
@@ -26,9 +28,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,8 +47,8 @@ public class ContractPaymentService {
     private static final Set<String> METHODS = Set.of(
             ContractPayment.METHOD_CASH, ContractPayment.METHOD_TRANSFER, ContractPayment.METHOD_CARD);
 
-    private final ContractRepository contractRepository;
-    private final ContractPaymentRepository paymentRepository;
+    private final ContractMapper contractMapper;
+    private final ContractPaymentMapper paymentMapper;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -65,7 +64,7 @@ public class ContractPaymentService {
      * @throws BusinessException 거래 UUID 오류(E-CTR-008), 증권번호 누락(E-CTR-009), 금액 형식 오류(E-CTR-007),
      *                           계약 없음(E-CTR-010), 같은 거래 UUID 의 동시 처리 충돌(E-CTR-011), 다른 사용자의 거래 UUID(E-CTR-015),
      *                           같은 거래 UUID 로 다른 내용(E-CTR-019), 청약 상태가 아님(E-CTR-026),
-     *                           남은 보험료 초과(E-CTR-027), 지원하지 않는 납부 방법(E-CTR-029)
+     *                           남은 보험료 초과(E-CTR-027), 지원하지 않는 납부 방법(E-CTR-029), 자동이체 출금 진행 중(E-CTR-031)
      */
     @Transactional
     public PaymentResponse pay(String globalTxId, String empId, PaymentRequest request) {
@@ -91,32 +90,37 @@ public class ContractPaymentService {
             throw new BusinessException("E-CTR-029", "납부 방법은 CASH, TRANSFER, CARD 중 하나여야 합니다.");
         }
 
-        var done = paymentRepository.findByGlobalTxId(globalTxId);
+        var done = paymentMapper.findByGlobalTxId(globalTxId);
         if (done.isPresent()) {
             return replay(done.get(), empId, request);
         }
 
-        Contract contract = contractRepository.findForUpdateByContractNo(request.getContractNo())
+        Contract contract = contractMapper.findForUpdateByContractNo(request.getContractNo())
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
         if (!ContractStatus.APPLIED.getCode().equals(contract.getCtrStatCd())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-026", "청약(10) 상태의 계약만 납입할 수 있습니다.");
         }
-        BigDecimal remaining = contract.getTotalPremium().subtract(paymentRepository.sumPaid(contract.getContractNo()));
+        if (paymentMapper.countDebitsInFlight(contract.getContractNo()) > 0) {
+            throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-031",
+                    "보험료 자동이체 출금이 진행 중입니다. 출금 결과가 나온 뒤 남은 보험료를 수납해 주세요. (그 전에 받으면 과납이 될 수 있습니다)");
+        }
+        BigDecimal remaining = contract.getTotalPremium().subtract(paymentMapper.sumPaid(contract.getContractNo()));
         if (request.getPayAmt().compareTo(remaining) > 0) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-027", "납입 금액이 남은 보험료를 넘습니다. (남은 보험료 " + remaining.toPlainString() + "원)");
         }
 
         ContractPayment saved;
         try {
-            saved = paymentRepository.saveAndFlush(ContractPayment.builder()
+            saved = ContractPayment.builder()
                     .contractNo(contract.getContractNo())
                     .payAmt(request.getPayAmt())
                     .payMethod(request.getPayMethod())
                     .empId(normalizeEmpId(empId))
                     .globalTxId(globalTxId)
                     .paidDt(LocalDateTime.now(clock))
-                    .build());
+                    .build();
+            paymentMapper.insert(saved);
         } catch (DataIntegrityViolationException e) {
             if (!isConstraintViolation(e, GLOBAL_TX_ID_CONSTRAINT)) {
                 throw e;
@@ -143,13 +147,15 @@ public class ContractPaymentService {
         if (isInvalidCode(request.getContractNo(), 30)) {
             throw new BusinessException("E-CTR-009", "증권번호를 입력해야 합니다.");
         }
-        Pageable pageable = pageRequest(request.getPage(), request.getSize(), Sort.by("paymentId").ascending());
-        Contract contract = contractRepository.findById(request.getContractNo())
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
+        Contract contract = contractMapper.findById(request.getContractNo())
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
 
-        Page<ContractPayment> result = paymentRepository.findByContractNo(contract.getContractNo(), pageable);
-        BigDecimal paid = paymentRepository.sumPaid(contract.getContractNo());
+        PageResult<ContractPayment> result = new PageResult<>(
+                paymentMapper.findPageByContractNo(contract.getContractNo(), pageable), pageable,
+                paymentMapper.countByContractNo(contract.getContractNo()));
+        BigDecimal paid = paymentMapper.sumPaid(contract.getContractNo());
         return PaymentHistoryResponse.builder()
                 .contractNo(contract.getContractNo())
                 .totalPremium(contract.getTotalPremium())
@@ -178,14 +184,14 @@ public class ContractPaymentService {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-019",
                     "같은 거래 UUID(globalTxId)로 이전과 다른 내용의 납입이 들어왔습니다. 새 거래 UUID 로 다시 요청해 주세요.");
         }
-        Contract contract = contractRepository.findById(first.getContractNo()).orElseThrow(ContractSupport::contractNotFound);
+        Contract contract = contractMapper.findById(first.getContractNo()).orElseThrow(ContractSupport::contractNotFound);
         log.info("이미 접수한 납입의 재전송이므로 기존 결과를 반환한다: 증권번호={}", contract.getContractNo());
         return toResponse(first, contract);
     }
 
     /** 납입 한 건과 계약의 현재 납입 현황으로 응답을 만든다. */
     private PaymentResponse toResponse(ContractPayment payment, Contract contract) {
-        BigDecimal paid = paymentRepository.sumPaid(contract.getContractNo());
+        BigDecimal paid = paymentMapper.sumPaid(contract.getContractNo());
         BigDecimal remaining = contract.getTotalPremium().subtract(paid);
         return PaymentResponse.builder()
                 .contractNo(contract.getContractNo())

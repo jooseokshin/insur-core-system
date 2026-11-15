@@ -45,6 +45,8 @@ services:
       # 개발용 HS256 토큰(scripts/dev-token.sh, e2e-check.sh)도 받으려면 JWT_SECRET 을 준다. 운영에서는 비운다.
       JWT_SECRET: ${JWT_SECRET:-}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      # 계좌번호 암호화 키 (Base64 32바이트). 기본값은 공개된 개발용 값이라 운영에서는 반드시 바꾼다(KMS 등)
+      ACCOUNT_ENC_KEY: ${ACCOUNT_ENC_KEY:-ZGV2LW9ubHktYWNjb3VudC1rZXktMzItYnl0ZXMhISE=}
     depends_on:
       postgres-db:
         condition: service_healthy

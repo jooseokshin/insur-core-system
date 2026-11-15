@@ -4,8 +4,9 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import com.insur.insurcoresystem.common.security.Roles;
-import com.insur.insurcoresystem.domain.contract.ContractStatus;
+import com.insur.insurcoresystem.mapper.work.WorkMapper;
 import com.insur.insurcoresystem.service.claim.ClaimService;
 import com.insur.insurcoresystem.service.contract.ContractRenewalService;
 import com.insur.insurcoresystem.service.sequence.ProductType;
@@ -17,18 +18,13 @@ import com.insur.insurcoresystem.service.work.dto.TodoResponse;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -50,17 +46,7 @@ public class WorkService {
     public static final int STALE_DAYS = 7;
 
     /** 계약별 납입 합계. 납입이 없는 계약은 0 으로 본다 */
-    private static final String PAID_JOIN = """
-            LEFT JOIN (SELECT CONTRACT_NO, SUM(PAY_AMT) AS PAID FROM TB_CTR_PAYMENT GROUP BY CONTRACT_NO) P
-                   ON P.CONTRACT_NO = C.CONTRACT_NO
-            """;
-
-    /** 아직 청약취소되지 않은 갱신 계약이 없는 경우 (갱신 유니크 인덱스 V17 과 같은 기준) */
-    private static final String NOT_RENEWED = """
-            NOT EXISTS (SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = C.CONTRACT_NO AND R.CTR_STAT_CD <> '90')
-            """;
-
-    private final NamedParameterJdbcTemplate jdbc;
+    private final WorkMapper workMapper;
     private final Clock clock;
 
     /**
@@ -72,68 +58,25 @@ public class WorkService {
     @Transactional(readOnly = true)
     public DashboardResponse dashboard(String ownerEmpId, Set<String> roles) {
         LocalDate today = LocalDate.now(clock);
-        MapSqlParameterSource params = baseParams(ownerEmpId, today);
-        String owner = ownerCondition(ownerEmpId);
+        WorkMapper.Condition base = baseCondition(ownerEmpId, today);
 
-        List<DashboardResponse.StatusCount> statusCounts = jdbc.query("""
-                SELECT C.CTR_STAT_CD, COUNT(*) AS CNT, COALESCE(SUM(C.TOTAL_PREMIUM), 0) AS PREM
-                  FROM TB_CTR_LGD C
-                 WHERE 1 = 1""" + owner + """
-                 GROUP BY C.CTR_STAT_CD
-                 ORDER BY C.CTR_STAT_CD
-                """, params, (rs, i) -> DashboardResponse.StatusCount.builder()
-                .ctrStatCd(rs.getString("CTR_STAT_CD"))
-                .count(rs.getLong("CNT"))
-                .totalPremium(rs.getBigDecimal("PREM"))
-                .build());
-
-        DashboardResponse.Today todayStats = jdbc.queryForObject("""
-                SELECT (SELECT COUNT(*) FROM TB_CTR_LGD C
-                         WHERE C.SYS_REG_DT >= :dayStart AND C.SYS_REG_DT < :dayEnd""" + owner + """
-                       ) AS APPLIED_CNT,
-                       (SELECT COALESCE(SUM(C.TOTAL_PREMIUM), 0) FROM TB_CTR_LGD C
-                         WHERE C.SYS_REG_DT >= :dayStart AND C.SYS_REG_DT < :dayEnd""" + owner + """
-                       ) AS APPLIED_PREM,
-                       (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
-                         WHERE H.AFTER_STAT_CD = '20' AND H.CHG_DT >= :dayStart AND H.CHG_DT < :dayEnd""" + owner + """
-                       ) AS APPROVED_CNT,
-                       (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
-                         WHERE H.AFTER_STAT_CD = '90' AND H.CHG_DT >= :dayStart AND H.CHG_DT < :dayEnd""" + owner + """
-                       ) AS CANCELED_CNT,
-                       (SELECT COUNT(*) FROM TB_CTR_STAT_HIST H JOIN TB_CTR_LGD C ON C.CONTRACT_NO = H.CONTRACT_NO
-                         WHERE H.AFTER_STAT_CD = '30' AND H.CHG_DT >= :dayStart AND H.CHG_DT < :dayEnd""" + owner + """
-                       ) AS TERMINATED_CNT,
-                       (SELECT COUNT(*) FROM TB_CTR_PAYMENT X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO
-                         WHERE X.PAID_DT >= :dayStart AND X.PAID_DT < :dayEnd""" + owner + """
-                       ) AS PAID_CNT,
-                       (SELECT COALESCE(SUM(X.PAY_AMT), 0) FROM TB_CTR_PAYMENT X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO
-                         WHERE X.PAID_DT >= :dayStart AND X.PAID_DT < :dayEnd""" + owner + """
-                       ) AS PAID_AMT
-                """, params, (rs, i) -> DashboardResponse.Today.builder()
-                .appliedCount(rs.getLong("APPLIED_CNT"))
-                .appliedPremium(rs.getBigDecimal("APPLIED_PREM"))
-                .approvedCount(rs.getLong("APPROVED_CNT"))
-                .canceledCount(rs.getLong("CANCELED_CNT"))
-                .terminatedCount(rs.getLong("TERMINATED_CNT"))
-                .paidCount(rs.getLong("PAID_CNT"))
-                .paidAmount(rs.getBigDecimal("PAID_AMT"))
-                .build());
+        List<DashboardResponse.StatusCount> statusCounts = workMapper.countByStatus(base);
+        DashboardResponse.Today todayStats = workMapper.todayStats(base);
 
         List<DashboardResponse.TodoCount> todoCounts = Arrays.stream(TodoType.values())
                 .filter(type -> type.isVisibleTo(roles))
                 .map(type -> DashboardResponse.TodoCount.builder()
                         .type(type.name())
                         .label(type.getLabel())
-                        .count(count("SELECT COUNT(*) FROM TB_CTR_LGD C " + PAID_JOIN
-                                + " WHERE " + todoCondition(type) + owner, params))
+                        .count(workMapper.countTodo(base.toBuilder().todoType(type.name()).build()))
                         .build())
                 .toList();
 
-        long renewalDue = count("SELECT COUNT(*) FROM TB_CTR_LGD C WHERE " + renewalCondition() + owner,
-                params.addValue("dueTo", today.plusDays(ContractRenewalService.RENEWAL_WINDOW_DAYS)));
+        long renewalDue = workMapper.countRenewalTargets(
+                base.toBuilder().dueTo(today.plusDays(ContractRenewalService.RENEWAL_WINDOW_DAYS)).build());
 
         DashboardResponse.Claims claims = roles.stream().anyMatch(CLAIM_VIEWERS::contains)
-                ? claimCounts(params.addValue("threshold", BigDecimal.valueOf(ClaimService.HIGH_VALUE_THRESHOLD)), owner)
+                ? workMapper.claimCounts(base.toBuilder().threshold(BigDecimal.valueOf(ClaimService.HIGH_VALUE_THRESHOLD)).build())
                 : null;
 
         log.info("업무 현황 조회: 기준일={}, 본인 계약만={}", today, ownerEmpId != null);
@@ -161,39 +104,26 @@ public class WorkService {
         if (!type.isVisibleTo(roles)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-002", type.getLabel() + " 업무를 처리할 권한이 없습니다.");
         }
-        PageRequest pageable = pageRequest(request.getPage(), request.getSize(), Sort.unsorted());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
         LocalDate today = LocalDate.now(clock);
-        MapSqlParameterSource params = baseParams(ownerEmpId, today)
-                .addValue("limit", pageable.getPageSize())
-                .addValue("offset", pageable.getOffset());
-        String where = " WHERE " + todoCondition(type) + ownerCondition(ownerEmpId);
+        WorkMapper.Condition condition = baseCondition(ownerEmpId, today).toBuilder().todoType(type.name()).build();
 
-        long total = count("SELECT COUNT(*) FROM TB_CTR_LGD C " + PAID_JOIN + where, params);
-        List<TodoResponse.Item> items = jdbc.query("""
-                SELECT C.CONTRACT_NO, C.APPL_NO, C.INSR_CLS_CD, C.POLICYHOLDER_ID, C.START_DATE, C.TOTAL_PREMIUM,
-                       COALESCE(P.PAID, 0) AS PAID, C.SYS_REG_DT, C.REG_EMP_ID
-                  FROM TB_CTR_LGD C
-                """ + PAID_JOIN + where + """
-                 ORDER BY C.SYS_REG_DT, C.CONTRACT_NO
-                 LIMIT :limit OFFSET :offset
-                """, params, (rs, i) -> {
-            BigDecimal totalPremium = rs.getBigDecimal("TOTAL_PREMIUM");
-            BigDecimal paid = rs.getBigDecimal("PAID");
-            LocalDateTime regDt = rs.getObject("SYS_REG_DT", LocalDateTime.class);
-            return TodoResponse.Item.builder()
-                    .contractNo(rs.getString("CONTRACT_NO"))
-                    .applNo(rs.getString("APPL_NO"))
-                    .insrClsCd(rs.getString("INSR_CLS_CD"))
-                    .policyholderId(rs.getString("POLICYHOLDER_ID"))
-                    .startDate(rs.getObject("START_DATE", LocalDate.class))
-                    .totalPremium(totalPremium)
-                    .paidPremium(paid)
-                    .remainingPremium(totalPremium.subtract(paid).max(BigDecimal.ZERO))
-                    .sysRegDt(regDt)
-                    .regEmpId(rs.getString("REG_EMP_ID"))
-                    .elapsedDays(ChronoUnit.DAYS.between(regDt.toLocalDate(), today))
-                    .build();
-        });
+        long total = workMapper.countTodo(condition);
+        List<TodoResponse.Item> items = workMapper.findTodo(condition, pageable).stream()
+                .map(r -> TodoResponse.Item.builder()
+                        .contractNo(r.contractNo())
+                        .applNo(r.applNo())
+                        .insrClsCd(r.insrClsCd())
+                        .policyholderId(r.policyholderId())
+                        .startDate(r.startDate())
+                        .totalPremium(r.totalPremium())
+                        .paidPremium(r.paid())
+                        .remainingPremium(r.totalPremium().subtract(r.paid()).max(BigDecimal.ZERO))
+                        .sysRegDt(r.sysRegDt())
+                        .regEmpId(r.regEmpId())
+                        .elapsedDays(ChronoUnit.DAYS.between(r.sysRegDt().toLocalDate(), today))
+                        .build())
+                .toList();
 
         log.info("할 일함 조회: 유형={}, page={}, size={}, 전체 {}건", type, pageable.getPageNumber(), pageable.getPageSize(), total);
         return TodoResponse.builder()
@@ -224,37 +154,27 @@ public class WorkService {
         if (byClass) {
             ProductType.fromInsrClsCd(request.getInsrClsCd());   // 지원하지 않는 종목이면 E-SEQ-001
         }
-        PageRequest pageable = pageRequest(request.getPage(), request.getSize(), Sort.unsorted());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
         LocalDate today = LocalDate.now(clock);
-        MapSqlParameterSource params = baseParams(ownerEmpId, today)
-                .addValue("dueTo", today.plusDays(withinDays))
-                .addValue("insrClsCd", request.getInsrClsCd())
-                .addValue("limit", pageable.getPageSize())
-                .addValue("offset", pageable.getOffset());
-        String where = " WHERE " + renewalCondition() + ownerCondition(ownerEmpId)
-                + (byClass ? " AND C.INSR_CLS_CD = :insrClsCd" : "");
+        WorkMapper.Condition condition = baseCondition(ownerEmpId, today).toBuilder()
+                .dueTo(today.plusDays(withinDays))
+                .insrClsCd(byClass ? request.getInsrClsCd() : null)
+                .build();
 
-        long total = count("SELECT COUNT(*) FROM TB_CTR_LGD C" + where, params);
-        List<RenewalTargetResponse.Item> items = jdbc.query("""
-                SELECT C.CONTRACT_NO, C.INSR_CLS_CD, C.POLICYHOLDER_ID, C.INSURED_ID, C.START_DATE, C.END_DATE,
-                       C.TOTAL_PREMIUM, C.REG_EMP_ID
-                  FROM TB_CTR_LGD C""" + where + """
-                 ORDER BY C.END_DATE, C.CONTRACT_NO
-                 LIMIT :limit OFFSET :offset
-                """, params, (rs, i) -> {
-            LocalDate endDate = rs.getObject("END_DATE", LocalDate.class);
-            return RenewalTargetResponse.Item.builder()
-                    .contractNo(rs.getString("CONTRACT_NO"))
-                    .insrClsCd(rs.getString("INSR_CLS_CD"))
-                    .policyholderId(rs.getString("POLICYHOLDER_ID"))
-                    .insuredId(rs.getString("INSURED_ID"))
-                    .startDate(rs.getObject("START_DATE", LocalDate.class))
-                    .endDate(endDate)
-                    .daysToEnd(ChronoUnit.DAYS.between(today, endDate))
-                    .totalPremium(rs.getBigDecimal("TOTAL_PREMIUM"))
-                    .regEmpId(rs.getString("REG_EMP_ID"))
-                    .build();
-        });
+        long total = workMapper.countRenewalTargets(condition);
+        List<RenewalTargetResponse.Item> items = workMapper.findRenewalTargets(condition, pageable).stream()
+                .map(r -> RenewalTargetResponse.Item.builder()
+                        .contractNo(r.contractNo())
+                        .insrClsCd(r.insrClsCd())
+                        .policyholderId(r.policyholderId())
+                        .insuredId(r.insuredId())
+                        .startDate(r.startDate())
+                        .endDate(r.endDate())
+                        .daysToEnd(ChronoUnit.DAYS.between(today, r.endDate()))
+                        .totalPremium(r.totalPremium())
+                        .regEmpId(r.regEmpId())
+                        .build())
+                .toList();
 
         log.info("만기·갱신 대상 조회: {}일 이내, page={}, size={}, 전체 {}건",
                 withinDays, pageable.getPageNumber(), pageable.getPageSize(), total);
@@ -270,61 +190,15 @@ public class WorkService {
     }
 
     /** 보상 현황을 세는 SQL. 설계사는 본인이 접수한 계약의 사고만 센다 */
-    private DashboardResponse.Claims claimCounts(MapSqlParameterSource params, String owner) {
-        String from = " FROM TB_CLM X JOIN TB_CTR_LGD C ON C.CONTRACT_NO = X.CONTRACT_NO WHERE 1 = 1" + owner;
-        return jdbc.queryForObject("SELECT "
-                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '10') AS REPORTED, "
-                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '20') AS ASSESSED, "
-                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '20' AND X.TOTAL_PAY_AMT > :threshold) AS HIGH_VALUE, "
-                + "(SELECT COUNT(*)" + from + " AND X.RPT_DT >= :dayStart AND X.RPT_DT < :dayEnd) AS TODAY_REPORTED, "
-                + "(SELECT COUNT(*)" + from + " AND X.CLM_STAT_CD = '40' AND X.DECIDE_DT >= :dayStart AND X.DECIDE_DT < :dayEnd) AS TODAY_PAID, "
-                + "(SELECT COALESCE(SUM(X.TOTAL_PAY_AMT), 0)" + from
-                + " AND X.CLM_STAT_CD = '40' AND X.DECIDE_DT >= :dayStart AND X.DECIDE_DT < :dayEnd) AS TODAY_PAID_AMT",
-                params, (rs, i) -> DashboardResponse.Claims.builder()
-                        .reportedCount(rs.getLong("REPORTED"))
-                        .assessedCount(rs.getLong("ASSESSED"))
-                        .highValuePendingCount(rs.getLong("HIGH_VALUE"))
-                        .todayReportedCount(rs.getLong("TODAY_REPORTED"))
-                        .todayPaidCount(rs.getLong("TODAY_PAID"))
-                        .todayPaidAmount(rs.getBigDecimal("TODAY_PAID_AMT"))
-                        .build());
-    }
-
-    /** 오늘의 시작·끝 시각, 장기 미처리 기준 시각, 접수자 제한 사번을 담은 공통 파라미터 */
-    private static MapSqlParameterSource baseParams(String ownerEmpId, LocalDate today) {
-        return new MapSqlParameterSource()
-                .addValue("today", today)
-                .addValue("dayStart", today.atStartOfDay())
-                .addValue("dayEnd", today.plusDays(1).atStartOfDay())
+    private static WorkMapper.Condition baseCondition(String ownerEmpId, LocalDate today) {
+        return WorkMapper.Condition.builder()
+                .today(today)
+                .dayStart(today.atStartOfDay())
+                .dayEnd(today.plusDays(1).atStartOfDay())
                 // 접수일이 오늘로부터 STALE_DAYS 일 이상 지난 건: 접수일 < 오늘 - (STALE_DAYS - 1)
-                .addValue("staleBefore", today.minusDays(STALE_DAYS - 1L).atStartOfDay())
-                .addValue("owner", ownerEmpId == null ? null : normalizeEmpId(ownerEmpId));
-    }
-
-    /** 접수자 제한이 있으면 접수 사번 조건을 붙인다 (저장할 때와 같은 64자 규칙으로 맞춘 값과 비교) */
-    private static String ownerCondition(String ownerEmpId) {
-        return ownerEmpId == null ? "" : " AND C.REG_EMP_ID = :owner";
-    }
-
-    /** 할 일 유형별 조건. 모두 청약(10) 상태의 계약이고, 납입 합계(P.PAID)를 쓰는 조건은 PAID_JOIN 과 함께 쓴다 */
-    private static String todoCondition(TodoType type) {
-        String applied = "C.CTR_STAT_CD = '" + ContractStatus.APPLIED.getCode() + "'";
-        return switch (type) {
-            case PENDING_APPROVAL -> applied + " AND COALESCE(P.PAID, 0) >= C.TOTAL_PREMIUM";
-            case UNPAID -> applied + " AND COALESCE(P.PAID, 0) < C.TOTAL_PREMIUM";
-            case STALE_APPLICATION -> applied + " AND C.SYS_REG_DT < :staleBefore";
-        };
-    }
-
-    /** 갱신 대상 조건: 유효(20) 계약 중 보험종기가 오늘~:dueTo 이고 아직 갱신하지 않은 것 */
-    private static String renewalCondition() {
-        return "C.CTR_STAT_CD = '" + ContractStatus.IN_FORCE.getCode() + "'"
-                + " AND C.END_DATE BETWEEN :today AND :dueTo AND " + NOT_RENEWED;
-    }
-
-    private long count(String sql, MapSqlParameterSource params) {
-        Long count = jdbc.queryForObject(sql, params, Long.class);
-        return count == null ? 0 : count;
+                .staleBefore(today.minusDays(STALE_DAYS - 1L).atStartOfDay())
+                .owner(ownerEmpId == null ? null : normalizeEmpId(ownerEmpId))
+                .build();
     }
 
     private static int totalPages(long total, int size) {

@@ -4,6 +4,7 @@
 # 보험종목 네 가지(자동차·화재·운전자·해외여행)를 만들고, 담보 구성·가입금액 한도는 상품표(TB_PRD_CVRG)를,
 # 요율과 계수는 요율표(TB_PRM_RATE, TB_PRM_FACTOR)를 보험시기 기준으로 읽어 보험료를 계산한다.
 # 그래서 만든 보험료는 보험료 산출 API 가 같은 입력으로 내는 값과 같다(요율을 개정해도 따라간다).
+# 사고는 담보마다 접수 지연과 처리 기간을 두어서, 최근 사고 기간에는 아직 접수되지 않은 사고가 있다(IBNR 화면에서 확인).
 #
 # 사용법: scripts/dev-data.sh [계약 건수=3000]     생성 (같은 시드라 매번 같은 데이터)
 #         DEV_DATA_TARGET_LR=0.95 scripts/dev-data.sh   목표 손해율을 바꿔 생성 (기본 0.70, 0.10~3.00)
@@ -30,6 +31,12 @@ if [ "${1:-}" = "--cleanup" ]; then
   fi
   "${PSQL[@]}" <<'SQL'
 BEGIN;
+-- 생성 데이터로 화면에서 만든 지급·대사·실손 내역도 함께 지운다 (계약·사고를 가리키는 외래키)
+DELETE FROM TB_PAY_RECON WHERE PAYOUT_ID IN (SELECT PAYOUT_ID FROM TB_PAY_OUT WHERE CONTRACT_NO LIKE 'GEN-%');
+DELETE FROM TB_PAY_OUT WHERE CONTRACT_NO LIKE 'GEN-%';
+DELETE FROM TB_CLM_MED_SHARE WHERE CLM_NO IN (SELECT CLM_NO FROM TB_CLM WHERE CONTRACT_NO LIKE 'GEN-%');
+DELETE FROM TB_CLM_MED_ITEM WHERE CLM_NO IN (SELECT CLM_NO FROM TB_CLM WHERE CONTRACT_NO LIKE 'GEN-%');
+DELETE FROM TB_CTR_MED_CHECK WHERE CONTRACT_NO LIKE 'GEN-%';
 DELETE FROM TB_CLM_HIST WHERE CLM_NO IN (SELECT CLM_NO FROM TB_CLM WHERE CONTRACT_NO LIKE 'GEN-%');
 DELETE FROM TB_CLM_CVRG WHERE CLM_NO IN (SELECT CLM_NO FROM TB_CLM WHERE CONTRACT_NO LIKE 'GEN-%');
 DELETE FROM TB_CLM WHERE CONTRACT_NO LIKE 'GEN-%';
@@ -191,18 +198,25 @@ SELECT CONTRACT_NO, '20', '30', 'op01', 'gen-term-' || CONTRACT_NO, TERM_DT + TI
 -- 손해액은 그 담보의 보험료에서 역산한다: 평균 손해액 = 목표 손해율 × 담보 보험료 ÷ 빈도, 실제 값은 평균의 0.2~1.8배.
 -- 그러면 담보마다 기대 손해율이 목표에 가깝다(자기부담금·가입금액 한도·면책 때문에 실제로는 조금 낮다).
 -- 빈도와 손해액을 따로 정하면 예시 요율과 맞지 않아 손해율이 수백 %나 수 % 로 튀어, 요율 영향 시뮬레이션이 의미 없는 값을 낸다.
-CREATE TEMP TABLE G_CLM ON COMMIT DROP AS
-SELECT ROW_NUMBER() OVER (ORDER BY l.CONTRACT_NO, v.CVRG_CD) AS k, l.CONTRACT_NO, l.INSURED_ID, v.CVRG_CD, v.ISRD_AMT,
-       l.SALES_CHNL_CD AS chnl,
+--
+-- 시간 지연(IBNR 이 생기는 이유): 담보마다 평균 접수 지연(사고 → 접수)과 평균 처리 기간(접수 → 지급·면책)을 두고
+-- 지수분포로 뽑는다(평균값은 임의의 예시: 자차·대물은 짧고, 대인·배상책임·운전자 법률비용은 길다).
+-- 접수일이 오늘 이후가 되는 사고는 "이미 났지만 아직 모르는" 사고라 만들지 않는다. 상태는 날짜로 정한다:
+-- 종결일이 지났으면 지급(면책 10%), 손해사정일(처리 기간의 40% 지점)이 지났으면 지급 대기, 아니면 접수.
+CREATE TEMP TABLE G_CLM0 ON COMMIT DROP AS
+SELECT l.CONTRACT_NO, l.INSURED_ID, v.CVRG_CD, v.ISRD_AMT, l.SALES_CHNL_CD AS chnl,
        acdt, GREATEST(ROUND(:target_lr * v.PREM / f.freq * (0.2 + 1.6 * random()) / 1000) * 1000, 1000) AS loss,
-       COALESCE(pc.DEDUCTIBLE_AMT, 0) AS deductible, random() AS r_stat
+       COALESCE(pc.DEDUCTIBLE_AMT, 0) AS deductible, random() AS r_stat,
+       f.rpt_mean, f.settle_mean, random() AS r_rpt, random() AS r_settle
   FROM TB_CTR_LGD l
   JOIN TB_CTR_CVRG v ON v.CONTRACT_NO = l.CONTRACT_NO
-  -- 빈도: 1년 상품은 연간, 해외여행은 여행 한 번당 (임의값)
-  JOIN (VALUES ('CA001', 0.02), ('CA002', 0.08), ('CA003', 0.04), ('CA004', 0.12),
-               ('FI001', 0.005), ('FI002', 0.02), ('FI003', 0.01),
-               ('DR001', 0.01), ('DR002', 0.01), ('DR003', 0.01), ('DR004', 0.003),
-               ('TR001', 0.02), ('TR002', 0.04), ('TR003', 0.03), ('TR004', 0.003), ('TR005', 0.05)) AS f(cvrg_cd, freq)
+  -- 빈도(1년 상품은 연간, 해외여행은 여행 한 번당), 평균 접수 지연(일), 평균 처리 기간(일) (모두 임의값)
+  -- 대인·배상책임·형사 비용처럼 치료·소송이 끝나야 청구가 오는 담보는 접수가 늦고(롱테일), 자차·대물·휴대품은 며칠 안에 온다
+  JOIN (VALUES ('CA001', 0.02, 45, 150), ('CA002', 0.08, 3, 20), ('CA003', 0.04, 20, 90), ('CA004', 0.12, 2, 14),
+               ('FI001', 0.005, 5, 45), ('FI002', 0.02, 5, 30), ('FI003', 0.01, 90, 180),
+               ('DR001', 0.01, 60, 120), ('DR002', 0.01, 75, 150), ('DR003', 0.01, 120, 120), ('DR004', 0.003, 20, 60),
+               ('TR001', 0.02, 15, 20), ('TR002', 0.04, 15, 20), ('TR003', 0.03, 10, 15), ('TR004', 0.003, 45, 90),
+               ('TR005', 0.05, 7, 10)) AS f(cvrg_cd, freq, rpt_mean, settle_mean)
     ON f.cvrg_cd = v.CVRG_CD
   LEFT JOIN TB_PRD_CVRG pc ON pc.PRD_CD = l.PRD_CD AND pc.CVRG_CD = v.CVRG_CD
   CROSS JOIN LATERAL (SELECT LEAST(l.END_DATE, COALESCE(l.TERM_DT, l.END_DATE), CURRENT_DATE + 1) - l.START_DATE AS days) d
@@ -210,21 +224,31 @@ SELECT ROW_NUMBER() OVER (ORDER BY l.CONTRACT_NO, v.CVRG_CD) AS k, l.CONTRACT_NO
  WHERE l.CONTRACT_NO LIKE 'GEN-%' AND d.days > 0
    AND random() < f.freq * d.days / CASE WHEN l.INSR_CLS_CD = '04' THEN (l.END_DATE - l.START_DATE)::numeric ELSE 365.0 END;
 
--- 상태: 60일 넘은 사고는 지급 85% · 면책 10% · 지급 대기 5%, 최근 사고는 접수 40% · 지급 대기 30% · 지급 30%
--- 지급액 = min(손해액 - 자기부담금, 가입금액). 같은 담보에 사고가 한 건이라 기지급 한도는 따로 보지 않는다
+CREATE TEMP TABLE G_CLM ON COMMIT DROP AS
+SELECT ROW_NUMBER() OVER (ORDER BY CONTRACT_NO, CVRG_CD) AS k, x.*
+  FROM (SELECT g.*, g.acdt + CEIL(-g.rpt_mean * LN(1 - g.r_rpt))::int AS rpt_d,
+               GREATEST(1, CEIL(-g.settle_mean * LN(1 - g.r_settle)))::int AS settle_days
+          FROM G_CLM0 g) x
+ WHERE x.rpt_d < CURRENT_DATE;   -- 아직 접수되지 않은 사고는 만들지 않는다 (IBNR)
+
+-- 지급액 = min(손해액 - 자기부담금, 가입금액). 같은 담보에 사고가 한 건이라 기지급 한도는 따로 보지 않는다.
+-- 일시는 모두 오늘 이전이다 (미래 시각의 처리가 생기지 않게)
 INSERT INTO TB_CLM (CLM_NO, CONTRACT_NO, CLM_STAT_CD, ACDT_DT, ACDT_DESC, CLAIMANT_ID, TOTAL_CLAIM_AMT, TOTAL_PAY_AMT, RPT_DT, RPT_EMP_ID,
                     ADJ_EMP_ID, ADJ_DT, DECIDE_EMP_ID, DECIDE_DT, DECIDE_MEMO, GLOBAL_TX_ID, REQ_HASH)
 SELECT 'GEN-CLM-' || LPAD(k::text, 8, '0'), CONTRACT_NO, stat, acdt, '생성 데이터 사고 (' || CVRG_CD || ')', INSURED_ID,
        GREATEST(loss, 1000),
        CASE WHEN stat IN ('20', '40') THEN pay WHEN stat = '80' THEN 0 END,
-       (acdt + 1)::timestamp + TIME '09:30', CASE WHEN chnl = '20' THEN 'ch-direct' ELSE 'agent01' END,
-       CASE WHEN stat IN ('20', '40') THEN 'clm01' END, CASE WHEN stat IN ('20', '40') THEN (acdt + 5)::timestamp + TIME '14:00' END,
-       CASE WHEN stat IN ('40', '80') THEN 'clm01' END, CASE WHEN stat IN ('40', '80') THEN (acdt + 10)::timestamp + TIME '16:00' END,
+       rpt_d::timestamp + TIME '09:30', CASE WHEN chnl = '20' THEN 'ch-direct' ELSE 'agent01' END,
+       CASE WHEN stat IN ('20', '40') THEN 'clm01' END, CASE WHEN stat IN ('20', '40') THEN adj_d::timestamp + TIME '14:00' END,
+       CASE WHEN stat IN ('40', '80') THEN 'clm01' END, CASE WHEN stat IN ('40', '80') THEN decide_d::timestamp + TIME '16:00' END,
        CASE WHEN stat = '80' THEN '약관상 보상하지 않는 손해 (생성 데이터)' END,
        'gen-clm-' || k, 'gen'
   FROM (SELECT g.*, LEAST(GREATEST(loss - deductible, 0), ISRD_AMT) AS pay,
-               CASE WHEN CURRENT_DATE - acdt > 60 THEN CASE WHEN r_stat < 0.85 THEN '40' WHEN r_stat < 0.95 THEN '80' ELSE '20' END
-                    ELSE CASE WHEN r_stat < 0.40 THEN '10' WHEN r_stat < 0.70 THEN '20' ELSE '40' END END AS stat
+               g.rpt_d + GREATEST(1, ROUND(g.settle_days * 0.4))::int AS adj_d,
+               g.rpt_d + g.settle_days AS decide_d,
+               CASE WHEN g.rpt_d + g.settle_days < CURRENT_DATE THEN CASE WHEN r_stat < 0.10 THEN '80' ELSE '40' END
+                    WHEN g.rpt_d + GREATEST(1, ROUND(g.settle_days * 0.4))::int < CURRENT_DATE THEN '20'
+                    ELSE '10' END AS stat
           FROM G_CLM g) s;
 
 INSERT INTO TB_CLM_CVRG (CLM_NO, CVRG_CD, CLAIM_AMT, ASSESSED_AMT, DEDUCTIBLE_AMT, PAY_AMT)

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 담보별 기본 요율 TB_PRM_RATE -->
+<mapper namespace="com.insur.insurcoresystem.mapper.premium.PremiumRateMapper">
+
+    <sql id="columns">RATE_ID, INSR_CLS_CD, CVRG_CD, CVRG_NM, ANNUAL_RATE, EFF_FROM, EFF_TO</sql>
+
+    <select id="findEffective" resultType="com.insur.insurcoresystem.domain.premium.PremiumRate">
+        SELECT <include refid="columns"/> FROM TB_PRM_RATE
+         WHERE INSR_CLS_CD = #{insrClsCd}
+           AND CVRG_CD IN <foreach collection="cvrgCds" item="c" open="(" separator="," close=")">#{c}</foreach>
+           AND EFF_FROM &lt;= #{on} AND (EFF_TO IS NULL OR EFF_TO &gt;= #{on})
+         ORDER BY EFF_FROM DESC
+    </select>
+
+    <select id="findByInsrClsCdAndCvrgCdOrderByEffFromAsc" resultType="com.insur.insurcoresystem.domain.premium.PremiumRate">
+        SELECT <include refid="columns"/> FROM TB_PRM_RATE WHERE INSR_CLS_CD = #{insrClsCd} AND CVRG_CD = #{cvrgCd} ORDER BY EFF_FROM
+    </select>
+
+    <select id="findAll" resultType="com.insur.insurcoresystem.domain.premium.PremiumRate">
+        SELECT <include refid="columns"/> FROM TB_PRM_RATE ORDER BY INSR_CLS_CD, CVRG_CD, EFF_FROM
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="rateId" keyColumn="rate_id">
+        INSERT INTO TB_PRM_RATE (INSR_CLS_CD, CVRG_CD, CVRG_NM, ANNUAL_RATE, EFF_FROM, EFF_TO)
+        VALUES (#{insrClsCd}, #{cvrgCd}, #{cvrgNm}, #{annualRate}, #{effFrom}, #{effTo})
+    </insert>
+
+    <update id="updateEffTo">
+        UPDATE TB_PRM_RATE SET EFF_TO = #{effTo} WHERE RATE_ID = #{rateId}
+    </update>
+</mapper>

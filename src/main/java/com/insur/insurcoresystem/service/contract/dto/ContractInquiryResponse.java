@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.contract.dto;
 
+import com.insur.insurcoresystem.service.medical.dto.MedicalCheckResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,8 +26,8 @@ public class ContractInquiryResponse {
     /** 청약번호 */
     @Schema(description = "청약번호")
     private String applNo;
-    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+    /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+    @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
     private String insrClsCd;
     /** 판매채널코드 (10:대면, 20:다이렉트, 30:TM) */
     @Schema(description = "판매채널코드 (10:대면, 20:다이렉트, 30:TM)")
@@ -88,4 +89,7 @@ public class ContractInquiryResponse {
     /** 가입 담보 목록 */
     @Schema(description = "가입 담보 목록")
     private List<CoverageResponse> coverages;
+    /** 실손(05) 신용정보 조회 동의와 중복가입 조회 결과 (실손이 아니면 null) */
+    @Schema(description = "실손(05) 신용정보 조회 동의와 중복가입 조회 결과 (실손이 아니면 null)")
+    private MedicalCheckResponse medicalCheck;
 }

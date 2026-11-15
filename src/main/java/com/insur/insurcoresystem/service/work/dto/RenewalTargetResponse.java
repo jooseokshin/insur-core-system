@@ -49,8 +49,8 @@ public class RenewalTargetResponse {
         /** 증권번호 */
         @Schema(description = "증권번호")
         private String contractNo;
-        /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행) */
-        @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행)")
+        /** 보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료) */
+        @Schema(description = "보험종목코드 (01:자동차, 02:화재, 03:운전자, 04:해외여행, 05:실손의료)")
         private String insrClsCd;
         /** 계약자 ID */
         @Schema(description = "계약자 ID")

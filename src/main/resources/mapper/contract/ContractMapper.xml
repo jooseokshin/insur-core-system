@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 계약 원장 TB_CTR_LGD -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.ContractMapper">
+
+    <resultMap id="contract" type="com.insur.insurcoresystem.domain.contract.Contract" autoMapping="true">
+        <id property="contractNo" column="CONTRACT_NO"/>
+        <result property="termDate" column="TERM_DT"/>
+        <result property="refundPremium" column="REFUND_PREM"/>
+    </resultMap>
+
+    <sql id="columns">
+        CONTRACT_NO, GLOBAL_TX_ID, APPL_NO, INSR_CLS_CD, CTR_STAT_CD, START_DATE, END_DATE, POLICYHOLDER_ID, INSURED_ID,
+        TOTAL_PREMIUM, SYS_REG_DT, REG_EMP_ID, REQ_HASH, DRIVER_AGE, DISCOUNT_GRADE, STRUCTURE_GRADE, TERM_DT, REFUND_PREM,
+        PRD_CD, TRAVEL_REGION, INSURED_AGE, SALES_CHNL_CD, RENEWED_FROM
+    </sql>
+
+    <select id="findById" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findForUpdateByContractNo" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD WHERE CONTRACT_NO = #{contractNo} FOR UPDATE
+    </select>
+
+    <select id="findByGlobalTxId" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD WHERE GLOBAL_TX_ID = #{globalTxId}
+    </select>
+
+    <select id="findByApplNo" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD WHERE APPL_NO = #{applNo}
+    </select>
+
+    <select id="findFirstByRenewedFromAndCtrStatCdNot" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD
+         WHERE RENEWED_FROM = #{renewedFrom} AND CTR_STAT_CD &lt;&gt; #{ctrStatCd}
+         ORDER BY CONTRACT_NO
+         LIMIT 1
+    </select>
+
+    <!-- 목록 검색 조건. LIKE 는 앞부분 일치라 PK·청약번호 인덱스를 탈 수 있다 -->
+    <sql id="searchWhere">
+        <where>
+            <if test="c.regEmpId != null">AND REG_EMP_ID = #{c.regEmpId}</if>
+            <if test="c.contractNoLike != null">AND CONTRACT_NO LIKE #{c.contractNoLike} ESCAPE '\'</if>
+            <if test="c.applNoLike != null">AND APPL_NO LIKE #{c.applNoLike} ESCAPE '\'</if>
+            <if test="c.insrClsCd != null">AND INSR_CLS_CD = #{c.insrClsCd}</if>
+            <if test="c.ctrStatCd != null">AND CTR_STAT_CD = #{c.ctrStatCd}</if>
+            <if test="c.policyholderId != null">AND POLICYHOLDER_ID = #{c.policyholderId}</if>
+            <if test="c.insuredId != null">AND INSURED_ID = #{c.insuredId}</if>
+            <if test="c.startDateFrom != null">AND START_DATE &gt;= #{c.startDateFrom}</if>
+            <if test="c.startDateTo != null">AND START_DATE &lt;= #{c.startDateTo}</if>
+            <if test="c.premiumMin != null">AND TOTAL_PREMIUM &gt;= #{c.premiumMin}</if>
+            <if test="c.premiumMax != null">AND TOTAL_PREMIUM &lt;= #{c.premiumMax}</if>
+            <if test="c.sysRegFrom != null">AND SYS_REG_DT &gt;= #{c.sysRegFrom}</if>
+            <if test="c.sysRegTo != null">AND SYS_REG_DT &lt; #{c.sysRegTo}</if>
+        </where>
+    </sql>
+
+    <!-- 정렬 컬럼·방향은 서비스가 허용 목록에서 고른 값이라 문자열 치환(${})이 안전하다 -->
+    <select id="search" resultMap="contract">
+        SELECT <include refid="columns"/> FROM TB_CTR_LGD
+        <include refid="searchWhere"/>
+         ORDER BY ${c.sortColumn} ${c.sortDir}, CONTRACT_NO ${c.sortDir}
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_LGD <include refid="searchWhere"/>
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_LGD
+    </select>
+
+    <insert id="insertRow">
+        INSERT INTO TB_CTR_LGD (<include refid="columns"/>)
+        VALUES (#{contractNo}, #{globalTxId}, #{applNo}, #{insrClsCd}, #{ctrStatCd}, #{startDate}, #{endDate},
+                #{policyholderId}, #{insuredId}, #{totalPremium}, #{sysRegDt}, #{regEmpId}, #{reqHash}, #{driverAge},
+                #{discountGrade}, #{structureGrade}, #{termDate}, #{refundPremium}, #{prdCd}, #{travelRegion},
+                #{insuredAge}, #{salesChnlCd}, #{renewedFrom})
+    </insert>
+
+    <update id="update">
+        UPDATE TB_CTR_LGD
+           SET CTR_STAT_CD = #{ctrStatCd},
+               POLICYHOLDER_ID = #{policyholderId},
+               INSURED_ID = #{insuredId},
+               TERM_DT = #{termDate},
+               REFUND_PREM = #{refundPremium}
+         WHERE CONTRACT_NO = #{contractNo}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM TB_CTR_LGD WHERE CONTRACT_NO = #{contractNo}
+    </delete>
+</mapper>

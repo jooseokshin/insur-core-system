@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { contractApi, premiumApi } from '../../api/endpoints';
 import { newTxId } from '../../api/http';
+import { MEDICAL_CLS } from '../../common/codes';
 import { money } from '../../common/format';
 import { ErrorBox, Field, PageHeader, Panel, useToast } from '../../components/ui';
 import { PremiumInputs, QuoteResult, initialPremiumInput, toQuoteRequest, useProducts } from '../../components/PremiumInputs';
@@ -18,6 +19,8 @@ export function ApplyPage() {
   const [policyholderId, setPolicyholderId] = useState('');
   const [insuredId, setInsuredId] = useState('');
   const [sameAsHolder, setSameAsHolder] = useState(true);
+  const [consent, setConsent] = useState(false);
+  const medical = input.insrClsCd === MEDICAL_CLS;
   const [quote, setQuote] = useState(null);
   const [quotedRequest, setQuotedRequest] = useState(null);
   const [txId, setTxId] = useState(newTxId);
@@ -49,6 +52,7 @@ export function ApplyPage() {
     const holder = policyholderId.trim();
     const insured = sameAsHolder ? holder : insuredId.trim();
     if (!holder || !insured) return setError({ message: '계약자와 피보험자 ID 를 입력해 주세요.' });
+    if (medical && !consent) return setError({ message: '실손의료보험은 개인신용정보 조회 동의를 받아야 청약할 수 있습니다.' });
     setBusy(true);
     setError(null);
     try {
@@ -56,6 +60,7 @@ export function ApplyPage() {
         ...quotedRequest,
         policyholderId: holder,
         insuredId: insured,
+        ...(medical ? { creditInfoConsent: true } : {}),
         totalPremium: quote.totalPremium,
         coverages: quote.coverages.map((c) => ({ cvrgCd: c.cvrgCd, isrdAmt: c.isrdAmt, prem: c.prem })),
       }, txId);
@@ -72,6 +77,7 @@ export function ApplyPage() {
     setInput(initialPremiumInput(input.insrClsCd));
     setPolicyholderId('');
     setInsuredId('');
+    setConsent(false);
     setQuote(null);
     setResult(null);
     setError(null);
@@ -127,6 +133,12 @@ export function ApplyPage() {
               </Field>
             )}
           </div>
+          {medical && (
+            <label className="check">
+              <input type="checkbox" id="credit-consent" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+              (필수) 개인신용정보 조회 동의 — 한국신용정보원에서 다른 보험사 실손 가입 여부를 조회합니다. 접수할 때 조회하며, 실손이 이미 있으면 중복 보상되지 않음(비례보상)을 설명합니다.
+            </label>
+          )}
           {quote ? <QuoteResult quote={quote} /> : <p className="muted">먼저 보험료를 산출해 주세요. 조건을 바꾸면 다시 산출해야 합니다.</p>}
           <ErrorBox error={error} onClose={() => setError(null)} />
           <div className="form-actions">

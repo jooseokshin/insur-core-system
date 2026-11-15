@@ -1,23 +1,22 @@
 package com.insur.insurcoresystem.service.premium;
 
-import com.insur.insurcoresystem.service.product.ProductService;
-import org.springframework.util.StringUtils;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
 import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicyRepository;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.premium.dto.AppliedFactor;
-import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest.QuoteCoverageRequest;
-import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
+import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse.QuoteCoverageResponse;
+import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.service.product.ProductService;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 보험료 산출 서비스. 아무것도 저장하지 않으며, 산출 결과는 청약 요청의 담보 보험료/총보험료로 그대로 쓸 수 있다.
@@ -47,9 +47,9 @@ public class PremiumService {
     static final String FACTOR_DISCOUNT_GRADE = RatingFactorType.DISCOUNT_GRADE.name();
     static final String FACTOR_STRUCTURE_GRADE = RatingFactorType.STRUCTURE_GRADE.name();
 
-    private final PremiumRateRepository premiumRateRepository;
-    private final PremiumFactorRepository premiumFactorRepository;
-    private final PremiumFactorPolicyRepository premiumFactorPolicyRepository;
+    private final PremiumRateMapper premiumRateMapper;
+    private final PremiumFactorMapper premiumFactorMapper;
+    private final PremiumFactorPolicyMapper premiumFactorPolicyMapper;
     private final ProductService productService;
 
     /**
@@ -90,7 +90,7 @@ public class PremiumService {
                     .map(c -> new ProductService.CoverageAmount(c.getCvrgCd(), c.getIsrdAmt())).toList());
         }
 
-        Map<String, PremiumRate> rates = premiumRateRepository
+        Map<String, PremiumRate> rates = premiumRateMapper
                 .findEffective(request.getInsrClsCd(),
                         coverages.stream().map(QuoteCoverageRequest::getCvrgCd).toList(), request.getStartDate())
                 .stream().collect(Collectors.toMap(PremiumRate::getCvrgCd, Function.identity(), (latest, older) -> latest));
@@ -141,7 +141,7 @@ public class PremiumService {
      * @throws BusinessException 필수 계수가 입력되지 않은 경우(E-PRM-005)
      */
     private List<String> requireMandatoryFactors(PremiumQuoteRequest request) {
-        List<String> required = premiumFactorPolicyRepository.findRequired(request.getInsrClsCd(), request.getStartDate())
+        List<String> required = premiumFactorPolicyMapper.findRequired(request.getInsrClsCd(), request.getStartDate())
                 .stream().map(PremiumFactorPolicy::getFactorType).distinct().sorted().toList();
         RatingInput rating = request.getRating() == null ? new RatingInput() : request.getRating();
         List<String> missing = required.stream().filter(type -> !isProvided(rating, type)).toList();
@@ -176,7 +176,7 @@ public class PremiumService {
         if (!hasInput && salesChnlCd == null) {
             return List.of();
         }
-        List<PremiumFactor> table = premiumFactorRepository.findEffective(insrClsCd, on);
+        List<PremiumFactor> table = premiumFactorMapper.findEffective(insrClsCd, on);
         List<AppliedFactor> applied = new ArrayList<>();
         for (RatingFactorType type : RatingFactorType.values()) {
             if (!type.isUserInput()) {
