@@ -3,14 +3,14 @@ package com.insur.insurcoresystem.service.contract;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
-import com.insur.insurcoresystem.domain.claim.ClaimRepository;
+import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
 import com.insur.insurcoresystem.domain.claim.ClaimStatus;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
 import com.insur.insurcoresystem.service.medical.MedicalCheckService;
@@ -35,14 +35,14 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ContractStatusService {
 
-    private final ContractRepository contractRepository;
-    private final ContractStatusHistoryRepository historyRepository;
+    private final ContractMapper contractMapper;
+    private final ContractStatusHistoryMapper historyMapper;
     /** 승인(유효) 전에 납입 완료 여부를 확인하는 데 쓴다 */
-    private final ContractPaymentRepository paymentRepository;
+    private final ContractPaymentMapper paymentMapper;
     /** 상태 변경 이력 기록 */
     private final ContractHistoryRecorder historyRecorder;
     /** 진행 중인 사고가 있는 계약의 해지를 막는 데 쓴다 */
-    private final ClaimRepository claimRepository;
+    private final ClaimMapper claimMapper;
     /** 실손: 승인 전 중복가입 조회 확인, 성립·해지 계약정보 집중 */
     private final MedicalCheckService medicalCheckService;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
@@ -77,12 +77,12 @@ public class ContractStatusService {
         ContractStatus next = ContractStatus.fromCode(request.getCtrStatCd());
         validateGlobalTxId(globalTxId);
 
-        Contract contract = contractRepository.findForUpdateByContractNo(request.getContractNo())
+        Contract contract = contractMapper.findForUpdateByContractNo(request.getContractNo())
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "E-CTR-010", "해당 계약이 존재하지 않습니다."));
 
         // 응답을 못 받은 클라이언트가 같은 거래 UUID 로 다시 보낸 경우: 이미 처리한 결과를 그대로 돌려준다 (멱등성)
-        Optional<ContractStatusHistory> done = historyRepository
-                .findFirstByContractNoAndGlobalTxIdAndBeforeStatCdIsNotNullOrderByHistIdAsc(
+        Optional<ContractStatusHistory> done = historyMapper
+                .findFirstChange(
                         contract.getContractNo(), globalTxId);
         if (done.isPresent()) {
             ContractStatusHistory hist = done.get();
@@ -109,7 +109,7 @@ public class ContractStatusService {
         }
 
         if (next == ContractStatus.IN_FORCE) {
-            BigDecimal paid = paymentRepository.sumPaid(contract.getContractNo());
+            BigDecimal paid = paymentMapper.sumPaid(contract.getContractNo());
             if (paid.compareTo(contract.getTotalPremium()) < 0) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-028", "보험료 납입이 끝나야 승인(유효)할 수 있습니다. (납입 "
                         + paid.toPlainString() + "원 / 총보험료 " + contract.getTotalPremium().toPlainString() + "원)");
@@ -119,7 +119,7 @@ public class ContractStatusService {
             }
         }
 
-        if (next == ContractStatus.TERMINATED && claimRepository.existsByContractNoAndClmStatCdIn(contract.getContractNo(),
+        if (next == ContractStatus.TERMINATED && claimMapper.existsByContractNoAndClmStatCdIn(contract.getContractNo(),
                 List.of(ClaimStatus.REPORTED.getCode(), ClaimStatus.ASSESSED.getCode()))) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-030",
                     "진행 중인 사고(접수·손해사정)가 있어 해지할 수 없습니다. 사고를 종결한 뒤 해지해 주세요.");
@@ -131,6 +131,7 @@ public class ContractStatusService {
             contract.recordTermination(termDate, RefundCalculator.refund(
                     contract.getTotalPremium(), contract.getStartDate(), contract.getEndDate(), termDate));
         }
+        contractMapper.update(contract);
         historyRecorder.record(contract.getContractNo(), current, next, globalTxId, empId);
         // 실손 성립·해지는 신용정보원에 집중한다 (대기열에 쌓고 따로 보낸다). 청약 단계 취소는 집중한 적이 없으므로 보내지 않는다
         if (Contract.INSR_CLS_MEDICAL.equals(contract.getInsrClsCd())

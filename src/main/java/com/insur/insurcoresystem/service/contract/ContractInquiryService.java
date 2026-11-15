@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.common.paging.PageResult;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isReadable;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
@@ -7,12 +9,13 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.pageReq
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.product.Product;
-import com.insur.insurcoresystem.domain.product.ProductRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractSearchCondition;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryResponse;
 import com.insur.insurcoresystem.service.medical.MedicalCheckService;
@@ -24,18 +27,10 @@ import com.insur.insurcoresystem.service.contract.dto.StatusHistoryInquiryReques
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryPageResponse;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryResponse;
 import com.insur.insurcoresystem.service.sequence.ProductType;
-import jakarta.persistence.criteria.Predicate;
-import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -48,14 +43,11 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ContractInquiryService {
 
-    private final ContractRepository contractRepository;
-    private final CoverageRepository coverageRepository;
-    private final ContractStatusHistoryRepository historyRepository;
-    private final ProductRepository productRepository;
+    private final ContractMapper contractMapper;
+    private final CoverageMapper coverageMapper;
+    private final ContractStatusHistoryMapper historyMapper;
+    private final ProductMapper productMapper;
     private final MedicalCheckService medicalCheckService;
-
-    /** LIKE 조건의 이스케이프 문자 */
-    private static final char LIKE_ESCAPE = '\\';
 
     /**
      * 증권번호 또는 청약번호로 계약 원장과 담보 목록을 조회한다. 두 값 중 정확히 하나만 입력해야 한다.
@@ -75,12 +67,12 @@ public class ContractInquiryService {
         }
 
         Contract contract = (byContractNo
-                ? contractRepository.findById(request.getContractNo())
-                : contractRepository.findByApplNo(request.getApplNo()))
+                ? contractMapper.findById(request.getContractNo())
+                : contractMapper.findByApplNo(request.getApplNo()))
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
 
-        List<CoverageResponse> coverages = coverageRepository.findByContractContractNo(contract.getContractNo())
+        List<CoverageResponse> coverages = coverageMapper.findByContractNo(contract.getContractNo())
                 .stream()
                 .map(cvrg -> CoverageResponse.builder()
                         .cvrgCd(cvrg.getCvrgCd())
@@ -97,7 +89,7 @@ public class ContractInquiryService {
                 .prdCd(contract.getPrdCd())
                 .salesChnlCd(contract.getSalesChnlCd())
                 .prdNm(contract.getPrdCd() == null ? null
-                        : productRepository.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse(null))
+                        : productMapper.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse(null))
                 .ctrStatCd(contract.getCtrStatCd())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())
@@ -134,13 +126,15 @@ public class ContractInquiryService {
         if (!StringUtils.hasText(request.getContractNo())) {
             throw new BusinessException("E-CTR-009", "증권번호를 입력해야 합니다.");
         }
-        Pageable pageable = pageRequest(request.getPage(), request.getSize(), Sort.by("histId").ascending());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
 
-        Contract contract = contractRepository.findById(request.getContractNo())
+        Contract contract = contractMapper.findById(request.getContractNo())
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
 
-        Page<ContractStatusHistory> result = historyRepository.findByContractNo(contract.getContractNo(), pageable);
+        PageResult<ContractStatusHistory> result = new PageResult<>(
+                historyMapper.findPageByContractNo(contract.getContractNo(), pageable), pageable,
+                historyMapper.countByContractNo(contract.getContractNo()));
 
         log.info("상태 이력 조회: 증권번호={}, page={}, size={}, 전체 {}건",
                 contract.getContractNo(), pageable.getPageNumber(), pageable.getPageSize(), result.getTotalElements());
@@ -168,8 +162,8 @@ public class ContractInquiryService {
      */
     @Transactional(readOnly = true)
     public ContractListResponse listContracts(String ownerEmpId, ContractListRequest request) {
-        Pageable pageable = pageRequest(request.getPage(), request.getSize(),
-                listSort(request.getSortBy(), request.getSortDir()));
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
+        String[] sort = listSort(request.getSortBy(), request.getSortDir());
         if (StringUtils.hasText(request.getInsrClsCd())) {
             ProductType.fromInsrClsCd(request.getInsrClsCd());   // 지원하지 않는 종목이면 E-SEQ-001
         }
@@ -185,51 +179,27 @@ public class ContractInquiryService {
             throw new BusinessException("E-CTR-017", "총보험료 최소값은 0 이상이어야 합니다.");
         }
 
-        Specification<Contract> spec = (root, query, cb) -> {
-            List<Predicate> conditions = new ArrayList<>();
-            if (ownerEmpId != null) {   // 저장할 때와 같은 규칙(64자 제한)으로 맞춰 비교한다
-                conditions.add(cb.equal(root.get("regEmpId"), normalizeEmpId(ownerEmpId)));
-            }
-            if (StringUtils.hasText(request.getContractNo())) {   // 앞부분 일치 (PK 인덱스를 탈 수 있다)
-                conditions.add(cb.like(root.get("contractNo"), likePrefix(request.getContractNo()), LIKE_ESCAPE));
-            }
-            if (StringUtils.hasText(request.getApplNo())) {
-                conditions.add(cb.like(root.get("applNo"), likePrefix(request.getApplNo()), LIKE_ESCAPE));
-            }
-            if (StringUtils.hasText(request.getInsrClsCd())) {
-                conditions.add(cb.equal(root.get("insrClsCd"), request.getInsrClsCd()));
-            }
-            if (StringUtils.hasText(request.getCtrStatCd())) {
-                conditions.add(cb.equal(root.get("ctrStatCd"), request.getCtrStatCd()));
-            }
-            if (StringUtils.hasText(request.getPolicyholderId())) {
-                conditions.add(cb.equal(root.get("policyholderId"), request.getPolicyholderId()));
-            }
-            if (StringUtils.hasText(request.getInsuredId())) {
-                conditions.add(cb.equal(root.get("insuredId"), request.getInsuredId()));
-            }
-            if (request.getStartDateFrom() != null) {
-                conditions.add(cb.greaterThanOrEqualTo(root.<LocalDate>get("startDate"), request.getStartDateFrom()));
-            }
-            if (request.getStartDateTo() != null) {
-                conditions.add(cb.lessThanOrEqualTo(root.<LocalDate>get("startDate"), request.getStartDateTo()));
-            }
-            if (request.getPremiumMin() != null) {
-                conditions.add(cb.greaterThanOrEqualTo(root.<BigDecimal>get("totalPremium"), request.getPremiumMin()));
-            }
-            if (request.getPremiumMax() != null) {
-                conditions.add(cb.lessThanOrEqualTo(root.<BigDecimal>get("totalPremium"), request.getPremiumMax()));
-            }
-            if (from != null) {   // 접수일 시작일 00:00 이상
-                conditions.add(cb.greaterThanOrEqualTo(root.<LocalDateTime>get("sysRegDt"), from.atStartOfDay()));
-            }
-            if (to != null) {     // 접수일 종료일 당일 포함: 다음 날 00:00 미만
-                conditions.add(cb.lessThan(root.<LocalDateTime>get("sysRegDt"), to.plusDays(1).atStartOfDay()));
-            }
-            return cb.and(conditions.toArray(new Predicate[0]));
-        };
-
-        Page<Contract> result = contractRepository.findAll(spec, pageable);
+        ContractSearchCondition condition = ContractSearchCondition.builder()
+                // 저장할 때와 같은 규칙(64자 제한)으로 맞춰 비교한다
+                .regEmpId(ownerEmpId == null ? null : normalizeEmpId(ownerEmpId))
+                // 앞부분 일치 (PK 인덱스를 탈 수 있다)
+                .contractNoLike(StringUtils.hasText(request.getContractNo()) ? likePrefix(request.getContractNo()) : null)
+                .applNoLike(StringUtils.hasText(request.getApplNo()) ? likePrefix(request.getApplNo()) : null)
+                .insrClsCd(textOrNull(request.getInsrClsCd()))
+                .ctrStatCd(textOrNull(request.getCtrStatCd()))
+                .policyholderId(textOrNull(request.getPolicyholderId()))
+                .insuredId(textOrNull(request.getInsuredId()))
+                .startDateFrom(request.getStartDateFrom())
+                .startDateTo(request.getStartDateTo())
+                .premiumMin(request.getPremiumMin())
+                .premiumMax(request.getPremiumMax())
+                .sysRegFrom(from == null ? null : from.atStartOfDay())               // 접수일 시작일 00:00 이상
+                .sysRegTo(to == null ? null : to.plusDays(1).atStartOfDay())         // 접수일 종료일 당일 포함: 다음 날 00:00 미만
+                .sortColumn(sort[0])
+                .sortDir(sort[1])
+                .build();
+        PageResult<Contract> result = new PageResult<>(contractMapper.search(condition, pageable), pageable,
+                contractMapper.countSearch(condition));
 
         log.info("계약 목록 조회: page={}, size={}, 전체 {}건", pageable.getPageNumber(), pageable.getPageSize(),
                 result.getTotalElements());
@@ -243,25 +213,25 @@ public class ContractInquiryService {
     }
 
     /**
-     * 목록 정렬을 만든다. 정렬 기준은 접수일(REG_DATE, 기본), 보험시기(START_DATE), 총보험료(TOTAL_PREMIUM) 중에서 고르고,
+     * 목록 정렬 컬럼과 방향을 고른다 (SQL 에 그대로 들어가므로 허용 목록 값만 돌려준다). 정렬 기준은 접수일(REG_DATE, 기본), 보험시기(START_DATE), 총보험료(TOTAL_PREMIUM) 중에서 고르고,
      * 방향은 DESC(기본) 또는 ASC 이다. 같은 값끼리는 증권번호를 같은 방향으로 정렬해 페이지 경계가 흔들리지 않게 한다.
      *
      * @throws BusinessException 허용하지 않는 정렬 기준이나 방향인 경우(E-CTR-018)
      */
-    private static Sort listSort(String sortBy, String sortDir) {
-        String property = switch (StringUtils.hasText(sortBy) ? sortBy.toUpperCase() : "REG_DATE") {
-            case "REG_DATE" -> "sysRegDt";
-            case "START_DATE" -> "startDate";
-            case "TOTAL_PREMIUM" -> "totalPremium";
+    private static String[] listSort(String sortBy, String sortDir) {
+        String column = switch (StringUtils.hasText(sortBy) ? sortBy.toUpperCase() : "REG_DATE") {
+            case "REG_DATE" -> "SYS_REG_DT";
+            case "START_DATE" -> "START_DATE";
+            case "TOTAL_PREMIUM" -> "TOTAL_PREMIUM";
             default -> throw new BusinessException("E-CTR-018",
                     "정렬 기준은 REG_DATE, START_DATE, TOTAL_PREMIUM 중 하나여야 합니다: " + sortBy);
         };
-        Sort.Direction direction = switch (StringUtils.hasText(sortDir) ? sortDir.toUpperCase() : "DESC") {
-            case "DESC" -> Sort.Direction.DESC;
-            case "ASC" -> Sort.Direction.ASC;
+        String direction = switch (StringUtils.hasText(sortDir) ? sortDir.toUpperCase() : "DESC") {
+            case "DESC" -> "DESC";
+            case "ASC" -> "ASC";
             default -> throw new BusinessException("E-CTR-018", "정렬 방향은 ASC 또는 DESC 여야 합니다: " + sortDir);
         };
-        return Sort.by(new Sort.Order(direction, property), new Sort.Order(direction, "contractNo"));
+        return new String[] {column, direction};
     }
 
     /** 범위 조건의 시작이 종료보다 크면 업무 오류(E-CTR-017)로 처리한다. 한쪽만 있거나 둘 다 없으면 통과한다. */
@@ -269,6 +239,10 @@ public class ContractInquiryService {
         if (from != null && to != null && from.compareTo(to) > 0) {
             throw new BusinessException("E-CTR-017", label + " 시작은 종료보다 클 수 없습니다.");
         }
+    }
+
+    private static String textOrNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
     }
 
     /** LIKE 앞부분 일치 패턴을 만든다. 입력에 든 와일드카드(%, _)와 이스케이프 문자는 글자 그대로 비교하도록 이스케이프한다. */

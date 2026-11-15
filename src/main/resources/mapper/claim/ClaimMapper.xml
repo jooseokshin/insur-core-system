@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 사고 접수 TB_CLM, 담보별 금액 TB_CLM_CVRG -->
+<mapper namespace="com.insur.insurcoresystem.mapper.claim.ClaimMapper">
+
+    <resultMap id="claim" type="com.insur.insurcoresystem.domain.claim.Claim" autoMapping="true">
+        <id property="clmNo" column="CLM_NO"/>
+        <collection property="items" column="CLM_NO" select="findItems"
+                    ofType="com.insur.insurcoresystem.domain.claim.ClaimCoverage"/>
+    </resultMap>
+
+    <sql id="columns">
+        CLM_NO, CONTRACT_NO, CLM_STAT_CD, ACDT_DT, ACDT_DESC, CLAIMANT_ID, TOTAL_CLAIM_AMT, TOTAL_PAY_AMT, RPT_DT, RPT_EMP_ID,
+        ADJ_EMP_ID, ADJ_DT, DECIDE_EMP_ID, DECIDE_DT, DECIDE_MEMO, GLOBAL_TX_ID, REQ_HASH
+    </sql>
+
+    <select id="findItems" resultType="com.insur.insurcoresystem.domain.claim.ClaimCoverage">
+        SELECT CVRG_CD, CLAIM_AMT, ASSESSED_AMT, DEDUCTIBLE_AMT, PAY_AMT FROM TB_CLM_CVRG WHERE CLM_NO = #{clmNo} ORDER BY CVRG_CD
+    </select>
+
+    <select id="findById" resultMap="claim">
+        SELECT <include refid="columns"/> FROM TB_CLM WHERE CLM_NO = #{clmNo}
+    </select>
+
+    <select id="findForUpdateByClmNo" resultMap="claim">
+        SELECT <include refid="columns"/> FROM TB_CLM WHERE CLM_NO = #{clmNo} FOR UPDATE
+    </select>
+
+    <select id="findByGlobalTxId" resultMap="claim">
+        SELECT <include refid="columns"/> FROM TB_CLM WHERE GLOBAL_TX_ID = #{globalTxId}
+    </select>
+
+    <select id="existsByContractNoAndClmStatCdIn" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM TB_CLM WHERE CONTRACT_NO = #{contractNo}
+               AND CLM_STAT_CD IN <foreach collection="clmStatCds" item="s" open="(" separator="," close=")">#{s}</foreach>)
+    </select>
+
+    <select id="sumPaid" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(I.PAY_AMT), 0)
+          FROM TB_CLM C JOIN TB_CLM_CVRG I ON I.CLM_NO = C.CLM_NO
+         WHERE C.CONTRACT_NO = #{contractNo} AND C.CLM_STAT_CD = '40' AND I.CVRG_CD = #{cvrgCd} AND C.CLM_NO &lt;&gt; #{excludeClmNo}
+    </select>
+
+    <insert id="insertHeader">
+        INSERT INTO TB_CLM (<include refid="columns"/>)
+        VALUES (#{clmNo}, #{contractNo}, #{clmStatCd}, #{acdtDt}, #{acdtDesc}, #{claimantId}, #{totalClaimAmt}, #{totalPayAmt},
+                #{rptDt}, #{rptEmpId}, #{adjEmpId}, #{adjDt}, #{decideEmpId}, #{decideDt}, #{decideMemo}, #{globalTxId}, #{reqHash})
+    </insert>
+
+    <insert id="insertItem">
+        INSERT INTO TB_CLM_CVRG (CLM_NO, CVRG_CD, CLAIM_AMT, ASSESSED_AMT, DEDUCTIBLE_AMT, PAY_AMT)
+        VALUES (#{clmNo}, #{item.cvrgCd}, #{item.claimAmt}, #{item.assessedAmt}, #{item.deductibleAmt}, #{item.payAmt})
+    </insert>
+
+    <update id="updateHeader">
+        UPDATE TB_CLM
+           SET CLM_STAT_CD = #{clmStatCd}, TOTAL_PAY_AMT = #{totalPayAmt}, ADJ_EMP_ID = #{adjEmpId}, ADJ_DT = #{adjDt},
+               DECIDE_EMP_ID = #{decideEmpId}, DECIDE_DT = #{decideDt}, DECIDE_MEMO = #{decideMemo}
+         WHERE CLM_NO = #{clmNo}
+    </update>
+
+    <update id="updateItem">
+        UPDATE TB_CLM_CVRG
+           SET ASSESSED_AMT = #{item.assessedAmt}, DEDUCTIBLE_AMT = #{item.deductibleAmt}, PAY_AMT = #{item.payAmt}
+         WHERE CLM_NO = #{clmNo} AND CVRG_CD = #{item.cvrgCd}
+    </update>
+</mapper>

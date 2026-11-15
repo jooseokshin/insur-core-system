@@ -10,10 +10,10 @@ import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.security.SalesChannel;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
@@ -36,7 +36,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -60,9 +59,9 @@ public class ContractService {
 
     private final ContractNumberGenerator contractNumberGenerator;
 
-    private final ContractRepository contractRepository;
+    private final ContractMapper contractMapper;
 
-    private final CoverageRepository coverageRepository;
+    private final CoverageMapper coverageMapper;
 
     /** 청약 접수의 최초 상태 이력 기록 */
     private final ContractHistoryRecorder historyRecorder;
@@ -142,7 +141,7 @@ public class ContractService {
                 request.getInsrClsCd(), request.getCoverages().size(), request.getTotalPremium());
 
         String requestHash = RequestFingerprint.of(request);
-        Optional<Contract> applied = contractRepository.findByGlobalTxId(globalTxId);
+        Optional<Contract> applied = contractMapper.findByGlobalTxId(globalTxId);
         if (applied.isPresent()) {
             Contract contract = applied.get();
             if (contract.getRegEmpId() != null && !contract.getRegEmpId().equals(normalizeEmpId(empId))) {
@@ -157,7 +156,7 @@ public class ContractService {
                         "같은 거래 UUID(globalTxId)로 이전과 다른 내용의 청약이 들어왔습니다. 새 거래 UUID 로 다시 요청해 주세요.");
             }
             log.info("이미 접수된 거래의 재전송이므로 기존 결과를 반환한다: 증권번호={}", contract.getContractNo());
-            return toResponse(contract, coverageRepository.findByContractContractNo(contract.getContractNo()).size());
+            return toResponse(contract, coverageMapper.findByContractNo(contract.getContractNo()).size());
         }
 
         // 새 청약은 오늘 판매 중인 상품이어야 한다. 갱신은 원 계약의 상품을 이어받으므로 판매 기간을 보지 않는다(구성 검증은 산출에서 한다)
@@ -195,13 +194,13 @@ public class ContractService {
 
         List<Coverage> coverages = request.getCoverages().stream()
                 .map(cvrg -> Coverage.builder()
-                        .contract(contract)
+                        .contractNo(contract.getContractNo())
                         .cvrgCd(cvrg.getCvrgCd())
                         .isrdAmt(cvrg.getIsrdAmt())
                         .prem(cvrg.getPrem())
                         .build())
                 .toList();
-        coverageRepository.saveAll(coverages);
+        coverages.forEach(coverageMapper::insert);
         historyRecorder.record(contract.getContractNo(), null, ContractStatus.APPLIED, globalTxId, empId);
         if (Contract.INSR_CLS_MEDICAL.equals(contract.getInsrClsCd())) {
             // 갱신은 원 계약의 동의를 잇는다 (동의 유효기간·재동의 정책은 회사 내규로 정한다)
@@ -246,13 +245,14 @@ public class ContractService {
     }
 
     /**
-     * 계약 원장을 즉시 저장(flush)한다. 같은 globalTxId 로 먼저 접수한 트랜잭션이 있으면 유니크 제약 위반이 이 시점에 발생하므로,
+     * 계약 원장을 먼저 저장한다. 같은 globalTxId 로 먼저 접수한 트랜잭션이 있으면 유니크 제약 위반이 이 시점에 발생하므로,
      * 그 경우만 충돌 오류(E-CTR-011, HTTP 409)로 바꾼다. 담보를 저장하기 전에 실패시켜 불필요한 쓰기를 막는 목적도 있다.
      * 다른 제약 위반은 예상하지 못한 오류이므로 그대로 던진다.
      */
     private Contract saveContract(Contract contract) {
         try {
-            return contractRepository.saveAndFlush(contract);
+            contractMapper.insert(contract);
+            return contract;
         } catch (DataIntegrityViolationException e) {
             if (isConstraintViolation(e, RENEWED_FROM_CONSTRAINT)) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CTR-025", "이미 갱신된 계약입니다.");
@@ -268,8 +268,7 @@ public class ContractService {
 
     /**
      * 데이터 무결성 오류가 거래 UUID 유니크 제약(uk_ctr_lgd_global_tx_id) 위반인지 판단한다.
-     * 오류 메시지 문장이 아니라 Hibernate 가 DB 오류에서 뽑아 둔 제약명({@link ConstraintViolationException#getConstraintName()})으로
-     * 비교하므로 DB 메시지 형식이나 언어 설정이 바뀌어도 영향받지 않는다. 제약명을 알 수 없으면 충돌로 보지 않고 일반 오류로 남긴다.
+     * 오류 메시지 문장이 아니라 PostgreSQL 이 오류 응답에 담아 보내는 제약명으로 비교하므로 DB 메시지 형식이나 언어 설정이 바뀌어도 영향받지 않는다. 제약명을 알 수 없으면 충돌로 보지 않고 일반 오류로 남긴다.
      * 제약명은 스키마가 붙어 올 수 있고 대소문자가 다를 수 있어 소문자로 바꿔 끝부분을 비교한다.
      */
     private static boolean isGlobalTxIdConflict(DataIntegrityViolationException e) {

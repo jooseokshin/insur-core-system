@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 사고 처리 이력 TB_CLM_HIST -->
+<mapper namespace="com.insur.insurcoresystem.mapper.claim.ClaimHistoryMapper">
+
+    <select id="existsByClmNoAndGlobalTxId" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_CLM_HIST WHERE CLM_NO = #{clmNo} AND GLOBAL_TX_ID = #{globalTxId})
+    </select>
+
+    <select id="findByClmNoOrderByHistId" resultType="com.insur.insurcoresystem.domain.claim.ClaimHistory">
+        SELECT HIST_ID, CLM_NO, BEFORE_STAT_CD, AFTER_STAT_CD, EMP_ID, MEMO, GLOBAL_TX_ID, CHG_DT
+          FROM TB_CLM_HIST WHERE CLM_NO = #{clmNo} ORDER BY HIST_ID
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="histId" keyColumn="hist_id">
+        INSERT INTO TB_CLM_HIST (CLM_NO, BEFORE_STAT_CD, AFTER_STAT_CD, EMP_ID, MEMO, GLOBAL_TX_ID, CHG_DT)
+        VALUES (#{clmNo}, #{beforeStatCd}, #{afterStatCd}, #{empId}, #{memo}, #{globalTxId}, #{chgDt})
+    </insert>
+</mapper>

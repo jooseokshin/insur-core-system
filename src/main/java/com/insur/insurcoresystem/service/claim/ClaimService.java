@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.claim;
 
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isConstraintViolation;
@@ -13,17 +14,17 @@ import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.domain.claim.Claim;
 import com.insur.insurcoresystem.domain.claim.ClaimCoverage;
 import com.insur.insurcoresystem.domain.claim.ClaimHistory;
-import com.insur.insurcoresystem.domain.claim.ClaimHistoryRepository;
-import com.insur.insurcoresystem.domain.claim.ClaimRepository;
+import com.insur.insurcoresystem.mapper.claim.ClaimHistoryMapper;
+import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
 import com.insur.insurcoresystem.domain.claim.ClaimStatus;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.product.Product;
 import com.insur.insurcoresystem.domain.product.ProductCoverage;
-import com.insur.insurcoresystem.domain.product.ProductRepository;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.claim.dto.ClaimRequests;
 import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
 import com.insur.insurcoresystem.service.contract.ContractSupport;
@@ -50,8 +51,6 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -83,11 +82,11 @@ public class ClaimService {
     /** 접수 거래 UUID 유니크 제약명 (V21) */
     private static final String GLOBAL_TX_ID_CONSTRAINT = "uk_clm_global_tx_id";
 
-    private final ClaimRepository claimRepository;
-    private final ClaimHistoryRepository historyRepository;
-    private final ContractRepository contractRepository;
-    private final CoverageRepository coverageRepository;
-    private final ProductRepository productRepository;
+    private final ClaimMapper claimMapper;
+    private final ClaimHistoryMapper historyMapper;
+    private final ContractMapper contractMapper;
+    private final CoverageMapper coverageMapper;
+    private final ProductMapper productMapper;
     private final ContractNumberGenerator numberGenerator;
     private final NamedParameterJdbcTemplate jdbc;
     private final MedicalClaimService medicalClaimService;
@@ -137,7 +136,7 @@ public class ClaimService {
         }
         String requestHash = fingerprint(request);
 
-        Optional<Claim> replay = claimRepository.findByGlobalTxId(globalTxId);
+        Optional<Claim> replay = claimMapper.findByGlobalTxId(globalTxId);
         if (replay.isPresent()) {
             Claim claim = replay.get();
             if (!claim.getReqHash().equals(requestHash)) {
@@ -166,7 +165,7 @@ public class ClaimService {
             throw new BusinessException("E-MED-005", medical ? "실손의료보험 계약이 아니면 진료 내역을 받지 않습니다."
                     : "실손의료보험 계약은 진료 내역(medicalItems)으로 접수해야 합니다.");
         }
-        Set<String> insured = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+        Set<String> insured = coverageMapper.findByContractNo(contract.getContractNo()).stream()
                 .map(Coverage::getCvrgCd).collect(Collectors.toSet());
         List<ClaimCoverage> items;
         if (medical) {
@@ -193,7 +192,7 @@ public class ClaimService {
                 StringUtils.hasText(request.getClaimantId()) ? request.getClaimantId().trim() : contract.getInsuredId(),
                 items, normalizeEmpId(empId), globalTxId, requestHash, now);
         try {
-            claim = claimRepository.saveAndFlush(claim);
+            claimMapper.insert(claim);
         } catch (DataIntegrityViolationException e) {
             if (!isConstraintViolation(e, GLOBAL_TX_ID_CONSTRAINT)) {
                 throw e;
@@ -220,8 +219,8 @@ public class ClaimService {
     public ClaimResponses.Detail assess(String globalTxId, String empId, ClaimRequests.Assess request) {
         validateGlobalTxId(globalTxId);
         Claim claim = lockClaim(request.getClmNo());
-        if (historyRepository.existsByClmNoAndGlobalTxId(claim.getClmNo(), globalTxId)) {
-            return detail(claim, contractRepository.findById(claim.getContractNo()).orElseThrow());
+        if (historyMapper.existsByClmNoAndGlobalTxId(claim.getClmNo(), globalTxId)) {
+            return detail(claim, contractMapper.findById(claim.getContractNo()).orElseThrow());
         }
         ClaimStatus before = claim.status();
         if (!before.canChangeTo(ClaimStatus.ASSESSED)) {
@@ -229,7 +228,7 @@ public class ClaimService {
                     + claim.getClmStatCd() + ")");
         }
         String memo = optionalMemo(request.getMemo());
-        Contract claimContract = contractRepository.findById(claim.getContractNo()).orElseThrow();
+        Contract claimContract = contractMapper.findById(claim.getContractNo()).orElseThrow();
         if (MedicalClaimService.isMedical(claimContract)) {
             return assessMedical(claim, before, globalTxId, empId, memo, request);
         }
@@ -245,7 +244,7 @@ public class ClaimService {
         }
 
         // 같은 계약의 다른 사고와 한도를 동시에 쓰지 않도록 계약 행을 잠근다
-        Contract contract = contractRepository.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
+        Contract contract = contractMapper.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
         Map<String, BigDecimal> deductibles = deductibles(contract);
         Map<String, BigDecimal> limits = remainingLimits(contract, claim);
         Map<String, ClaimCoverage.Assessment> results = new HashMap<>();
@@ -257,6 +256,7 @@ public class ClaimService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         claim.assess(results, normalizeEmpId(empId), now);
+        claimMapper.updateAssessment(claim);
         record(claim, before, globalTxId, empId, memo, now);
         log.info("손해사정: 사고번호={}, 지급액 합계={}", claim.getClmNo(), claim.getTotalPayAmt());
         return detail(claim, contract);
@@ -271,13 +271,14 @@ public class ClaimService {
         if (request.getCoverages() != null && !request.getCoverages().isEmpty()) {
             throw new BusinessException("E-MED-005", "실손 손해사정은 담보별 금액(coverages) 대신 진료별 인정액(medicalItems)만 받습니다.");
         }
-        Contract contract = contractRepository.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
-        Set<String> held = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+        Contract contract = contractMapper.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
+        Set<String> held = coverageMapper.findByContractNo(contract.getContractNo()).stream()
                 .map(Coverage::getCvrgCd).collect(Collectors.toSet());
         Map<String, ClaimCoverage.Assessment> results = medicalClaimService.assess(claim, contract, held, request.getMedicalItems(),
                 remainingLimits(contract, claim));
         LocalDateTime now = LocalDateTime.now(clock);
         claim.assess(results, normalizeEmpId(empId), now);
+        claimMapper.updateAssessment(claim);
         record(claim, before, globalTxId, empId, memo, now);
         log.info("손해사정(실손 자동 계산): 사고번호={}, 지급액 합계={}", claim.getClmNo(), claim.getTotalPayAmt());
         return detail(claim, contract);
@@ -306,8 +307,8 @@ public class ClaimService {
         }
         Claim claim = lockClaim(request.getClmNo());
         readableContract(claim.getContractNo(), ownerEmpId, ClaimService::claimNotFound);
-        if (historyRepository.existsByClmNoAndGlobalTxId(claim.getClmNo(), globalTxId)) {
-            return detail(claim, contractRepository.findById(claim.getContractNo()).orElseThrow());
+        if (historyMapper.existsByClmNoAndGlobalTxId(claim.getClmNo(), globalTxId)) {
+            return detail(claim, contractMapper.findById(claim.getContractNo()).orElseThrow());
         }
         String memo = optionalMemo(request.getMemo());
         ClaimStatus before = claim.status();
@@ -331,7 +332,7 @@ public class ClaimService {
                     throw new BusinessException(HttpStatus.FORBIDDEN, "E-CLM-008", "지급액이 " + HIGH_VALUE_THRESHOLD
                             + "원을 넘는 고액 건은 관리자 승인이 필요합니다.");
                 }
-                contract = contractRepository.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
+                contract = contractMapper.findForUpdateByContractNo(claim.getContractNo()).orElseThrow();
                 Map<String, BigDecimal> limits = remainingLimits(contract, claim);
                 for (ClaimCoverage item : claim.getItems()) {
                     if (item.getPayAmt().compareTo(limits.get(item.getCvrgCd()).max(BigDecimal.ZERO)) > 0) {
@@ -348,14 +349,15 @@ public class ClaimService {
                 if (memo == null) {
                     throw new BusinessException("E-CLM-007", "면책 사유를 입력해야 합니다.");
                 }
-                contract = contractRepository.findById(claim.getContractNo()).orElseThrow();
+                contract = contractMapper.findById(claim.getContractNo()).orElseThrow();
                 claim.deny(normalizeEmpId(empId), memo, now);
             }
             default -> {
-                contract = contractRepository.findById(claim.getContractNo()).orElseThrow();
+                contract = contractMapper.findById(claim.getContractNo()).orElseThrow();
                 claim.withdraw(normalizeEmpId(empId), memo, now);
             }
         }
+        claimMapper.updateHeader(claim);
         record(claim, before, globalTxId, empId, memo, now);
         log.info("보상 종결: 사고번호={}, 처리={}, 지급액={}", claim.getClmNo(), decision, claim.getTotalPayAmt());
         return detail(claim, contract);
@@ -371,7 +373,7 @@ public class ClaimService {
         if (!StringUtils.hasText(clmNo)) {
             throw new BusinessException("E-CLM-001", "사고번호를 입력해야 합니다.");
         }
-        Claim claim = claimRepository.findById(clmNo).orElseThrow(ClaimService::claimNotFound);
+        Claim claim = claimMapper.findById(clmNo).orElseThrow(ClaimService::claimNotFound);
         return detail(claim, readableContract(claim.getContractNo(), ownerEmpId, ClaimService::claimNotFound));
     }
 
@@ -382,7 +384,7 @@ public class ClaimService {
      */
     @Transactional(readOnly = true)
     public ClaimResponses.Page list(String ownerEmpId, ClaimRequests.ListCond cond) {
-        PageRequest pageable = pageRequest(cond.getPage(), cond.getSize(), Sort.unsorted());
+        PageQuery pageable = pageRequest(cond.getPage(), cond.getSize());
         if (StringUtils.hasText(cond.getClmStatCd()) && ClaimStatus.findByCode(cond.getClmStatCd()).isEmpty()) {
             throw new BusinessException("E-CLM-001", "없는 보상 상태코드입니다: " + cond.getClmStatCd());
         }
@@ -449,7 +451,7 @@ public class ClaimService {
         if (!StringUtils.hasText(clmNo)) {
             throw new BusinessException("E-CLM-001", "사고번호를 입력해야 합니다.");
         }
-        return claimRepository.findForUpdateByClmNo(clmNo).orElseThrow(ClaimService::claimNotFound);
+        return claimMapper.findForUpdateByClmNo(clmNo).orElseThrow(ClaimService::claimNotFound);
     }
 
     private Contract readableContract(String contractNo, String ownerEmpId) {
@@ -457,7 +459,7 @@ public class ClaimService {
     }
 
     private Contract readableContract(String contractNo, String ownerEmpId, java.util.function.Supplier<BusinessException> notFound) {
-        return contractRepository.findById(contractNo).filter(c -> isReadable(c, ownerEmpId)).orElseThrow(notFound);
+        return contractMapper.findById(contractNo).filter(c -> isReadable(c, ownerEmpId)).orElseThrow(notFound);
     }
 
     /** 담보별 자기부담금 (상품이 정한 값. 상품 없는 계약은 모두 0) */
@@ -465,21 +467,21 @@ public class ClaimService {
         if (contract.getPrdCd() == null) {
             return Map.of();
         }
-        return productRepository.findById(contract.getPrdCd()).map(Product::getCoverages).orElse(List.of()).stream()
+        return productMapper.findById(contract.getPrdCd()).map(Product::getCoverages).orElse(List.of()).stream()
                 .collect(Collectors.toMap(ProductCoverage::getCvrgCd, ProductCoverage::getDeductibleAmt));
     }
 
     /** 담보별 남은 가입금액 = 가입금액 − 이 계약의 다른 사고로 이미 지급한 금액 */
     private Map<String, BigDecimal> remainingLimits(Contract contract, Claim claim) {
-        Map<String, BigDecimal> insured = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+        Map<String, BigDecimal> insured = coverageMapper.findByContractNo(contract.getContractNo()).stream()
                 .collect(Collectors.toMap(Coverage::getCvrgCd, Coverage::getIsrdAmt));
         return claim.getItems().stream().collect(Collectors.toMap(ClaimCoverage::getCvrgCd, item ->
                 insured.getOrDefault(item.getCvrgCd(), BigDecimal.ZERO)
-                        .subtract(claimRepository.sumPaid(contract.getContractNo(), item.getCvrgCd(), claim.getClmNo()))));
+                        .subtract(claimMapper.sumPaid(contract.getContractNo(), item.getCvrgCd(), claim.getClmNo()))));
     }
 
     private void record(Claim claim, ClaimStatus before, String globalTxId, String empId, String memo, LocalDateTime now) {
-        historyRepository.save(ClaimHistory.builder()
+        historyMapper.insert(ClaimHistory.builder()
                 .clmNo(claim.getClmNo())
                 .beforeStatCd(before == null ? null : before.getCode())
                 .afterStatCd(claim.getClmStatCd())
@@ -491,7 +493,7 @@ public class ClaimService {
     }
 
     private ClaimResponses.Detail detail(Claim claim, Contract contract) {
-        Map<String, BigDecimal> insured = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+        Map<String, BigDecimal> insured = coverageMapper.findByContractNo(contract.getContractNo()).stream()
                 .collect(Collectors.toMap(Coverage::getCvrgCd, Coverage::getIsrdAmt));
         BigDecimal pay = claim.getTotalPayAmt();
         return ClaimResponses.Detail.builder()
@@ -526,14 +528,14 @@ public class ClaimService {
                         .map(i -> ClaimResponses.Item.builder()
                                 .cvrgCd(i.getCvrgCd())
                                 .isrdAmt(insured.get(i.getCvrgCd()))
-                                .paidByOthers(claimRepository.sumPaid(contract.getContractNo(), i.getCvrgCd(), claim.getClmNo()))
+                                .paidByOthers(claimMapper.sumPaid(contract.getContractNo(), i.getCvrgCd(), claim.getClmNo()))
                                 .claimAmt(i.getClaimAmt())
                                 .assessedAmt(i.getAssessedAmt())
                                 .deductibleAmt(i.getDeductibleAmt())
                                 .payAmt(i.getPayAmt())
                                 .build())
                         .toList())
-                .histories(historyRepository.findByClmNoOrderByHistId(claim.getClmNo()).stream()
+                .histories(historyMapper.findByClmNoOrderByHistId(claim.getClmNo()).stream()
                         .map(h -> ClaimResponses.History.builder().beforeStatCd(h.getBeforeStatCd()).afterStatCd(h.getAfterStatCd())
                                 .empId(h.getEmpId()).memo(h.getMemo()).chgDt(h.getChgDt()).build())
                         .toList())

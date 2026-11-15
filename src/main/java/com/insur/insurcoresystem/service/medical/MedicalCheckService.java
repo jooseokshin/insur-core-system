@@ -4,12 +4,12 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.product.Product;
-import com.insur.insurcoresystem.domain.product.ProductRepository;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.TraceNumbers;
 import com.insur.insurcoresystem.ext.kcis.KcisClient;
@@ -52,9 +52,9 @@ public class MedicalCheckService {
     private final KcisClient kcis;
     private final TraceNumbers traceNumbers;
     private final OutboxService outbox;
-    private final ContractRepository contractRepository;
-    private final CoverageRepository coverageRepository;
-    private final ProductRepository productRepository;
+    private final ContractMapper contractMapper;
+    private final CoverageMapper coverageMapper;
+    private final ProductMapper productMapper;
     private final Clock clock;
 
     /**
@@ -85,7 +85,7 @@ public class MedicalCheckService {
      */
     @Transactional(noRollbackFor = BusinessException.class)
     public MedicalCheckResponse recheck(String contractNo, String empId) {
-        Contract contract = contractRepository.findForUpdateByContractNo(contractNo == null ? "" : contractNo)
+        Contract contract = contractMapper.findForUpdateByContractNo(contractNo == null ? "" : contractNo)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "E-CTR-010", "해당 계약이 존재하지 않습니다."));
         if (!MedicalClaimService.isMedical(contract) || find(contractNo).isEmpty()) {
             throw new BusinessException("E-MED-007", "신용정보 조회 동의를 받은 실손의료보험 계약이 아닙니다.");
@@ -141,10 +141,10 @@ public class MedicalCheckService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void reportContract(Contract contract, boolean newContract) {
-        boolean nonCovered = coverageRepository.findByContractContractNo(contract.getContractNo()).stream()
+        boolean nonCovered = coverageMapper.findByContractNo(contract.getContractNo()).stream()
                 .map(Coverage::getCvrgCd).anyMatch(MedicalClaimCalculator.NON_COVERED::equals);
         String productName = contract.getPrdCd() == null ? "실손의료보험"
-                : productRepository.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse("실손의료보험");
+                : productMapper.findById(contract.getPrdCd()).map(Product::getPrdNm).orElse("실손의료보험");
         LocalDate end = !newContract && contract.getTermDate() != null ? contract.getTermDate() : contract.getEndDate();
         outbox.enqueue(KcisLayouts.AGENCY, KcisLayouts.R001, contract.getContractNo() + (newContract ? "-N" : "-T"),
                 traceNo -> kcis.buildContractReport(traceNo, newContract, contract.getContractNo(), contract.getInsuredId(),

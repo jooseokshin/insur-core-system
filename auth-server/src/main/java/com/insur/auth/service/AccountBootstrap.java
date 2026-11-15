@@ -2,7 +2,7 @@ package com.insur.auth.service;
 
 import com.insur.auth.common.Roles;
 import com.insur.auth.domain.Employee;
-import com.insur.auth.domain.EmployeeRepository;
+import com.insur.auth.mapper.EmployeeMapper;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -26,14 +26,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class AccountBootstrap implements ApplicationRunner {
 
-    private final EmployeeRepository employeeRepository;
+    private final EmployeeMapper employeeMapper;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
     private final String adminPassword;
 
-    public AccountBootstrap(EmployeeRepository employeeRepository, PasswordEncoder passwordEncoder, Clock clock,
+    public AccountBootstrap(EmployeeMapper employeeMapper, PasswordEncoder passwordEncoder, Clock clock,
                             @Value("${app.bootstrap.admin-password:}") String adminPassword) {
-        this.employeeRepository = employeeRepository;
+        this.employeeMapper = employeeMapper;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
         this.adminPassword = adminPassword;
@@ -42,10 +42,10 @@ public class AccountBootstrap implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (adminPassword.isBlank() || employeeRepository.count() > 0) {
+        if (adminPassword.isBlank() || employeeMapper.count() > 0) {
             return;
         }
-        employeeRepository.save(Employee.create("admin", "시스템 관리자", null, Set.of(Roles.ADMIN),
+        employeeMapper.insert(Employee.create("admin", "시스템 관리자", null, Set.of(Roles.ADMIN),
                 passwordEncoder.encode(adminPassword), true, "SYSTEM", LocalDateTime.now(clock)));
         log.warn("사원이 없어 초기 관리자(admin)를 만들었습니다. 첫 로그인 때 비밀번호를 바꿔야 합니다.");
     }
@@ -61,12 +61,12 @@ public class AccountBootstrap implements ApplicationRunner {
         /** 개발용 공통 비밀번호 */
         static final String DEV_PASSWORD = "Insur!2026";
 
-        private final EmployeeRepository employeeRepository;
+        private final EmployeeMapper employeeMapper;
         private final PasswordEncoder passwordEncoder;
         private final Clock clock;
 
-        DevAccounts(EmployeeRepository employeeRepository, PasswordEncoder passwordEncoder, Clock clock) {
-            this.employeeRepository = employeeRepository;
+        DevAccounts(EmployeeMapper employeeMapper, PasswordEncoder passwordEncoder, Clock clock) {
+            this.employeeMapper = employeeMapper;
             this.passwordEncoder = passwordEncoder;
             this.clock = clock;
         }
@@ -83,10 +83,10 @@ public class AccountBootstrap implements ApplicationRunner {
         }
 
         private void create(String empId, String empNm, String deptNm, Set<String> roles) {
-            if (employeeRepository.existsById(empId)) {
+            if (employeeMapper.existsById(empId)) {
                 return;
             }
-            employeeRepository.save(Employee.create(empId, empNm, deptNm, roles, passwordEncoder.encode(DEV_PASSWORD),
+            employeeMapper.insert(Employee.create(empId, empNm, deptNm, roles, passwordEncoder.encode(DEV_PASSWORD),
                     false, "SYSTEM", LocalDateTime.now(clock)));
             log.info("개발용 계정 생성: {} ({})", empId, roles);
         }

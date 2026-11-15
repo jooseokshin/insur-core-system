@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 사원 관리 감사 이력 TB_EMP_AUDIT -->
+<mapper namespace="com.insur.auth.mapper.EmployeeAuditMapper">
+
+    <select id="findByEmpIdOrderByAuditIdDesc" resultType="com.insur.auth.domain.EmployeeAudit">
+        SELECT AUDIT_ID, EMP_ID, ACTION, DETAIL, ACT_EMP_ID, GLOBAL_TX_ID, ACT_DT FROM TB_EMP_AUDIT
+         WHERE EMP_ID = #{empId} ORDER BY AUDIT_ID DESC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="auditId" keyColumn="audit_id">
+        INSERT INTO TB_EMP_AUDIT (EMP_ID, ACTION, DETAIL, ACT_EMP_ID, GLOBAL_TX_ID, ACT_DT)
+        VALUES (#{empId}, #{action}, #{detail}, #{actEmpId}, #{globalTxId}, #{actDt})
+    </insert>
+</mapper>

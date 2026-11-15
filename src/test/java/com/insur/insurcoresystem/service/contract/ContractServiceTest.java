@@ -1,11 +1,13 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -14,17 +16,18 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractSearchCondition;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
-import com.insur.insurcoresystem.domain.contract.ContractStatusHistoryRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicyRepository;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryRequest;
@@ -49,17 +52,14 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
-import com.insur.insurcoresystem.domain.claim.ClaimRepository;
-import com.insur.insurcoresystem.domain.product.ProductRepository;
+import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.product.ProductService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -76,27 +76,27 @@ class ContractServiceTest {
     @Mock
     ContractNumberGenerator contractNumberGenerator;
     @Mock
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Mock
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
     @Mock
-    ContractStatusHistoryRepository historyRepository;
+    ContractStatusHistoryMapper historyMapper;
     @Mock
-    ContractPaymentRepository paymentRepository;
+    ContractPaymentMapper paymentMapper;
     @Mock
-    PremiumRateRepository premiumRateRepository;
+    PremiumRateMapper premiumRateMapper;
     @Mock
-    PremiumFactorRepository premiumFactorRepository;
+    PremiumFactorMapper premiumFactorMapper;
     @Mock
-    PremiumFactorPolicyRepository premiumFactorPolicyRepository;
+    PremiumFactorPolicyMapper premiumFactorPolicyMapper;
     /** 이 테스트의 청약은 상품을 지정하지 않으므로 상품 검증은 호출되지 않는다 (상품 규칙은 ProductIntegrationTest) */
     @Mock
     ProductService productService;
     @Mock
-    ProductRepository productRepository;
+    ProductMapper productMapper;
     /** 진행 중 사고 확인. 기본값(false)이라 해지가 막히지 않는다 (사고 규칙은 ClaimIntegrationTest) */
     @Mock
-    ClaimRepository claimRepository;
+    ClaimMapper claimMapper;
     ContractService contractService;
     ContractInquiryService inquiryService;
     ContractStatusService statusService;
@@ -108,27 +108,26 @@ class ContractServiceTest {
     void setUp() {
         // 요율표는 어떤 담보코드든 연 0.5% 로 돌려주도록 두고, 보험료 대조에는 실제 PremiumService 를 쓴다.
         // request() 헬퍼가 가입금액을 보험료 ÷ 0.005 로 만들기 때문에 평소에는 산출 보험료와 항상 일치한다.
-        lenient().when(premiumRateRepository.findEffective(any(), any(), any())).thenAnswer(inv ->
+        lenient().when(premiumRateMapper.findEffective(any(), any(), any())).thenAnswer(inv ->
                 ((java.util.Collection<String>) inv.getArgument(1)).stream()
                         .map(code -> PremiumRate.builder().insrClsCd(inv.getArgument(0)).cvrgCd(code).cvrgNm(code)
                                 .annualRate(new BigDecimal("0.005")).build())
                         .toList());
         // 승인(유효) 규칙의 납입 합계는 기본적으로 어떤 총보험료든 채우는 값이다. 미납 검증은 ContractPaymentServiceTest 에서 한다.
-        lenient().when(paymentRepository.sumPaid(any())).thenReturn(new BigDecimal("999999999999"));
-        ContractHistoryRecorder historyRecorder = new ContractHistoryRecorder(historyRepository, SEOUL_CLOCK);
-        contractService = new ContractService(contractNumberGenerator, contractRepository, coverageRepository,
-                historyRecorder, new PremiumService(premiumRateRepository, premiumFactorRepository, premiumFactorPolicyRepository, productService),
+        lenient().when(paymentMapper.sumPaid(any())).thenReturn(new BigDecimal("999999999999"));
+        ContractHistoryRecorder historyRecorder = new ContractHistoryRecorder(historyMapper, SEOUL_CLOCK);
+        contractService = new ContractService(contractNumberGenerator, contractMapper, coverageMapper,
+                historyRecorder, new PremiumService(premiumRateMapper, premiumFactorMapper, premiumFactorPolicyMapper, productService),
                 SEOUL_CLOCK, productService, medicalCheckService);
-        inquiryService = new ContractInquiryService(contractRepository, coverageRepository, historyRepository, productRepository, medicalCheckService);
-        statusService = new ContractStatusService(contractRepository, historyRepository, paymentRepository, historyRecorder,
-                claimRepository, medicalCheckService, SEOUL_CLOCK);
+        inquiryService = new ContractInquiryService(contractMapper, coverageMapper, historyMapper, productMapper, medicalCheckService);
+        statusService = new ContractStatusService(contractMapper, historyMapper, paymentMapper, historyRecorder,
+                claimMapper, medicalCheckService, SEOUL_CLOCK);
     }
 
     @Test
     void 채번한_번호와_청약상태로_계약을_저장한다() {
         given(contractNumberGenerator.generate(ProductType.FIRE))
                 .willReturn(new ContractNumbers("POL-FIRE-2026-000001", "APP-FIRE-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         ContractApplyResponse response = contractService.applyContract(TX_ID, EMP_ID, request("02", "150000", "100000", "50000"));
 
@@ -136,7 +135,7 @@ class ContractServiceTest {
         assertThat(response.getApplNo()).isEqualTo("APP-FIRE-2026-000001");
         assertThat(response.getCtrStatCd()).isEqualTo(Contract.CTR_STAT_APPLIED);
         assertThat(response.getCoverageCount()).isEqualTo(2);
-        verify(coverageRepository).saveAll(anyList());
+        verify(coverageMapper, org.mockito.Mockito.times(2)).insert(any());   // 담보마다 한 행
     }
 
     @Test
@@ -145,15 +144,14 @@ class ContractServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo("E-CTR-003");
 
-        verifyNoInteractions(contractNumberGenerator, coverageRepository);
-        verify(contractRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(contractNumberGenerator, coverageMapper);
+        verify(contractMapper, never()).insert(any());
     }
 
     @Test
     void 금액_스케일이_달라도_값이_같으면_일치로_본다() {
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         contractService.applyContract(TX_ID, EMP_ID, request("01", "150000.00", "100000", "50000"));
     }
@@ -223,8 +221,8 @@ class ContractServiceTest {
                 .ctrStatCd(Contract.CTR_STAT_APPLIED)
                 .totalPremium(new BigDecimal("150000"))
                 .build();
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
-        given(coverageRepository.findByContractContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
+        given(coverageMapper.findByContractNo("POL-CAR-2026-000001"))
                 .willReturn(List.of(Coverage.builder().build(), Coverage.builder().build()));
 
         ContractApplyResponse response = contractService.applyContract(TX_ID, EMP_ID, request("01", "150000", "100000", "50000"));
@@ -233,8 +231,8 @@ class ContractServiceTest {
         assertThat(response.getApplNo()).isEqualTo("APP-CAR-2026-000001");
         assertThat(response.getCoverageCount()).isEqualTo(2);
         verifyNoInteractions(contractNumberGenerator);
-        verify(contractRepository, never()).saveAndFlush(any());
-        verify(coverageRepository, never()).saveAll(anyList());
+        verify(contractMapper, never()).insert(any());
+        verify(coverageMapper, never()).insert(any());
     }
 
     @Test
@@ -243,8 +241,7 @@ class ContractServiceTest {
         for (String constraintName : List.of("uk_ctr_lgd_global_tx_id", "public.UK_CTR_LGD_GLOBAL_TX_ID")) {
             given(contractNumberGenerator.generate(ProductType.CAR))
                     .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-            given(contractRepository.saveAndFlush(any(Contract.class)))
-                    .willThrow(integrityViolation("duplicate key value", constraintName));
+            willThrow(integrityViolation("duplicate key value", constraintName)).given(contractMapper).insert(any(Contract.class));
 
             assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100")))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -252,7 +249,7 @@ class ContractServiceTest {
                         assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                     });
         }
-        verifyNoInteractions(coverageRepository);
+        verifyNoInteractions(coverageMapper);
     }
 
     @Test
@@ -261,41 +258,38 @@ class ContractServiceTest {
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
 
         // 다른 유니크 제약 위반: 메시지 문장에 거래 UUID 제약명이 들어 있어도 제약명이 다르면 충돌이 아니다
-        given(contractRepository.saveAndFlush(any(Contract.class))).willThrow(
-                integrityViolation("duplicate key (see uk_ctr_lgd_global_tx_id)", "uk_ctr_lgd_appl_no"));
+        willThrow(
+                integrityViolation("duplicate key (see uk_ctr_lgd_global_tx_id)", "uk_ctr_lgd_appl_no")).given(contractMapper).insert(any(Contract.class));
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100")))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        // 제약명을 알 수 없는 위반, Hibernate 예외 없이 메시지 문자열만 있는 위반
-        given(contractRepository.saveAndFlush(any(Contract.class))).willThrow(
-                integrityViolation("null value in column \"insr_cls_cd\"", null));
+        // 제약명을 알 수 없는 위반, PostgreSQL 예외 없이 메시지 문자열만 있는 위반
+        willThrow(
+                integrityViolation("null value in column \"insr_cls_cd\"", null)).given(contractMapper).insert(any(Contract.class));
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100")))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        given(contractRepository.saveAndFlush(any(Contract.class))).willThrow(new DataIntegrityViolationException(
-                "x", new RuntimeException("duplicate key violates unique constraint \"uk_ctr_lgd_global_tx_id\"")));
+        willThrow(new DataIntegrityViolationException(
+                "x", new RuntimeException("duplicate key violates unique constraint \"uk_ctr_lgd_global_tx_id\""))).given(contractMapper).insert(any(Contract.class));
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100")))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    /** DB 제약 위반을 Hibernate 가 감싸고 스프링이 다시 감싼 예외를 흉내 낸다. */
+    /** DB 제약 위반(PSQLException)을 스프링이 감싼 예외를 흉내 낸다. */
     private static DataIntegrityViolationException integrityViolation(String message, String constraintName) {
         return new DataIntegrityViolationException("could not execute statement",
-                new org.hibernate.exception.ConstraintViolationException(message,
-                        new java.sql.SQLException(message, "23505"), "insert into tb_ctr_lgd ...",
-                        org.hibernate.exception.ConstraintViolationException.ConstraintKind.UNIQUE, constraintName));
+                com.insur.insurcoresystem.support.PgErrors.uniqueViolation(message, constraintName));
     }
 
     @Test
     void 청약하면_요청_내용의_지문을_계약에_저장한다() {
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
         ContractApplyRequest request = request("01", "100", "100");
 
         contractService.applyContract(TX_ID, EMP_ID, request);
 
         ArgumentCaptor<Contract> captor = ArgumentCaptor.forClass(Contract.class);
-        verify(contractRepository).saveAndFlush(captor.capture());
+        verify(contractMapper).insert(captor.capture());
         assertThat(captor.getValue().getReqHash()).isEqualTo(RequestFingerprint.of(request)).hasSize(64);
     }
 
@@ -304,7 +298,7 @@ class ContractServiceTest {
         ContractApplyRequest original = request("01", "100", "100");
         Contract applied = Contract.builder().contractNo("POL-1").applNo("APP-1").globalTxId(TX_ID)
                 .regEmpId(EMP_ID).reqHash(RequestFingerprint.of(original)).build();
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
 
         // 같은 내용: 표기만 다른 금액(100.00)이어도 같은 요청이다
         ContractApplyRequest same = request("01", "100", "100");
@@ -324,14 +318,14 @@ class ContractServiceTest {
                     });
         }
         verifyNoInteractions(contractNumberGenerator);
-        verify(contractRepository, never()).saveAndFlush(any());
+        verify(contractMapper, never()).insert(any());
     }
 
     @Test
     void 지문이_없는_이전_계약은_내용을_비교하지_않고_다른_사번이면_내용과_무관하게_사번_오류가_우선한다() {
         Contract legacy = Contract.builder().contractNo("POL-OLD").applNo("APP-OLD").globalTxId(TX_ID)
                 .regEmpId(EMP_ID).build();   // reqHash 없음
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(legacy));
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(legacy));
 
         assertThat(contractService.applyContract(TX_ID, EMP_ID, request("01", "999", "999")).getContractNo())
                 .isEqualTo("POL-OLD");
@@ -339,7 +333,7 @@ class ContractServiceTest {
         // 다른 사번이 다른 내용으로 보내도 내용 일치 여부를 알려주지 않고 사번 오류(E-CTR-015)로 거절한다
         Contract others = Contract.builder().contractNo("POL-2").applNo("APP-2").globalTxId("tx-other")
                 .regEmpId("E1").reqHash(RequestFingerprint.of(request("01", "100", "100"))).build();
-        given(contractRepository.findByGlobalTxId("tx-other")).willReturn(java.util.Optional.of(others));
+        given(contractMapper.findByGlobalTxId("tx-other")).willReturn(java.util.Optional.of(others));
         assertThatThrownBy(() -> contractService.applyContract("tx-other", "E2", request("01", "200", "200")))
                 .extracting("errorCode").isEqualTo("E-CTR-015");
     }
@@ -356,18 +350,17 @@ class ContractServiceTest {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(e.getMessage()).contains("CA001", "90", "100");
                 });
-        verifyNoInteractions(contractNumberGenerator, coverageRepository, historyRepository);
-        verify(contractRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(contractNumberGenerator, coverageMapper, historyMapper);
+        verify(contractMapper, never()).insert(any());
     }
 
     @Test
     void 요율_계수를_입력한_청약은_계수가_반영된_보험료여야_하고_입력값을_계약에_저장한다() {
-        given(premiumFactorRepository.findEffective(eq("01"), any())).willReturn(List.of(PremiumFactor.builder()
+        given(premiumFactorMapper.findEffective(eq("01"), any())).willReturn(List.of(PremiumFactor.builder()
                 .insrClsCd("01").factorType("DISCOUNT_GRADE").factorKey("1").factorNm("1등급")
                 .factorValue(new BigDecimal("0.8000")).build()));
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         // 가입금액 20,000,000 × 0.5% = 100 이지만 할인 계수 0.8 이 적용되면 80
         ContractApplyRequest withoutFactorPrem = request("01", "100", "100");
@@ -382,7 +375,7 @@ class ContractServiceTest {
         contractService.applyContract(TX_ID, EMP_ID, request);
 
         ArgumentCaptor<Contract> captor = ArgumentCaptor.forClass(Contract.class);
-        verify(contractRepository).saveAndFlush(captor.capture());
+        verify(contractMapper).insert(captor.capture());
         assertThat(captor.getValue().getDiscountGrade()).isEqualTo("1");
         assertThat(captor.getValue().getDriverAge()).isNull();
         assertThat(captor.getValue().getStructureGrade()).isNull();
@@ -390,7 +383,7 @@ class ContractServiceTest {
 
     @Test
     void 요율표에_없는_담보나_중복된_담보코드로는_청약할_수_없다() {
-        doReturn(List.of()).when(premiumRateRepository).findEffective(any(), any(), any());
+        doReturn(List.of()).when(premiumRateMapper).findEffective(any(), any(), any());
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100")))
                 .extracting("errorCode").isEqualTo("E-PRM-001");
 
@@ -406,11 +399,11 @@ class ContractServiceTest {
         ContractApplyRequest original = request("01", "100", "100");
         Contract applied = Contract.builder().contractNo("POL-1").applNo("APP-1").globalTxId(TX_ID)
                 .regEmpId(EMP_ID).reqHash(RequestFingerprint.of(original)).build();
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
 
         assertThat(contractService.applyContract(TX_ID, EMP_ID, original).getContractNo()).isEqualTo("POL-1");
         // 재전송은 요율표를 조회하지도 않으므로, 접수 이후 요율이 바뀌거나 담보가 요율표에서 사라져도 영향받지 않는다
-        verifyNoInteractions(premiumRateRepository, contractNumberGenerator);
+        verifyNoInteractions(premiumRateMapper, contractNumberGenerator);
     }
 
     @Test
@@ -427,8 +420,8 @@ class ContractServiceTest {
     @Test
     void 증권번호로_계약과_담보를_조회한다() {
         Contract contract = contract();
-        given(contractRepository.findById("POL-CAR-2026-000001")).willReturn(java.util.Optional.of(contract));
-        given(coverageRepository.findByContractContractNo("POL-CAR-2026-000001")).willReturn(List.of(
+        given(contractMapper.findById("POL-CAR-2026-000001")).willReturn(java.util.Optional.of(contract));
+        given(coverageMapper.findByContractNo("POL-CAR-2026-000001")).willReturn(List.of(
                 Coverage.builder().cvrgCd("CA001").isrdAmt(new BigDecimal("1000")).prem(new BigDecimal("100")).build()));
 
         ContractInquiryResponse response = inquiryService.inquireContract(null,
@@ -443,7 +436,7 @@ class ContractServiceTest {
 
     @Test
     void 청약번호로도_계약을_조회한다() {
-        given(contractRepository.findByApplNo("APP-CAR-2026-000001")).willReturn(java.util.Optional.of(contract()));
+        given(contractMapper.findByApplNo("APP-CAR-2026-000001")).willReturn(java.util.Optional.of(contract()));
 
         ContractInquiryResponse response = inquiryService.inquireContract(null,
                 ContractInquiryRequest.builder().applNo("APP-CAR-2026-000001").build());
@@ -468,7 +461,7 @@ class ContractServiceTest {
     @Test
     void 청약_상태의_계약을_유효로_변경하면_변경_전후_상태를_반환한다() {
         Contract contract = contract();
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001"))
                 .willReturn(java.util.Optional.of(contract));
 
         ContractStatusChangeResponse response = statusService.changeContractStatus(TX_ID, EMP_ID, 
@@ -485,7 +478,7 @@ class ContractServiceTest {
         Contract inForce = Contract.builder().contractNo("POL-1").applNo("APP-1").ctrStatCd("20")
                 .startDate(LocalDate.of(2026, 10, 3)).endDate(LocalDate.of(2027, 10, 3))
                 .totalPremium(new BigDecimal("850000")).build();
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(java.util.Optional.of(inForce));
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(java.util.Optional.of(inForce));
 
         ContractStatusChangeResponse response = statusService.changeContractStatus(TX_ID, EMP_ID,
                 ContractStatusChangeRequest.builder().contractNo("POL-1").ctrStatCd("30").build());
@@ -500,7 +493,7 @@ class ContractServiceTest {
     @Test
     void 해지가_아닌_상태_변경에는_해지_정보를_남기지_않는다() {
         Contract contract = contract();
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001"))
                 .willReturn(java.util.Optional.of(contract));
 
         ContractStatusChangeResponse response = statusService.changeContractStatus(TX_ID, EMP_ID,
@@ -517,8 +510,8 @@ class ContractServiceTest {
         // 이미 유효(20)로 바뀐 계약에, 처음 요청(10→20)과 같은 거래 UUID 로 같은 요청이 다시 들어온 상황
         Contract inForce = contract();
         inForce.changeStatus(com.insur.insurcoresystem.domain.contract.ContractStatus.IN_FORCE);
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001")).willReturn(Optional.of(inForce));
-        given(historyRepository.findFirstByContractNoAndGlobalTxIdAndBeforeStatCdIsNotNullOrderByHistIdAsc(
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001")).willReturn(Optional.of(inForce));
+        given(historyMapper.findFirstChange(
                 "POL-CAR-2026-000001", "tx-retry")).willReturn(Optional.of(ContractStatusHistory.builder()
                 .beforeStatCd("10").afterStatCd("20").build()));
 
@@ -527,7 +520,7 @@ class ContractServiceTest {
 
         assertThat(same.getBeforeCtrStatCd()).isEqualTo("10");
         assertThat(same.getAfterCtrStatCd()).isEqualTo("20");
-        verify(historyRepository, never()).save(any());   // 이력이 늘지 않는다
+        verify(historyMapper, never()).insert(any());   // 이력이 늘지 않는다
 
         // 같은 거래 UUID 로 다른 상태를 요청하면 거절한다
         assertThatThrownBy(() -> statusService.changeContractStatus("tx-retry", EMP_ID,
@@ -542,8 +535,8 @@ class ContractServiceTest {
     void 해지_재전송은_계약에_기록된_해지일과_환급보험료를_돌려준다() {
         Contract terminated = Contract.builder().contractNo("POL-1").applNo("APP-1").ctrStatCd("30")
                 .termDate(LocalDate.of(2026, 10, 10)).refundPremium(new BigDecimal("833699")).build();
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(terminated));
-        given(historyRepository.findFirstByContractNoAndGlobalTxIdAndBeforeStatCdIsNotNullOrderByHistIdAsc("POL-1", "tx-t"))
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(terminated));
+        given(historyMapper.findFirstChange("POL-1", "tx-t"))
                 .willReturn(Optional.of(ContractStatusHistory.builder().beforeStatCd("20").afterStatCd("30").build()));
 
         ContractStatusChangeResponse response = statusService.changeContractStatus("tx-t", EMP_ID,
@@ -551,13 +544,13 @@ class ContractServiceTest {
 
         assertThat(response.getTermDate()).isEqualTo(LocalDate.of(2026, 10, 10));
         assertThat(response.getRefundPremium()).isEqualByComparingTo("833699");
-        verify(historyRepository, never()).save(any());
+        verify(historyMapper, never()).insert(any());
     }
 
     @Test
     void 허용되지_않는_상태_변경은_409_충돌_오류가_발생하고_상태는_그대로다() {
         Contract contract = contract();
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001"))
                 .willReturn(java.util.Optional.of(contract));
 
         // 청약 -> 해지 (유효를 거치지 않음), 청약 -> 청약 (같은 상태)
@@ -586,12 +579,11 @@ class ContractServiceTest {
     void 청약하면_최초_상태_이력을_남기고_재전송에는_이력을_남기지_않는다() {
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100"));
 
         ArgumentCaptor<ContractStatusHistory> captor = ArgumentCaptor.forClass(ContractStatusHistory.class);
-        verify(historyRepository).save(captor.capture());
+        verify(historyMapper).insert(captor.capture());
         ContractStatusHistory hist = captor.getValue();
         assertThat(hist.getContractNo()).isEqualTo("POL-CAR-2026-000001");
         assertThat(hist.getBeforeStatCd()).isNull();
@@ -601,21 +593,21 @@ class ContractServiceTest {
         assertThat(hist.getChgDt()).isNotNull();
 
         // 같은 거래의 재전송: 이미 접수된 계약을 반환하고 이력은 추가하지 않는다
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(contract()));
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(contract()));
         contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100"));
-        verify(historyRepository, org.mockito.Mockito.times(1)).save(any());
+        verify(historyMapper, org.mockito.Mockito.times(1)).insert(any());
     }
 
     @Test
     void 상태를_변경하면_변경_전후_상태와_처리자를_이력으로_남긴다() {
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001"))
                 .willReturn(java.util.Optional.of(contract()));
 
         statusService.changeContractStatus("tx-chg", "E777",
                 ContractStatusChangeRequest.builder().contractNo("POL-CAR-2026-000001").ctrStatCd("20").build());
 
         ArgumentCaptor<ContractStatusHistory> captor = ArgumentCaptor.forClass(ContractStatusHistory.class);
-        verify(historyRepository).save(captor.capture());
+        verify(historyMapper).insert(captor.capture());
         assertThat(captor.getValue().getBeforeStatCd()).isEqualTo("10");
         assertThat(captor.getValue().getAfterStatCd()).isEqualTo("20");
         assertThat(captor.getValue().getEmpId()).isEqualTo("E777");
@@ -624,7 +616,7 @@ class ContractServiceTest {
 
     @Test
     void 거절된_상태_변경과_거래UUID_오류는_이력을_남기지_않는다() {
-        given(contractRepository.findForUpdateByContractNo("POL-CAR-2026-000001"))
+        given(contractMapper.findForUpdateByContractNo("POL-CAR-2026-000001"))
                 .willReturn(java.util.Optional.of(contract()));
 
         assertThatThrownBy(() -> statusService.changeContractStatus(TX_ID, EMP_ID,
@@ -634,25 +626,25 @@ class ContractServiceTest {
                 ContractStatusChangeRequest.builder().contractNo("POL-CAR-2026-000001").ctrStatCd("20").build()))
                 .extracting("errorCode").isEqualTo("E-CTR-008");
 
-        verify(historyRepository, never()).save(any());
+        verify(historyMapper, never()).insert(any());
     }
 
     @Test
     void 계약_조회는_상태_이력을_조회하지_않는다() {
-        given(contractRepository.findById("POL-CAR-2026-000001")).willReturn(java.util.Optional.of(contract()));
+        given(contractMapper.findById("POL-CAR-2026-000001")).willReturn(java.util.Optional.of(contract()));
 
         ContractInquiryResponse response = inquiryService.inquireContract(null,
                 ContractInquiryRequest.builder().contractNo("POL-CAR-2026-000001").build());
 
         assertThat(response.getContractNo()).isEqualTo("POL-CAR-2026-000001");
-        verifyNoInteractions(historyRepository);
+        verifyNoInteractions(historyMapper);
     }
 
     @Test
     void 접수자_제한이_있으면_본인_접수_계약만_조회하고_그_외는_계약_없음으로_응답한다() {
         Contract mine = Contract.builder().contractNo("POL-MINE").applNo("APP-MINE").regEmpId("E1").build();
-        given(contractRepository.findById("POL-MINE")).willReturn(java.util.Optional.of(mine));
-        given(contractRepository.findByApplNo("APP-MINE")).willReturn(java.util.Optional.of(mine));
+        given(contractMapper.findById("POL-MINE")).willReturn(java.util.Optional.of(mine));
+        given(contractMapper.findByApplNo("APP-MINE")).willReturn(java.util.Optional.of(mine));
 
         // 본인 접수 계약: 증권번호/청약번호 어느 쪽으로든 조회된다
         assertThat(inquiryService.inquireContract("E1",
@@ -675,7 +667,7 @@ class ContractServiceTest {
     @Test
     void 접수자_사번이_없는_이전_계약은_제한된_조회에서_보이지_않고_제한이_없으면_보인다() {
         Contract legacy = Contract.builder().contractNo("POL-OLD").applNo("APP-OLD").build();
-        given(contractRepository.findById("POL-OLD")).willReturn(java.util.Optional.of(legacy));
+        given(contractMapper.findById("POL-OLD")).willReturn(java.util.Optional.of(legacy));
         ContractInquiryRequest request = ContractInquiryRequest.builder().contractNo("POL-OLD").build();
 
         assertThatThrownBy(() -> inquiryService.inquireContract("E1", request))
@@ -687,12 +679,11 @@ class ContractServiceTest {
     void 청약하면_접수_사번을_계약에_저장한다() {
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         ContractApplyResponse ignored = contractService.applyContract(TX_ID, "E777", request("01", "100", "100"));
 
         ArgumentCaptor<Contract> captor = ArgumentCaptor.forClass(Contract.class);
-        verify(contractRepository).saveAndFlush(captor.capture());
+        verify(contractMapper).insert(captor.capture());
         assertThat(captor.getValue().getRegEmpId()).isEqualTo("E777");
     }
 
@@ -700,7 +691,7 @@ class ContractServiceTest {
     void 다른_사번이_접수한_거래UUID로_재전송하면_409로_거절하고_번호를_알려주지_않는다() {
         Contract applied = Contract.builder().contractNo("POL-1").applNo("APP-1").globalTxId(TX_ID)
                 .regEmpId("E1").build();
-        given(contractRepository.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
+        given(contractMapper.findByGlobalTxId(TX_ID)).willReturn(java.util.Optional.of(applied));
 
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, "E2", request("01", "100", "100")))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -713,11 +704,11 @@ class ContractServiceTest {
     @Test
     void 상태_이력을_페이지_단위로_조회하고_페이지를_생략하면_첫_페이지_20건으로_조회한다() {
         Contract contract = Contract.builder().contractNo("POL-1").regEmpId("E1").build();
-        given(contractRepository.findById("POL-1")).willReturn(java.util.Optional.of(contract));
-        given(historyRepository.findByContractNo(eq("POL-1"), any(Pageable.class))).willReturn(new PageImpl<>(
+        given(contractMapper.findById("POL-1")).willReturn(java.util.Optional.of(contract));
+        given(historyMapper.findPageByContractNo(eq("POL-1"), any(PageQuery.class))).willReturn(
                 List.of(ContractStatusHistory.builder().afterStatCd("10").empId("E1").build(),
-                        ContractStatusHistory.builder().beforeStatCd("10").afterStatCd("20").empId("U1").build()),
-                PageRequest.of(0, 2), 3));
+                        ContractStatusHistory.builder().beforeStatCd("10").afterStatCd("20").empId("U1").build()));
+        given(historyMapper.countByContractNo("POL-1")).willReturn(3L);
 
         StatusHistoryPageResponse response = inquiryService.inquireStatusHistory(null,
                 StatusHistoryInquiryRequest.builder().contractNo("POL-1").page(0).size(2).build());
@@ -729,21 +720,20 @@ class ContractServiceTest {
         assertThat(response.getPage()).isZero();
         assertThat(response.getSize()).isEqualTo(2);
 
-        // page, size 를 생략하면 0페이지, 20건. 발생 순서(HIST_ID 오름차순)로 정렬해서 조회한다
+        // page, size 를 생략하면 0페이지, 20건 (정렬은 매퍼 SQL 의 HIST_ID 오름차순)
         inquiryService.inquireStatusHistory(null, StatusHistoryInquiryRequest.builder().contractNo("POL-1").build());
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(historyRepository, org.mockito.Mockito.times(2)).findByContractNo(eq("POL-1"), captor.capture());
-        Pageable defaults = captor.getAllValues().get(1);
+        ArgumentCaptor<PageQuery> captor = ArgumentCaptor.forClass(PageQuery.class);
+        verify(historyMapper, org.mockito.Mockito.times(2)).findPageByContractNo(eq("POL-1"), captor.capture());
+        PageQuery defaults = captor.getAllValues().get(1);
         assertThat(defaults.getPageNumber()).isZero();
         assertThat(defaults.getPageSize()).isEqualTo(20);
-        assertThat(defaults.getSort().getOrderFor("histId").isAscending()).isTrue();
     }
 
     @Test
     void 이력_조회의_증권번호_누락_페이징_오류_조회_범위_밖은_예외가_발생한다() {
         Contract contract = Contract.builder().contractNo("POL-1").regEmpId("E1").build();
-        given(contractRepository.findById("POL-1")).willReturn(java.util.Optional.of(contract));
-        given(contractRepository.findById("POL-NONE")).willReturn(java.util.Optional.empty());
+        given(contractMapper.findById("POL-1")).willReturn(java.util.Optional.of(contract));
+        given(contractMapper.findById("POL-NONE")).willReturn(java.util.Optional.empty());
 
         assertHistoryError(null, StatusHistoryInquiryRequest.builder().build(), "E-CTR-009");
         assertHistoryError(null, StatusHistoryInquiryRequest.builder().contractNo("POL-1").page(-1).build(), "E-CTR-016");
@@ -752,7 +742,7 @@ class ContractServiceTest {
         assertHistoryError(null, StatusHistoryInquiryRequest.builder().contractNo("POL-NONE").build(), "E-CTR-010");
         // 본인이 접수하지 않은 계약은 없는 계약과 같은 오류
         assertHistoryError("E2", StatusHistoryInquiryRequest.builder().contractNo("POL-1").build(), "E-CTR-010");
-        verifyNoInteractions(historyRepository);
+        verifyNoInteractions(historyMapper);
     }
 
     @Test
@@ -773,34 +763,32 @@ class ContractServiceTest {
         assertListError(ContractListRequest.builder().premiumMin(new BigDecimal("-1")).build(), "E-CTR-017");
         assertListError(ContractListRequest.builder().sortBy("CONTRACT_NO").build(), "E-CTR-018");
         assertListError(ContractListRequest.builder().sortDir("UP").build(), "E-CTR-018");
-        verifyNoInteractions(contractRepository);
+        verifyNoInteractions(contractMapper);
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void 목록_정렬은_기준과_방향을_고르고_같은_값은_증권번호로_정렬한다() {
-        given(contractRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
-                .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+        given(contractMapper.search(any(ContractSearchCondition.class), any(PageQuery.class))).willReturn(List.of());
 
         // 대소문자를 가리지 않는다
         inquiryService.listContracts(null, ContractListRequest.builder().sortBy("total_premium").sortDir("asc").build());
         inquiryService.listContracts(null, ContractListRequest.builder().sortBy("START_DATE").build());
 
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(contractRepository, org.mockito.Mockito.times(2))
-                .findAll(any(org.springframework.data.jpa.domain.Specification.class), captor.capture());
-        org.springframework.data.domain.Sort premiumAsc = captor.getAllValues().get(0).getSort();
-        assertThat(premiumAsc.getOrderFor("totalPremium").isAscending()).isTrue();
-        assertThat(premiumAsc.getOrderFor("contractNo").isAscending()).isTrue();
-        org.springframework.data.domain.Sort startDesc = captor.getAllValues().get(1).getSort();
-        assertThat(startDesc.getOrderFor("startDate").isDescending()).isTrue();   // 방향을 생략하면 내림차순
+        // 같은 값끼리의 증권번호 정렬은 매퍼 SQL 이 같은 방향으로 덧붙인다
+        ArgumentCaptor<ContractSearchCondition> captor = ArgumentCaptor.forClass(ContractSearchCondition.class);
+        verify(contractMapper, org.mockito.Mockito.times(2)).search(captor.capture(), any(PageQuery.class));
+        ContractSearchCondition premiumAsc = captor.getAllValues().get(0);
+        assertThat(premiumAsc.sortColumn()).isEqualTo("TOTAL_PREMIUM");
+        assertThat(premiumAsc.sortDir()).isEqualTo("ASC");
+        ContractSearchCondition startDesc = captor.getAllValues().get(1);
+        assertThat(startDesc.sortColumn()).isEqualTo("START_DATE");
+        assertThat(startDesc.sortDir()).isEqualTo("DESC");   // 방향을 생략하면 내림차순
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void 계약_목록은_최근_접수순으로_조회하고_기본_페이지는_0페이지_20건이다() {
-        given(contractRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
-                .willReturn(new PageImpl<>(List.of(contract()), PageRequest.of(0, 20), 1));
+        given(contractMapper.search(any(ContractSearchCondition.class), any(PageQuery.class))).willReturn(List.of(contract()));
+        given(contractMapper.countSearch(any(ContractSearchCondition.class))).willReturn(1L);
 
         ContractListResponse response = inquiryService.listContracts(null, ContractListRequest.builder().build());
 
@@ -811,10 +799,10 @@ class ContractServiceTest {
         assertThat(response.getPage()).isZero();
         assertThat(response.getSize()).isEqualTo(20);
 
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(contractRepository).findAll(any(org.springframework.data.jpa.domain.Specification.class), captor.capture());
-        assertThat(captor.getValue().getSort().getOrderFor("sysRegDt").isDescending()).isTrue();
-        assertThat(captor.getValue().getSort().getOrderFor("contractNo").isDescending()).isTrue();
+        ArgumentCaptor<ContractSearchCondition> captor = ArgumentCaptor.forClass(ContractSearchCondition.class);
+        verify(contractMapper).search(captor.capture(), any(PageQuery.class));
+        assertThat(captor.getValue().sortColumn()).isEqualTo("SYS_REG_DT");
+        assertThat(captor.getValue().sortDir()).isEqualTo("DESC");
     }
 
     private void assertListError(ContractListRequest request, String errorCode) {
@@ -827,14 +815,13 @@ class ContractServiceTest {
     void 저장하는_일시는_JVM_시간대가_아니라_업무_시간대_서울_기준이다() {
         given(contractNumberGenerator.generate(ProductType.CAR))
                 .willReturn(new ContractNumbers("POL-CAR-2026-000001", "APP-CAR-2026-000001"));
-        given(contractRepository.saveAndFlush(any(Contract.class))).willAnswer(inv -> inv.getArgument(0));
 
         contractService.applyContract(TX_ID, EMP_ID, request("01", "100", "100"));
 
         ArgumentCaptor<Contract> contractCaptor = ArgumentCaptor.forClass(Contract.class);
-        verify(contractRepository).saveAndFlush(contractCaptor.capture());
+        verify(contractMapper).insert(contractCaptor.capture());
         ArgumentCaptor<ContractStatusHistory> histCaptor = ArgumentCaptor.forClass(ContractStatusHistory.class);
-        verify(historyRepository).save(histCaptor.capture());
+        verify(historyMapper).insert(histCaptor.capture());
         LocalDateTime seoulTime = LocalDateTime.of(2026, 10, 10, 0, 30);
         assertThat(contractCaptor.getValue().getSysRegDt()).isEqualTo(seoulTime);
         assertThat(histCaptor.getValue().getChgDt()).isEqualTo(seoulTime);
@@ -856,9 +843,8 @@ class ContractServiceTest {
         String longEmpId = "E".repeat(70);
         String stored = "E".repeat(64);
         Contract mine = Contract.builder().contractNo("POL-LONG").applNo("APP-LONG").regEmpId(stored).build();
-        given(contractRepository.findById("POL-LONG")).willReturn(java.util.Optional.of(mine));
-        given(historyRepository.findByContractNo(eq("POL-LONG"), any(Pageable.class)))
-                .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+        given(contractMapper.findById("POL-LONG")).willReturn(java.util.Optional.of(mine));
+        given(historyMapper.findPageByContractNo(eq("POL-LONG"), any(PageQuery.class))).willReturn(List.of());
 
         assertThat(inquiryService.inquireContract(longEmpId,
                 ContractInquiryRequest.builder().contractNo("POL-LONG").build()).getContractNo()).isEqualTo("POL-LONG");
@@ -907,7 +893,7 @@ class ContractServiceTest {
         assertThatThrownBy(() -> contractService.applyContract(TX_ID, EMP_ID, request))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(errorCode);
-        verifyNoInteractions(contractNumberGenerator, coverageRepository);
+        verifyNoInteractions(contractNumberGenerator, coverageMapper);
     }
 
     private static ContractApplyRequest request(String insrClsCd, String totalPremium, String... prems) {

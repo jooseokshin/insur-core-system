@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 계약 담보 TB_CTR_CVRG -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.CoverageMapper">
+
+    <select id="findByContractNo" resultType="com.insur.insurcoresystem.domain.contract.Coverage">
+        SELECT ID, CONTRACT_NO, CVRG_CD, ISRD_AMT, PREM FROM TB_CTR_CVRG WHERE CONTRACT_NO = #{contractNo} ORDER BY ID
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO TB_CTR_CVRG (CONTRACT_NO, CVRG_CD, ISRD_AMT, PREM) VALUES (#{contractNo}, #{cvrgCd}, #{isrdAmt}, #{prem})
+    </insert>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_CVRG
+    </select>
+
+    <delete id="deleteByContractNo">
+        DELETE FROM TB_CTR_CVRG WHERE CONTRACT_NO = #{contractNo}
+    </delete>
+</mapper>

@@ -8,7 +8,7 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.validat
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.security.AccountCipher;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.bank.BankClient;
 import com.insur.insurcoresystem.ext.bank.BankLayouts;
@@ -51,7 +51,7 @@ public class CmsMandateService {
     private static final String ACTIVE_INDEX = "uk_cms_mandate_active";
 
     private final NamedParameterJdbcTemplate jdbc;
-    private final ContractRepository contractRepository;
+    private final ContractMapper contractMapper;
     private final BankClient bank;
     private final AccountCipher cipher;
     private final Clock clock;
@@ -82,7 +82,7 @@ public class CmsMandateService {
             }
             return inquiry(ownerEmpId, request.getContractNo());
         }
-        Contract contract = contractRepository.findForUpdateByContractNo(request.getContractNo())
+        Contract contract = contractMapper.findForUpdateByContractNo(request.getContractNo())
                 .filter(c -> isReadable(c, ownerEmpId)).orElseThrow(ContractSupport::contractNotFound);
         if (!List.of("10", "20").contains(contract.getCtrStatCd())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CMS-002", "청약(10) 또는 유효(20) 계약만 자동이체를 등록할 수 있습니다.");
@@ -131,7 +131,7 @@ public class CmsMandateService {
      */
     @Transactional
     public AutoDebitResponse cancel(String ownerEmpId, String empId, String contractNo) {
-        Contract contract = contractRepository.findForUpdateByContractNo(contractNo == null ? "" : contractNo)
+        Contract contract = contractMapper.findForUpdateByContractNo(contractNo == null ? "" : contractNo)
                 .filter(c -> isReadable(c, ownerEmpId)).orElseThrow(ContractSupport::contractNotFound);
         MapSqlParameterSource p = new MapSqlParameterSource("c", contract.getContractNo());
         Integer inFlight = jdbc.queryForObject("SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE CONTRACT_NO = :c AND STAT_CD IN ('10', '20')", p, Integer.class);
@@ -156,7 +156,7 @@ public class CmsMandateService {
      */
     @Transactional(readOnly = true)
     public AutoDebitResponse inquiry(String ownerEmpId, String contractNo) {
-        Contract contract = contractRepository.findById(contractNo == null ? "" : contractNo)
+        Contract contract = contractMapper.findById(contractNo == null ? "" : contractNo)
                 .filter(c -> isReadable(c, ownerEmpId)).orElseThrow(ContractSupport::contractNotFound);
         MapSqlParameterSource p = new MapSqlParameterSource("c", contract.getContractNo());
         AutoDebitResponse.Mandate mandate = jdbc.query("SELECT * FROM TB_CMS_MANDATE WHERE CONTRACT_NO = :c ORDER BY MANDATE_ID DESC LIMIT 1", p,

@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -8,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractPaymentRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,9 +36,9 @@ class ContractPaymentIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    ContractPaymentRepository paymentRepository;
+    ContractPaymentMapper paymentMapper;
 
     private static final RequestPostProcessor OPERATOR = TestAuth.as("O400", Roles.OPERATOR);
     private static final RequestPostProcessor UNDERWRITER = TestAuth.as("U300", Roles.UNDERWRITER);
@@ -59,7 +60,7 @@ class ContractPaymentIntegrationTest {
 
     private Contract applied(String total, String regEmpId) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        return contractRepository.save(Contract.builder().contractNo("POL-P-" + suffix).applNo("APP-P-" + suffix)
+        return TestRows.insert(contractMapper::insert, Contract.builder().contractNo("POL-P-" + suffix).applNo("APP-P-" + suffix)
                 .insrClsCd("01").ctrStatCd("10").startDate(LocalDate.now()).endDate(LocalDate.now().plusYears(1))
                 .policyholderId("C0001").insuredId("C0002").totalPremium(new BigDecimal(total))
                 .sysRegDt(LocalDateTime.now()).regEmpId(regEmpId).build());
@@ -115,7 +116,7 @@ class ContractPaymentIntegrationTest {
         pay("tx-r-1", no, "100000", "CASH", OPERATOR).andExpect(status().isOk());
         pay("tx-r-1", no, "100000", "CASH", OPERATOR).andExpect(status().isOk())
                 .andExpect(jsonPath("$.body.paidPremium").value(100000));   // 두 번 더해지지 않는다
-        assertThat(paymentRepository.sumPaid(no)).isEqualByComparingTo("100000");
+        assertThat(paymentMapper.sumPaid(no)).isEqualByComparingTo("100000");
         pay("tx-r-1", no, "200000", "CASH", OPERATOR).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.header.responseCode").value("E-CTR-019"));
         pay("tx-r-1", no, "100000", "CASH", TestAuth.as("O401", Roles.OPERATOR)).andExpect(status().isConflict())

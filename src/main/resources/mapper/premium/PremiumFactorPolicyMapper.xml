@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 요율 계수 필수 정책 TB_PRM_FACTOR_POLICY -->
+<mapper namespace="com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper">
+
+    <resultMap id="policy" type="com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy" autoMapping="true">
+        <id property="policyId" column="POLICY_ID"/>
+        <result property="required" column="REQUIRED_YN"/>
+    </resultMap>
+
+    <sql id="columns">POLICY_ID, INSR_CLS_CD, FACTOR_TYPE, REQUIRED_YN, EFF_FROM, EFF_TO</sql>
+
+    <select id="findRequired" resultMap="policy">
+        SELECT <include refid="columns"/> FROM TB_PRM_FACTOR_POLICY
+         WHERE INSR_CLS_CD = #{insrClsCd} AND REQUIRED_YN = TRUE
+           AND EFF_FROM &lt;= #{on} AND (EFF_TO IS NULL OR EFF_TO &gt;= #{on})
+    </select>
+
+    <select id="findByInsrClsCdAndFactorTypeOrderByEffFromAsc" resultMap="policy">
+        SELECT <include refid="columns"/> FROM TB_PRM_FACTOR_POLICY WHERE INSR_CLS_CD = #{insrClsCd} AND FACTOR_TYPE = #{factorType}
+         ORDER BY EFF_FROM
+    </select>
+
+    <select id="findAll" resultMap="policy">
+        SELECT <include refid="columns"/> FROM TB_PRM_FACTOR_POLICY ORDER BY POLICY_ID
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="policyId" keyColumn="policy_id">
+        INSERT INTO TB_PRM_FACTOR_POLICY (INSR_CLS_CD, FACTOR_TYPE, REQUIRED_YN, EFF_FROM, EFF_TO)
+        VALUES (#{insrClsCd}, #{factorType}, #{required}, #{effFrom}, #{effTo})
+    </insert>
+
+    <update id="updateEffTo">
+        UPDATE TB_PRM_FACTOR_POLICY SET EFF_TO = #{effTo} WHERE POLICY_ID = #{policyId}
+    </update>
+</mapper>

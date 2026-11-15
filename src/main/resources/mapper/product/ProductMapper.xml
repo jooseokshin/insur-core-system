@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 상품 TB_PRD, 상품 담보 구성 TB_PRD_CVRG -->
+<mapper namespace="com.insur.insurcoresystem.mapper.product.ProductMapper">
+
+    <resultMap id="product" type="com.insur.insurcoresystem.domain.product.Product" autoMapping="true">
+        <id property="prdCd" column="PRD_CD"/>
+        <collection property="coverages" column="PRD_CD" select="findCoverages"
+                    ofType="com.insur.insurcoresystem.domain.product.ProductCoverage"/>
+    </resultMap>
+
+    <resultMap id="coverage" type="com.insur.insurcoresystem.domain.product.ProductCoverage" autoMapping="true">
+        <result property="required" column="REQUIRED_YN"/>
+    </resultMap>
+
+    <sql id="columns">PRD_CD, PRD_NM, INSR_CLS_CD, PRD_DESC, SALE_FROM, SALE_TO, MIN_TERM_DAYS, MAX_TERM_DAYS</sql>
+
+    <select id="findCoverages" resultMap="coverage">
+        SELECT CVRG_CD, CVRG_TYPE, REQUIRED_YN, MIN_ISRD_AMT, MAX_ISRD_AMT, DEDUCTIBLE_AMT, SORT_ORD
+          FROM TB_PRD_CVRG WHERE PRD_CD = #{prdCd} ORDER BY SORT_ORD
+    </select>
+
+    <select id="findById" resultMap="product">
+        SELECT <include refid="columns"/> FROM TB_PRD WHERE PRD_CD = #{prdCd}
+    </select>
+
+    <select id="findByInsrClsCdOrderByPrdCd" resultMap="product">
+        SELECT <include refid="columns"/> FROM TB_PRD WHERE INSR_CLS_CD = #{insrClsCd} ORDER BY PRD_CD
+    </select>
+
+    <select id="findAllByOrderByInsrClsCdAscPrdCdAsc" resultMap="product">
+        SELECT <include refid="columns"/> FROM TB_PRD ORDER BY INSR_CLS_CD, PRD_CD
+    </select>
+
+    <select id="findAllById" resultMap="product">
+        SELECT <include refid="columns"/> FROM TB_PRD
+         WHERE PRD_CD IN <foreach collection="collection" item="p" open="(" separator="," close=")">#{p}</foreach>
+         ORDER BY PRD_CD
+    </select>
+</mapper>

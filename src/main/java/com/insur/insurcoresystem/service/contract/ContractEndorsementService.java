@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.common.paging.PageResult;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isReadable;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
@@ -9,8 +11,8 @@ import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractEndorsement;
-import com.insur.insurcoresystem.domain.contract.ContractEndorsementRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractEndorsementMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseResponse;
@@ -23,9 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,8 +42,8 @@ public class ContractEndorsementService {
     static final String FIELD_POLICYHOLDER = "POLICYHOLDER_ID";
     static final String FIELD_INSURED = "INSURED_ID";
 
-    private final ContractRepository contractRepository;
-    private final ContractEndorsementRepository endorsementRepository;
+    private final ContractMapper contractMapper;
+    private final ContractEndorsementMapper endorsementMapper;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -73,12 +72,12 @@ public class ContractEndorsementService {
         validateOptionalId(request.getPolicyholderId());
         validateOptionalId(request.getInsuredId());
 
-        Contract contract = contractRepository.findForUpdateByContractNo(request.getContractNo())
+        Contract contract = contractMapper.findForUpdateByContractNo(request.getContractNo())
                 .orElseThrow(ContractSupport::contractNotFound);
 
         // 응답을 못 받은 클라이언트가 같은 거래 UUID 로 다시 보낸 경우: 이미 처리한 결과를 그대로 돌려준다 (멱등성)
-        List<ContractEndorsement> done = endorsementRepository
-                .findByContractNoAndGlobalTxIdOrderByEndorseIdAsc(contract.getContractNo(), globalTxId);
+        List<ContractEndorsement> done = endorsementMapper
+                .findByContractNoAndGlobalTxId(contract.getContractNo(), globalTxId);
         if (!done.isEmpty()) {
             return replay(contract, request, done);
         }
@@ -103,7 +102,8 @@ public class ContractEndorsementService {
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
-        endorsementRepository.saveAll(changes.stream().map(c -> ContractEndorsement.builder()
+        contractMapper.update(contract);
+        changes.stream().map(c -> ContractEndorsement.builder()
                 .contractNo(contract.getContractNo())
                 .fieldNm(c.getFieldNm())
                 .beforeVal(c.getBeforeVal())
@@ -111,7 +111,7 @@ public class ContractEndorsementService {
                 .empId(normalizeEmpId(empId))
                 .globalTxId(globalTxId)
                 .chgDt(now)
-                .build()).toList());
+                .build()).forEach(endorsementMapper::insert);
 
         log.info("계약 변경(배서): 증권번호={}, 변경 항목={}, 거래={}", contract.getContractNo(),
                 changes.stream().map(Change::getFieldNm).toList(), LogSanitizer.clean(globalTxId));
@@ -136,13 +136,15 @@ public class ContractEndorsementService {
         if (!StringUtils.hasText(request.getContractNo())) {
             throw new BusinessException("E-CTR-009", "증권번호를 입력해야 합니다.");
         }
-        Pageable pageable = pageRequest(request.getPage(), request.getSize(), Sort.by("endorseId").ascending());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
 
-        Contract contract = contractRepository.findById(request.getContractNo())
+        Contract contract = contractMapper.findById(request.getContractNo())
                 .filter(found -> isReadable(found, ownerEmpId))
                 .orElseThrow(ContractSupport::contractNotFound);
 
-        Page<ContractEndorsement> result = endorsementRepository.findByContractNo(contract.getContractNo(), pageable);
+        PageResult<ContractEndorsement> result = new PageResult<>(
+                endorsementMapper.findPageByContractNo(contract.getContractNo(), pageable), pageable,
+                endorsementMapper.countByContractNo(contract.getContractNo()));
         return EndorsementHistoryPageResponse.builder()
                 .contractNo(contract.getContractNo())
                 .page(pageable.getPageNumber())

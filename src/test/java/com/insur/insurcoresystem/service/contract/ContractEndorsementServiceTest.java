@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -13,8 +14,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractEndorsement;
-import com.insur.insurcoresystem.domain.contract.ContractEndorsementRepository;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractEndorsementMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseResponse;
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryPageResponse;
@@ -31,9 +32,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,14 +40,14 @@ class ContractEndorsementServiceTest {
     private static final Clock SEOUL_CLOCK = Clock.fixed(Instant.parse("2026-10-09T15:30:00Z"), ZoneId.of("Asia/Seoul"));
 
     @Mock
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Mock
-    ContractEndorsementRepository endorsementRepository;
+    ContractEndorsementMapper endorsementMapper;
     ContractEndorsementService service;
 
     @BeforeEach
     void setUp() {
-        service = new ContractEndorsementService(contractRepository, endorsementRepository, SEOUL_CLOCK);
+        service = new ContractEndorsementService(contractMapper, endorsementMapper, SEOUL_CLOCK);
     }
 
     private static Contract contract(String status) {
@@ -64,7 +62,7 @@ class ContractEndorsementServiceTest {
     @Test
     void 계약자와_피보험자를_바꾸고_바뀐_항목마다_이력을_남긴다() {
         Contract contract = contract("20");
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
 
         ContractEndorseResponse response = service.endorse("tx-1", "U300", request("C9001", "C9002"));
 
@@ -74,11 +72,11 @@ class ContractEndorsementServiceTest {
         assertThat(response.getChanges().get(0).getBeforeVal()).isEqualTo("C0001");
         assertThat(response.getChanges().get(0).getAfterVal()).isEqualTo("C9001");
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ContractEndorsement>> captor = ArgumentCaptor.forClass(List.class);
-        verify(endorsementRepository).saveAll(captor.capture());
-        assertThat(captor.getValue()).hasSize(2);
-        ContractEndorsement first = captor.getValue().get(0);
+        ArgumentCaptor<ContractEndorsement> captor = ArgumentCaptor.forClass(ContractEndorsement.class);
+        verify(endorsementMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
+        verify(contractMapper).update(contract);
+        assertThat(captor.getAllValues()).hasSize(2);
+        ContractEndorsement first = captor.getAllValues().get(0);
         assertThat(first.getContractNo()).isEqualTo("POL-1");
         assertThat(first.getEmpId()).isEqualTo("U300");
         assertThat(first.getGlobalTxId()).isEqualTo("tx-1");
@@ -88,7 +86,7 @@ class ContractEndorsementServiceTest {
     @Test
     void 현재_값과_같은_항목은_바뀐_것으로_보지_않고_바뀐_항목만_기록한다() {
         Contract contract = contract("10");
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
 
         ContractEndorseResponse response = service.endorse("tx-1", "U300", request("C0001", "C9002"));   // 계약자는 그대로
 
@@ -98,13 +96,13 @@ class ContractEndorsementServiceTest {
 
     @Test
     void 바뀐_항목이_하나도_없으면_거절하고_이력을_남기지_않는다() {
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract("20")));
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract("20")));
 
         assertThatThrownBy(() -> service.endorse("tx-1", "U300", request("C0001", "C0002")))
                 .extracting("errorCode").isEqualTo("E-CTR-022");
         assertThatThrownBy(() -> service.endorse("tx-1", "U300", request(null, null)))
                 .extracting("errorCode").isEqualTo("E-CTR-022");
-        verify(endorsementRepository, never()).saveAll(anyList());
+        verify(endorsementMapper, never()).insert(any());
     }
 
     @Test
@@ -112,8 +110,8 @@ class ContractEndorsementServiceTest {
         // 이미 계약자 C0001→C9001 이 처리된 계약(현재 값 C9001, 피보험자 C0002)에 같은 거래 UUID 로 같은 요청이 다시 들어온 상황
         Contract contract = contract("20");
         contract.changePolicyholder("C9001");
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
-        given(endorsementRepository.findByContractNoAndGlobalTxIdOrderByEndorseIdAsc("POL-1", "tx-retry")).willReturn(List.of(
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
+        given(endorsementMapper.findByContractNoAndGlobalTxId("POL-1", "tx-retry")).willReturn(List.of(
                 ContractEndorsement.builder().fieldNm("POLICYHOLDER_ID").beforeVal("C0001").afterVal("C9001").build()));
 
         // 처음 요청과 같은 값 + 바뀌지 않았던 피보험자에 현재 값을 그대로 넣은 요청도 같은 요청이다
@@ -122,15 +120,15 @@ class ContractEndorsementServiceTest {
         assertThat(response.getChanges()).hasSize(1);
         assertThat(response.getChanges().get(0).getBeforeVal()).isEqualTo("C0001");
         assertThat(response.getPolicyholderId()).isEqualTo("C9001");
-        verify(endorsementRepository, never()).saveAll(anyList());
+        verify(endorsementMapper, never()).insert(any());
     }
 
     @Test
     void 같은_거래UUID로_다른_내용의_배서가_오면_409로_거절한다() {
         Contract contract = contract("20");
         contract.changePolicyholder("C9001");
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
-        given(endorsementRepository.findByContractNoAndGlobalTxIdOrderByEndorseIdAsc("POL-1", "tx-retry")).willReturn(List.of(
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract));
+        given(endorsementMapper.findByContractNoAndGlobalTxId("POL-1", "tx-retry")).willReturn(List.of(
                 ContractEndorsement.builder().fieldNm("POLICYHOLDER_ID").beforeVal("C0001").afterVal("C9001").build()));
 
         for (ContractEndorseRequest different : List.of(
@@ -143,13 +141,13 @@ class ContractEndorsementServiceTest {
                         assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                     });
         }
-        verify(endorsementRepository, never()).saveAll(anyList());
+        verify(endorsementMapper, never()).insert(any());
     }
 
     @Test
     void 해지나_청약취소된_계약은_변경할_수_없다() {
         for (String status : List.of("30", "90")) {
-            given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract(status)));
+            given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.of(contract(status)));
 
             assertThatThrownBy(() -> service.endorse("tx-1", "U300", request("C9001", null)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -157,7 +155,7 @@ class ContractEndorsementServiceTest {
                         assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                     });
         }
-        verify(endorsementRepository, never()).saveAll(anyList());
+        verify(endorsementMapper, never()).insert(any());
     }
 
     @Test
@@ -166,9 +164,9 @@ class ContractEndorsementServiceTest {
         assertError(request("C9001", null), " ", "E-CTR-008");
         assertError(request(" ", null), "tx-1", "E-CTR-005");
         assertError(request(null, "X".repeat(21)), "tx-1", "E-CTR-005");
-        verifyNoInteractions(contractRepository);
+        verifyNoInteractions(contractMapper);
 
-        given(contractRepository.findForUpdateByContractNo("POL-1")).willReturn(Optional.empty());
+        given(contractMapper.findForUpdateByContractNo("POL-1")).willReturn(Optional.empty());
         assertThatThrownBy(() -> service.endorse("tx-1", "U300", request("C9001", null)))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
                     assertThat(e.getErrorCode()).isEqualTo("E-CTR-010");
@@ -183,11 +181,11 @@ class ContractEndorsementServiceTest {
 
     @Test
     void 배서_이력은_발생_순서로_페이지_단위로_조회한다() {
-        given(contractRepository.findById("POL-1")).willReturn(Optional.of(contract("20")));
+        given(contractMapper.findById("POL-1")).willReturn(Optional.of(contract("20")));
         ContractEndorsement item = ContractEndorsement.builder().fieldNm("INSURED_ID").beforeVal("C0002")
                 .afterVal("C9002").empId("U300").chgDt(LocalDateTime.of(2026, 10, 10, 0, 30)).build();
-        given(endorsementRepository.findByContractNo(eq("POL-1"), any(Pageable.class)))
-                .willReturn(new PageImpl<>(List.of(item), PageRequest.of(0, 20), 1));
+        given(endorsementMapper.findPageByContractNo(eq("POL-1"), any(PageQuery.class))).willReturn(List.of(item));
+        given(endorsementMapper.countByContractNo("POL-1")).willReturn(1L);
 
         EndorsementHistoryPageResponse response = service.history(null,
                 EndorsementHistoryRequest.builder().contractNo("POL-1").build());
@@ -195,22 +193,21 @@ class ContractEndorsementServiceTest {
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().get(0).getAfterVal()).isEqualTo("C9002");
         assertThat(response.getTotalElements()).isEqualTo(1);
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(endorsementRepository).findByContractNo(eq("POL-1"), captor.capture());
-        assertThat(captor.getValue().getPageSize()).isEqualTo(20);                        // 기본 20건
-        assertThat(captor.getValue().getSort().getOrderFor("endorseId").isAscending()).isTrue();
+        ArgumentCaptor<PageQuery> captor = ArgumentCaptor.forClass(PageQuery.class);
+        verify(endorsementMapper).findPageByContractNo(eq("POL-1"), captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(20);                        // 기본 20건 (ENDORSE_ID 순은 매퍼 SQL)
     }
 
     @Test
     void 배서_이력_조회의_입력_오류와_조회_범위를_검증한다() {
-        given(contractRepository.findById("POL-1")).willReturn(Optional.of(contract("20")));
+        given(contractMapper.findById("POL-1")).willReturn(Optional.of(contract("20")));
 
         assertHistoryError(null, EndorsementHistoryRequest.builder().build(), "E-CTR-009");
         assertHistoryError(null, EndorsementHistoryRequest.builder().contractNo("POL-1").size(101).build(), "E-CTR-016");
         assertHistoryError(null, EndorsementHistoryRequest.builder().contractNo("POL-1").page(-1).build(), "E-CTR-016");
         // 접수자(E1)가 아닌 사번은 존재하지 않는 계약과 같은 오류
         assertHistoryError("E2", EndorsementHistoryRequest.builder().contractNo("POL-1").build(), "E-CTR-010");
-        verifyNoInteractions(endorsementRepository);
+        verifyNoInteractions(endorsementMapper);
     }
 
     private void assertHistoryError(String owner, EndorsementHistoryRequest request, String errorCode) {

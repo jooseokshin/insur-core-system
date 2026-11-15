@@ -10,10 +10,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
 import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicyRepository;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest.QuoteCoverageRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
@@ -32,11 +32,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class PremiumServiceTest {
 
     @Mock
-    PremiumRateRepository premiumRateRepository;
+    PremiumRateMapper premiumRateMapper;
     @Mock
-    PremiumFactorRepository premiumFactorRepository;
+    PremiumFactorMapper premiumFactorMapper;
     @Mock
-    PremiumFactorPolicyRepository premiumFactorPolicyRepository;
+    PremiumFactorPolicyMapper premiumFactorPolicyMapper;
     @InjectMocks
     PremiumService premiumService;
 
@@ -56,7 +56,7 @@ class PremiumServiceTest {
 
     @Test
     void 담보별_보험료와_합계를_요청한_순서대로_산출한다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), any())).willReturn(List.of(
+        given(premiumRateMapper.findEffective(eq("01"), any(), any())).willReturn(List.of(
                 rate("CA002", "대물배상", "0.0175"), rate("CA001", "대인배상", "0.005")));
 
         PremiumQuoteResponse response = premiumService.quote(
@@ -74,7 +74,7 @@ class PremiumServiceTest {
     @Test
     void 총보험료는_원_단위로_반올림된_담보별_보험료의_합이다() {
         // 두 담보 모두 정확한 값이 x.5 가 아닌 소수가 되도록: 각각 반올림한 값의 합과 같아야 청약 접수 검증을 통과한다
-        given(premiumRateRepository.findEffective(eq("01"), any(), any())).willReturn(List.of(
+        given(premiumRateMapper.findEffective(eq("01"), any(), any())).willReturn(List.of(
                 rate("CA001", "대인배상", "0.005"), rate("CA002", "대물배상", "0.0175")));
         PremiumQuoteRequest request = request(coverage("CA001", "100000001"), coverage("CA002", "20000001"));
         request.setEndDate(LocalDate.of(2027, 4, 3));   // 182일
@@ -97,7 +97,7 @@ class PremiumServiceTest {
     }
 
     private void givenCarFactors() {
-        given(premiumFactorRepository.findEffective(eq("01"), any())).willReturn(List.of(
+        given(premiumFactorMapper.findEffective(eq("01"), any())).willReturn(List.of(
                 range("DRIVER_AGE", 18, 25, "만 18~25세", "1.5000"),
                 range("DRIVER_AGE", 30, 49, "만 30~49세", "1.0000"),
                 range("DRIVER_AGE", 50, 64, "만 50~64세", "0.9500"),
@@ -107,7 +107,7 @@ class PremiumServiceTest {
 
     @Test
     void 입력한_요율_계수를_곱해_담보_보험료에_반영하고_적용한_계수를_돌려준다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
         givenCarFactors();
         PremiumQuoteRequest request = request(coverage("CA001", "100000000"));
@@ -131,7 +131,7 @@ class PremiumServiceTest {
 
     @Test
     void 필수_계수가_입력되지_않으면_빠진_계수와_입력_필드를_알려주며_거절한다() {
-        given(premiumFactorPolicyRepository.findRequired("01", LocalDate.of(2026, 10, 3))).willReturn(List.of(
+        given(premiumFactorPolicyMapper.findRequired("01", LocalDate.of(2026, 10, 3))).willReturn(List.of(
                 required("DISCOUNT_GRADE"), required("DRIVER_AGE")));
 
         // 계수를 아예 입력하지 않음: 필수 두 가지가 모두 빠졌다 (종류 이름순으로 안내)
@@ -155,9 +155,9 @@ class PremiumServiceTest {
 
     @Test
     void 필수_계수를_모두_입력하면_산출하고_필수_계수_종류를_응답에_담는다() {
-        given(premiumFactorPolicyRepository.findRequired("01", LocalDate.of(2026, 10, 3))).willReturn(List.of(
+        given(premiumFactorPolicyMapper.findRequired("01", LocalDate.of(2026, 10, 3))).willReturn(List.of(
                 required("DISCOUNT_GRADE"), required("DRIVER_AGE")));
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
         givenCarFactors();
         PremiumQuoteRequest request = request(coverage("CA001", "100000000"));
@@ -172,7 +172,7 @@ class PremiumServiceTest {
     @Test
     void 선택_계수는_입력하지_않아도_산출하고_필수_계수_목록은_비어_있다() {
         // 정책 저장소가 필수 행을 돌려주지 않음(= 이 보험시기에 필수인 계수가 없음)
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
 
         PremiumQuoteResponse response = premiumService.quote(request(coverage("CA001", "100000000")));
@@ -183,7 +183,7 @@ class PremiumServiceTest {
 
     @Test
     void 요율_계수를_입력하지_않으면_계수표를_조회하지_않고_기본_요율로_산출한다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
 
         PremiumQuoteResponse noRating = premiumService.quote(request(coverage("CA001", "100000000")));
@@ -195,12 +195,12 @@ class PremiumServiceTest {
         assertThat(noRating.getCombinedFactor()).isEqualByComparingTo("1");
         assertThat(noRating.getCoverages().get(0).getPrem()).isEqualByComparingTo("500000");
         assertThat(empty.getCoverages().get(0).getPrem()).isEqualByComparingTo("500000");
-        org.mockito.Mockito.verifyNoInteractions(premiumFactorRepository);
+        org.mockito.Mockito.verifyNoInteractions(premiumFactorMapper);
     }
 
     @Test
     void 구간의_양_끝값도_해당_구간의_계수를_쓴다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
         givenCarFactors();
         for (int[] ageAndExpected : new int[][] {{18, 750000}, {25, 750000}, {30, 500000}, {49, 500000}, {50, 475000}}) {
@@ -214,7 +214,7 @@ class PremiumServiceTest {
 
     @Test
     void 계수표에_없는_입력값과_보험종목에서_쓰지_않는_계수는_거절한다() {
-        given(premiumFactorRepository.findEffective(eq("01"), any())).willReturn(List.of(
+        given(premiumFactorMapper.findEffective(eq("01"), any())).willReturn(List.of(
                 range("DRIVER_AGE", 18, 25, "만 18~25세", "1.5000"), key("DISCOUNT_GRADE", "1", "1등급", "0.8000")));
 
         PremiumQuoteRequest tooYoung = request(coverage("CA001", "1000"));
@@ -236,7 +236,7 @@ class PremiumServiceTest {
         PremiumRate latest = PremiumRate.builder().insrClsCd("01").cvrgCd("CA001").cvrgNm("대인배상")
                 .annualRate(new BigDecimal("0.006")).build();
         // 조회 쿼리는 적용 시작일이 늦은 행을 먼저 돌려준다
-        given(premiumRateRepository.findEffective(eq("01"), any(), eq(LocalDate.of(2027, 1, 15))))
+        given(premiumRateMapper.findEffective(eq("01"), any(), eq(LocalDate.of(2027, 1, 15))))
                 .willReturn(List.of(latest, older));
         PremiumQuoteRequest request = request(coverage("CA001", "100000000"));
         request.setStartDate(LocalDate.of(2027, 1, 15));
@@ -250,7 +250,7 @@ class PremiumServiceTest {
 
     @Test
     void 보험시기에_적용되는_요율이_없으면_보험시기를_알려주며_산출할_수_없다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), eq(LocalDate.of(2026, 10, 3)))).willReturn(List.of());
+        given(premiumRateMapper.findEffective(eq("01"), any(), eq(LocalDate.of(2026, 10, 3)))).willReturn(List.of());
 
         assertThatThrownBy(() -> premiumService.quote(request(coverage("CA001", "100000000"))))
                 .isInstanceOf(BusinessException.class)
@@ -260,7 +260,7 @@ class PremiumServiceTest {
 
     @Test
     void 요율표에_없는_담보는_산출할_수_없다() {
-        given(premiumRateRepository.findEffective(eq("01"), any(), any()))
+        given(premiumRateMapper.findEffective(eq("01"), any(), any()))
                 .willReturn(List.of(rate("CA001", "대인배상", "0.005")));
 
         assertThatThrownBy(() -> premiumService.quote(request(coverage("CA001", "100000000"), coverage("FI001", "5000"))))
@@ -290,7 +290,7 @@ class PremiumServiceTest {
         assertError(request(coverage("CA001", "1000000000000000")), "E-CTR-007");
         assertError(request(coverage("CA001", "1000"), coverage("CA001", "2000")), "E-PRM-002");
 
-        verifyNoInteractions(premiumRateRepository);
+        verifyNoInteractions(premiumRateMapper);
     }
 
     private void assertError(PremiumQuoteRequest request, String errorCode) {

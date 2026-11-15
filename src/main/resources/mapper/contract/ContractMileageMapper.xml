@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 마일리지 특약 주행거리 TB_CTR_MILEAGE -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.ContractMileageMapper">
+
+    <sql id="columns">
+        CONTRACT_NO, MIL_STAT_CD, START_ODO_KM, START_REG_DT, START_EMP_ID, START_TX_ID, END_ODO_KM, END_REG_DT, END_EMP_ID,
+        END_TX_ID, DRIVEN_KM, ANNUAL_KM, REFUND_RATE, REFUND_BASE_PREM, REFUND_AMT
+    </sql>
+
+    <select id="findById" resultType="com.insur.insurcoresystem.domain.contract.ContractMileage">
+        SELECT <include refid="columns"/> FROM TB_CTR_MILEAGE WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findByStartTxId" resultType="com.insur.insurcoresystem.domain.contract.ContractMileage">
+        SELECT <include refid="columns"/> FROM TB_CTR_MILEAGE WHERE START_TX_ID = #{startTxId}
+    </select>
+
+    <select id="findByEndTxId" resultType="com.insur.insurcoresystem.domain.contract.ContractMileage">
+        SELECT <include refid="columns"/> FROM TB_CTR_MILEAGE WHERE END_TX_ID = #{endTxId}
+    </select>
+
+    <select id="existsById" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_CTR_MILEAGE WHERE CONTRACT_NO = #{contractNo})
+    </select>
+
+    <insert id="insert">
+        INSERT INTO TB_CTR_MILEAGE (<include refid="columns"/>)
+        VALUES (#{contractNo}, #{milStatCd}, #{startOdoKm}, #{startRegDt}, #{startEmpId}, #{startTxId}, #{endOdoKm},
+                #{endRegDt}, #{endEmpId}, #{endTxId}, #{drivenKm}, #{annualKm}, #{refundRate}, #{refundBasePrem}, #{refundAmt})
+    </insert>
+
+    <update id="updateSettlement">
+        UPDATE TB_CTR_MILEAGE
+           SET MIL_STAT_CD = #{milStatCd}, END_ODO_KM = #{endOdoKm}, END_REG_DT = #{endRegDt}, END_EMP_ID = #{endEmpId},
+               END_TX_ID = #{endTxId}, DRIVEN_KM = #{drivenKm}, ANNUAL_KM = #{annualKm}, REFUND_RATE = #{refundRate},
+               REFUND_BASE_PREM = #{refundBasePrem}, REFUND_AMT = #{refundAmt}
+         WHERE CONTRACT_NO = #{contractNo}
+    </update>
+</mapper>

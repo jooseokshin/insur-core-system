@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.work;
 
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
 
@@ -24,8 +25,6 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -161,7 +160,7 @@ public class WorkService {
         if (!type.isVisibleTo(roles)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-002", type.getLabel() + " 업무를 처리할 권한이 없습니다.");
         }
-        PageRequest pageable = pageRequest(request.getPage(), request.getSize(), Sort.unsorted());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
         LocalDate today = LocalDate.now(clock);
         MapSqlParameterSource params = baseParams(ownerEmpId, today)
                 .addValue("limit", pageable.getPageSize())
@@ -224,7 +223,7 @@ public class WorkService {
         if (byClass) {
             ProductType.fromInsrClsCd(request.getInsrClsCd());   // 지원하지 않는 종목이면 E-SEQ-001
         }
-        PageRequest pageable = pageRequest(request.getPage(), request.getSize(), Sort.unsorted());
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
         LocalDate today = LocalDate.now(clock);
         MapSqlParameterSource params = baseParams(ownerEmpId, today)
                 .addValue("dueTo", today.plusDays(withinDays))

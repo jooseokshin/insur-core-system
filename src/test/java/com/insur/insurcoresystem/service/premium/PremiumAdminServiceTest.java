@@ -4,19 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumAudit;
-import com.insur.insurcoresystem.domain.premium.PremiumAuditRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumAuditMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
 import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicyRepository;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.premium.dto.FactorListRequest;
 import com.insur.insurcoresystem.service.premium.dto.FactorRevisionRequest;
 import com.insur.insurcoresystem.service.premium.dto.FactorRevisionResponse;
@@ -48,18 +49,18 @@ class PremiumAdminServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 10);
 
     @Mock
-    PremiumRateRepository rateRepository;
+    PremiumRateMapper rateMapper;
     @Mock
-    PremiumFactorRepository factorRepository;
+    PremiumFactorMapper factorMapper;
     @Mock
-    PremiumFactorPolicyRepository policyRepository;
+    PremiumFactorPolicyMapper policyMapper;
     @Mock
-    PremiumAuditRepository auditRepository;
+    PremiumAuditMapper auditMapper;
     PremiumAdminService service;
 
     @BeforeEach
     void setUp() {
-        service = new PremiumAdminService(rateRepository, factorRepository, policyRepository, auditRepository, CLOCK);
+        service = new PremiumAdminService(rateMapper, factorMapper, policyMapper, auditMapper, CLOCK);
     }
 
     private static PremiumRate rate(String cvrgCd, String value, LocalDate from, LocalDate to) {
@@ -73,12 +74,11 @@ class PremiumAdminServiceTest {
     }
 
     private void givenRateHistory(PremiumRate... rows) {
-        given(rateRepository.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "CA001")).willReturn(List.of(rows));
+        given(rateMapper.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "CA001")).willReturn(List.of(rows));
     }
 
     /** 저장소가 저장한 엔티티를 그대로 돌려주도록 한다. (저장까지 가는 테스트에서만 쓴다) */
     private void givenRateSaveEchoes() {
-        given(rateRepository.saveAndFlush(any(PremiumRate.class))).willAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -99,7 +99,7 @@ class PremiumAdminServiceTest {
         assertThat(response.getPrevious().getStatus()).isEqualTo("ACTIVE");
 
         ArgumentCaptor<PremiumAudit> audit = ArgumentCaptor.forClass(PremiumAudit.class);
-        verify(auditRepository).saveAndFlush(audit.capture());
+        verify(auditMapper).insert(audit.capture());
         assertThat(audit.getValue().getTargetType()).isEqualTo("RATE");
         assertThat(audit.getValue().getTargetKey()).isEqualTo("01/CA001");
         assertThat(audit.getValue().getAction()).isEqualTo("REVISE");
@@ -123,8 +123,7 @@ class PremiumAdminServiceTest {
 
     @Test
     void 새_담보의_요율은_담보명이_있어야_만들_수_있다() {
-        given(rateRepository.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "ZZ001")).willReturn(List.of());
-        given(rateRepository.saveAndFlush(any(PremiumRate.class))).willAnswer(inv -> inv.getArgument(0));
+        given(rateMapper.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "ZZ001")).willReturn(List.of());
         RateRevisionRequest noName = RateRevisionRequest.builder().insrClsCd("01").cvrgCd("ZZ001")
                 .annualRate(new BigDecimal("0.01")).effFrom(TODAY).build();
 
@@ -137,7 +136,7 @@ class PremiumAdminServiceTest {
         assertThat(response.getPrevious()).isNull();
         assertThat(response.getCurrent().getStatus()).isEqualTo("ACTIVE");   // 오늘 시작
         ArgumentCaptor<PremiumAudit> audit = ArgumentCaptor.forClass(PremiumAudit.class);
-        verify(auditRepository).saveAndFlush(audit.capture());
+        verify(auditMapper).insert(audit.capture());
         assertThat(audit.getValue().getAction()).isEqualTo("CREATE");
         assertThat(audit.getValue().getBeforeVal()).isNull();
     }
@@ -158,7 +157,7 @@ class PremiumAdminServiceTest {
                         assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                     });
         }
-        verify(auditRepository, never()).saveAndFlush(any());
+        verify(auditMapper, never()).insert(any());
     }
 
     @Test
@@ -175,7 +174,7 @@ class PremiumAdminServiceTest {
                 .effFrom(TODAY).build()), "E-ADM-001");                              // 요율 없음
         assertError(() -> service.reviseRate("tx", "A", revision("0.006", null)), "E-ADM-001");   // 시작일 없음
         assertError(() -> service.reviseRate(" ", "A", revision("0.006", TODAY)), "E-CTR-008");
-        verifyNoInteractions(rateRepository, auditRepository);
+        verifyNoInteractions(rateMapper, auditMapper);
     }
 
     private void assertError(org.junit.jupiter.api.function.Executable call, String errorCode) {
@@ -188,17 +187,17 @@ class PremiumAdminServiceTest {
         LocalDate effFrom = TODAY.plusDays(30);
         PremiumRate old = rate("CA001", "0.005", LocalDate.of(2000, 1, 1), effFrom.minusDays(1));
         PremiumRate created = rate("CA001", "0.006", effFrom, null);
-        given(auditRepository.findByTargetTypeAndGlobalTxId("RATE", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
+        given(auditMapper.findByTargetTypeAndGlobalTxId("RATE", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
                 .targetType("RATE").targetKey("01/CA001").action("REVISE").afterVal("0.006").effFrom(effFrom).build()));
-        given(rateRepository.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "CA001")).willReturn(List.of(old, created));
+        given(rateMapper.findByInsrClsCdAndCvrgCdOrderByEffFromAsc("01", "CA001")).willReturn(List.of(old, created));
 
         RateRevisionResponse response = service.reviseRate("tx-1", "A500", revision("0.0060", effFrom));   // 표기만 다른 같은 값
 
         assertThat(response.getAction()).isEqualTo("REVISE");
         assertThat(response.getCurrent().getAnnualRate()).isEqualByComparingTo("0.006");
         assertThat(response.getPrevious().getEffTo()).isEqualTo(effFrom.minusDays(1));
-        verify(rateRepository, never()).saveAndFlush(any());
-        verify(auditRepository, never()).saveAndFlush(any());
+        verify(rateMapper, never()).insert(any());
+        verify(auditMapper, never()).insert(any());
 
         // 같은 거래 UUID 로 값이나 시작일이 다르면 거절한다
         for (RateRevisionRequest different : List.of(revision("0.007", effFrom), revision("0.006", effFrom.plusDays(1)))) {
@@ -213,8 +212,7 @@ class PremiumAdminServiceTest {
     @Test
     void 적용_기간_겹침이나_동시_작업으로_DB가_거절하면_충돌_오류로_바꾼다() {
         givenRateHistory(rate("CA001", "0.005", LocalDate.of(2000, 1, 1), null));
-        given(rateRepository.saveAndFlush(any(PremiumRate.class)))
-                .willThrow(new DataIntegrityViolationException("요율 적용 기간이 겹칩니다", new RuntimeException("overlap")));
+        willThrow(new DataIntegrityViolationException("요율 적용 기간이 겹칩니다", new RuntimeException("overlap"))).given(rateMapper).insert(any(PremiumRate.class));
 
         assertThatThrownBy(() -> service.reviseRate("tx-1", "A500", revision("0.006", TODAY.plusDays(30))))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -225,7 +223,7 @@ class PremiumAdminServiceTest {
 
     @Test
     void 요율_목록은_조건으로_거르고_보험종목_담보_시작일_순으로_상태와_함께_돌려준다() {
-        given(rateRepository.findAll()).willReturn(List.of(
+        given(rateMapper.findAll()).willReturn(List.of(
                 rate("CA002", "0.0175", LocalDate.of(2000, 1, 1), null),
                 rate("CA001", "0.006", TODAY.plusDays(30), null),
                 rate("CA001", "0.005", LocalDate.of(2000, 1, 1), TODAY.plusDays(29)),
@@ -256,7 +254,7 @@ class PremiumAdminServiceTest {
         assertError(() -> service.listAudits(size), "E-CTR-016");
         var page = com.insur.insurcoresystem.service.premium.dto.AuditListRequest.builder().page(-1).build();
         assertError(() -> service.listAudits(page), "E-CTR-016");
-        verifyNoInteractions(auditRepository);
+        verifyNoInteractions(auditMapper);
     }
 
     // ------------------------------------------------------------------------------------ 필수 계수 정책
@@ -275,8 +273,7 @@ class PremiumAdminServiceTest {
     @Test
     void 필수_계수_정책을_개정하면_기존_행을_닫고_새_행을_추가하고_감사_이력을_남긴다() {
         PremiumFactorPolicy latest = policy("DISCOUNT_GRADE", true, LocalDate.of(2000, 1, 1), null);
-        given(policyRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DISCOUNT_GRADE")).willReturn(List.of(latest));
-        given(policyRepository.saveAndFlush(any(PremiumFactorPolicy.class))).willAnswer(inv -> inv.getArgument(0));
+        given(policyMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DISCOUNT_GRADE")).willReturn(List.of(latest));
 
         var response = service.revisePolicy("tx-1", "A500", policyRevision("DISCOUNT_GRADE", false, TODAY.plusDays(30)));
 
@@ -286,7 +283,7 @@ class PremiumAdminServiceTest {
         assertThat(response.getCurrent().getStatus()).isEqualTo("FUTURE");
         assertThat(response.getPrevious().isRequired()).isTrue();
         ArgumentCaptor<PremiumAudit> audit = ArgumentCaptor.forClass(PremiumAudit.class);
-        verify(auditRepository).saveAndFlush(audit.capture());
+        verify(auditMapper).insert(audit.capture());
         assertThat(audit.getValue().getTargetType()).isEqualTo("POLICY");
         assertThat(audit.getValue().getTargetKey()).isEqualTo("01/DISCOUNT_GRADE");
         assertThat(audit.getValue().getBeforeVal()).isEqualTo("true");
@@ -295,8 +292,7 @@ class PremiumAdminServiceTest {
 
     @Test
     void 정책이_없는_계수_종류는_새로_만들_수_있다() {
-        given(policyRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE")).willReturn(List.of());
-        given(policyRepository.saveAndFlush(any(PremiumFactorPolicy.class))).willAnswer(inv -> inv.getArgument(0));
+        given(policyMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE")).willReturn(List.of());
 
         var response = service.revisePolicy("tx-1", "A500", policyRevision("DRIVER_AGE", true, TODAY));
 
@@ -312,9 +308,9 @@ class PremiumAdminServiceTest {
         assertError(() -> service.revisePolicy("tx", "A", policyRevision("DRIVER_AGE", true, null)), "E-ADM-001");
         assertError(() -> service.revisePolicy("tx", "A", policyRevision("DRIVER_AGE", true, TODAY.minusDays(1))), "E-ADM-002");
         assertError(() -> service.revisePolicy(" ", "A", policyRevision("DRIVER_AGE", true, TODAY)), "E-CTR-008");
-        verifyNoInteractions(policyRepository, auditRepository);
+        verifyNoInteractions(policyMapper, auditMapper);
 
-        given(policyRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE"))
+        given(policyMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE"))
                 .willReturn(List.of(policy("DRIVER_AGE", true, TODAY.plusDays(10), null)));
         assertThatThrownBy(() -> service.revisePolicy("tx", "A", policyRevision("DRIVER_AGE", false, TODAY.plusDays(10))))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -328,22 +324,22 @@ class PremiumAdminServiceTest {
         LocalDate effFrom = TODAY.plusDays(30);
         PremiumFactorPolicy old = policy("DISCOUNT_GRADE", true, LocalDate.of(2000, 1, 1), effFrom.minusDays(1));
         PremiumFactorPolicy created = policy("DISCOUNT_GRADE", false, effFrom, null);
-        given(auditRepository.findByTargetTypeAndGlobalTxId("POLICY", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
+        given(auditMapper.findByTargetTypeAndGlobalTxId("POLICY", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
                 .targetType("POLICY").targetKey("01/DISCOUNT_GRADE").action("REVISE").afterVal("false").effFrom(effFrom).build()));
-        given(policyRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DISCOUNT_GRADE"))
+        given(policyMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DISCOUNT_GRADE"))
                 .willReturn(List.of(old, created));
 
         var response = service.revisePolicy("tx-1", "A500", policyRevision("DISCOUNT_GRADE", false, effFrom));
 
         assertThat(response.getCurrent().isRequired()).isFalse();
         assertThat(response.getPrevious().getEffTo()).isEqualTo(effFrom.minusDays(1));
-        verify(policyRepository, never()).saveAndFlush(any());
+        verify(policyMapper, never()).insert(any());
         assertError(() -> service.revisePolicy("tx-1", "A500", policyRevision("DISCOUNT_GRADE", true, effFrom)), "E-CTR-019");
     }
 
     @Test
     void 정책_목록은_보험종목으로_거르고_정렬한다() {
-        given(policyRepository.findAll()).willReturn(List.of(
+        given(policyMapper.findAll()).willReturn(List.of(
                 policy("DRIVER_AGE", true, LocalDate.of(2000, 1, 1), null),
                 policy("DISCOUNT_GRADE", false, TODAY.plusDays(30), null),
                 policy("DISCOUNT_GRADE", true, LocalDate.of(2000, 1, 1), TODAY.plusDays(29)),
@@ -368,8 +364,7 @@ class PremiumAdminServiceTest {
     }
 
     private void givenFactorHistory(String type, PremiumFactor... rows) {
-        given(factorRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", type)).willReturn(List.of(rows));
-        given(factorRepository.saveAndFlush(any(PremiumFactor.class))).willAnswer(inv -> inv.getArgument(0));
+        given(factorMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", type)).willReturn(List.of(rows));
     }
 
     @Test
@@ -389,7 +384,7 @@ class PremiumAdminServiceTest {
         assertThat(response.getCurrent().getFactorNm()).isEqualTo("만 18~25세");       // 이름을 생략하면 기존 이름
         assertThat(response.getCurrent().getFactorValue()).isEqualByComparingTo("1.8");
         ArgumentCaptor<PremiumAudit> audit = ArgumentCaptor.forClass(PremiumAudit.class);
-        verify(auditRepository).saveAndFlush(audit.capture());
+        verify(auditMapper).insert(audit.capture());
         assertThat(audit.getValue().getTargetKey()).isEqualTo("01/DRIVER_AGE/18-25");
         assertThat(audit.getValue().getBeforeVal()).isEqualTo("1.5");
         assertThat(audit.getValue().getAfterVal()).isEqualTo("1.8");
@@ -437,7 +432,7 @@ class PremiumAdminServiceTest {
         }
         assertError(() -> service.reviseFactor("tx", "A", FactorRevisionRequest.builder().insrClsCd("01")
                 .factorType("DISCOUNT_GRADE").factorKey("1").effFrom(TODAY).build()), "E-ADM-001");   // 값 없음
-        verifyNoInteractions(factorRepository, auditRepository);
+        verifyNoInteractions(factorMapper, auditMapper);
     }
 
     private static FactorRevisionRequest factor(String type, String key, Integer from, Integer to) {
@@ -450,9 +445,9 @@ class PremiumAdminServiceTest {
         LocalDate effFrom = TODAY.plusDays(30);
         PremiumFactor old = ageBand(18, 25, "1.5", LocalDate.of(2000, 1, 1), effFrom.minusDays(1));
         PremiumFactor created = ageBand(18, 25, "1.8", effFrom, null);
-        given(auditRepository.findByTargetTypeAndGlobalTxId("FACTOR", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
+        given(auditMapper.findByTargetTypeAndGlobalTxId("FACTOR", "tx-1")).willReturn(Optional.of(PremiumAudit.builder()
                 .targetType("FACTOR").targetKey("01/DRIVER_AGE/18-25").action("REVISE").afterVal("1.8").effFrom(effFrom).build()));
-        given(factorRepository.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE")).willReturn(List.of(old, created));
+        given(factorMapper.findByInsrClsCdAndFactorTypeOrderByEffFromAsc("01", "DRIVER_AGE")).willReturn(List.of(old, created));
         FactorRevisionRequest same = factor("DRIVER_AGE", null, 18, 25);
         same.setFactorValue(new BigDecimal("1.80"));
         same.setEffFrom(effFrom);
@@ -461,7 +456,7 @@ class PremiumAdminServiceTest {
 
         assertThat(response.getCurrent().getFactorValue()).isEqualByComparingTo("1.8");
         assertThat(response.getPrevious().getEffTo()).isEqualTo(effFrom.minusDays(1));
-        verify(factorRepository, never()).saveAndFlush(any());
+        verify(factorMapper, never()).insert(any());
 
         FactorRevisionRequest other = factor("DRIVER_AGE", null, 26, 29);   // 같은 UUID, 다른 구간
         other.setEffFrom(effFrom);
@@ -470,7 +465,7 @@ class PremiumAdminServiceTest {
 
     @Test
     void 계수_목록은_종류로_거르고_정렬한다() {
-        given(factorRepository.findAll()).willReturn(List.of(
+        given(factorMapper.findAll()).willReturn(List.of(
                 ageBand(26, 29, "1.2", LocalDate.of(2000, 1, 1), null),
                 ageBand(18, 25, "1.8", TODAY.plusDays(30), null),
                 ageBand(18, 25, "1.5", LocalDate.of(2000, 1, 1), TODAY.plusDays(29)),

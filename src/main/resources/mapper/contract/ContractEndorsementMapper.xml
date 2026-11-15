@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 계약 배서 이력 TB_CTR_ENDORSE -->
+<mapper namespace="com.insur.insurcoresystem.mapper.contract.ContractEndorsementMapper">
+
+    <sql id="columns">ENDORSE_ID, CONTRACT_NO, FIELD_NM, BEFORE_VAL, AFTER_VAL, EMP_ID, GLOBAL_TX_ID, CHG_DT</sql>
+
+    <select id="findPageByContractNo" resultType="com.insur.insurcoresystem.domain.contract.ContractEndorsement">
+        SELECT <include refid="columns"/> FROM TB_CTR_ENDORSE WHERE CONTRACT_NO = #{contractNo}
+         ORDER BY ENDORSE_ID
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countByContractNo" resultType="long">
+        SELECT COUNT(*) FROM TB_CTR_ENDORSE WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findByContractNoAndGlobalTxId" resultType="com.insur.insurcoresystem.domain.contract.ContractEndorsement">
+        SELECT <include refid="columns"/> FROM TB_CTR_ENDORSE
+         WHERE CONTRACT_NO = #{contractNo} AND GLOBAL_TX_ID = #{globalTxId}
+         ORDER BY ENDORSE_ID
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="endorseId" keyColumn="endorse_id">
+        INSERT INTO TB_CTR_ENDORSE (CONTRACT_NO, FIELD_NM, BEFORE_VAL, AFTER_VAL, EMP_ID, GLOBAL_TX_ID, CHG_DT)
+        VALUES (#{contractNo}, #{fieldNm}, #{beforeVal}, #{afterVal}, #{empId}, #{globalTxId}, #{chgDt})
+    </insert>
+</mapper>

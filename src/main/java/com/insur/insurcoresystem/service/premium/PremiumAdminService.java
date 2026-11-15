@@ -1,5 +1,7 @@
 package com.insur.insurcoresystem.service.premium;
 
+import com.insur.insurcoresystem.common.paging.PageResult;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
@@ -7,13 +9,13 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.pageReq
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.premium.PremiumAudit;
-import com.insur.insurcoresystem.domain.premium.PremiumAuditRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumAuditMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
 import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicyRepository;
-import com.insur.insurcoresystem.domain.premium.PremiumFactorRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.domain.premium.PremiumRateRepository;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.premium.dto.AuditListRequest;
 import com.insur.insurcoresystem.service.premium.dto.AuditListResponse;
 import com.insur.insurcoresystem.service.premium.dto.FactorListRequest;
@@ -40,9 +42,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -69,10 +68,10 @@ public class PremiumAdminService {
     private static final BigDecimal MAX_FACTOR = new BigDecimal("9.9999");
     private static final int MAX_RANGE_VALUE = 150;
 
-    private final PremiumRateRepository rateRepository;
-    private final PremiumFactorRepository factorRepository;
-    private final PremiumFactorPolicyRepository policyRepository;
-    private final PremiumAuditRepository auditRepository;
+    private final PremiumRateMapper rateMapper;
+    private final PremiumFactorMapper factorMapper;
+    private final PremiumFactorPolicyMapper policyMapper;
+    private final PremiumAuditMapper auditMapper;
     /** 업무 시간대(Asia/Seoul) 기준 현재 시각 */
     private final Clock clock;
 
@@ -91,7 +90,7 @@ public class PremiumAdminService {
             ProductType.fromInsrClsCd(request.getInsrClsCd());
         }
         LocalDate today = LocalDate.now(clock);
-        List<RateItem> items = rateRepository.findAll().stream()
+        List<RateItem> items = rateMapper.findAll().stream()
                 .filter(r -> !StringUtils.hasText(request.getInsrClsCd()) || r.getInsrClsCd().equals(request.getInsrClsCd()))
                 .filter(r -> !StringUtils.hasText(request.getCvrgCd()) || r.getCvrgCd().equals(request.getCvrgCd()))
                 .sorted(Comparator.comparing(PremiumRate::getInsrClsCd).thenComparing(PremiumRate::getCvrgCd)
@@ -125,12 +124,12 @@ public class PremiumAdminService {
         requireEffFrom(request.getEffFrom(), today);
 
         String targetKey = request.getInsrClsCd() + "/" + request.getCvrgCd();
-        Optional<PremiumAudit> done = auditRepository.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_RATE, globalTxId);
+        Optional<PremiumAudit> done = auditMapper.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_RATE, globalTxId);
         if (done.isPresent()) {
             return replayRate(done.get(), targetKey, request, today);
         }
 
-        List<PremiumRate> history = rateRepository
+        List<PremiumRate> history = rateMapper
                 .findByInsrClsCdAndCvrgCdOrderByEffFromAsc(request.getInsrClsCd(), request.getCvrgCd());
         PremiumRate latest = history.isEmpty() ? null : history.get(history.size() - 1);
         if (latest == null && !StringUtils.hasText(request.getCvrgNm())) {
@@ -145,15 +144,17 @@ public class PremiumAdminService {
             PremiumRate previous = null;
             if (latest != null && (latest.getEffTo() == null || !latest.getEffTo().isBefore(request.getEffFrom()))) {
                 latest.closeAt(request.getEffFrom().minusDays(1));
-                previous = rateRepository.saveAndFlush(latest);   // 새 행을 넣기 전에 먼저 닫아야 겹침 검사를 통과한다
+                rateMapper.updateEffTo(latest);
+                previous = latest;   // 새 행을 넣기 전에 먼저 닫아야 겹침 검사를 통과한다
             }
-            PremiumRate created = rateRepository.saveAndFlush(PremiumRate.builder()
+            PremiumRate created = PremiumRate.builder()
                     .insrClsCd(request.getInsrClsCd())
                     .cvrgCd(request.getCvrgCd())
                     .cvrgNm(StringUtils.hasText(request.getCvrgNm()) ? request.getCvrgNm() : latest.getCvrgNm())
                     .annualRate(request.getAnnualRate())
                     .effFrom(request.getEffFrom())
-                    .build());
+                    .build();
+            rateMapper.insert(created);
             audit(PremiumAudit.TARGET_RATE, targetKey, latest == null, latest == null ? null : plain(latest.getAnnualRate()),
                     plain(request.getAnnualRate()), request.getEffFrom(), empId, globalTxId);
             log.info("요율 {}: {} {} → {} (적용 시작 {}), 거래={}", latest == null ? "신규" : "개정", targetKey,
@@ -174,7 +175,7 @@ public class PremiumAdminService {
                 || !done.getAfterVal().equals(plain(request.getAnnualRate()))) {
             throw replayMismatch();
         }
-        List<PremiumRate> history = rateRepository
+        List<PremiumRate> history = rateMapper
                 .findByInsrClsCdAndCvrgCdOrderByEffFromAsc(request.getInsrClsCd(), request.getCvrgCd());
         PremiumRate current = history.stream().filter(r -> r.getEffFrom().equals(done.getEffFrom())).findFirst()
                 .orElseThrow(MissingAuditTargetException::new);
@@ -202,7 +203,7 @@ public class PremiumAdminService {
             throw new BusinessException("E-ADM-001", "알 수 없는 계수 종류입니다: " + request.getFactorType());
         }
         LocalDate today = LocalDate.now(clock);
-        List<FactorItem> items = factorRepository.findAll().stream()
+        List<FactorItem> items = factorMapper.findAll().stream()
                 .filter(f -> !StringUtils.hasText(request.getInsrClsCd()) || f.getInsrClsCd().equals(request.getInsrClsCd()))
                 .filter(f -> !StringUtils.hasText(request.getFactorType()) || f.getFactorType().equals(request.getFactorType()))
                 .sorted(Comparator.comparing(PremiumFactor::getInsrClsCd).thenComparing(PremiumFactor::getFactorType)
@@ -238,12 +239,12 @@ public class PremiumAdminService {
 
         String targetKey = request.getInsrClsCd() + "/" + request.getFactorType() + "/"
                 + (request.getFactorKey() != null ? request.getFactorKey() : request.getRangeFrom() + "-" + request.getRangeTo());
-        Optional<PremiumAudit> done = auditRepository.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_FACTOR, globalTxId);
+        Optional<PremiumAudit> done = auditMapper.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_FACTOR, globalTxId);
         if (done.isPresent()) {
             return replayFactor(done.get(), targetKey, request, today);
         }
 
-        List<PremiumFactor> history = factorRepository
+        List<PremiumFactor> history = factorMapper
                 .findByInsrClsCdAndFactorTypeOrderByEffFromAsc(request.getInsrClsCd(), request.getFactorType()).stream()
                 .filter(f -> sameSlot(f, request))
                 .toList();
@@ -260,9 +261,10 @@ public class PremiumAdminService {
             PremiumFactor previous = null;
             if (latest != null && (latest.getEffTo() == null || !latest.getEffTo().isBefore(request.getEffFrom()))) {
                 latest.closeAt(request.getEffFrom().minusDays(1));
-                previous = factorRepository.saveAndFlush(latest);
+                factorMapper.updateEffTo(latest);
+                previous = latest;
             }
-            PremiumFactor created = factorRepository.saveAndFlush(PremiumFactor.builder()
+            PremiumFactor created = PremiumFactor.builder()
                     .insrClsCd(request.getInsrClsCd())
                     .factorType(request.getFactorType())
                     .factorKey(request.getFactorKey())
@@ -271,7 +273,8 @@ public class PremiumAdminService {
                     .factorNm(StringUtils.hasText(request.getFactorNm()) ? request.getFactorNm() : latest.getFactorNm())
                     .factorValue(request.getFactorValue())
                     .effFrom(request.getEffFrom())
-                    .build());
+                    .build();
+            factorMapper.insert(created);
             audit(PremiumAudit.TARGET_FACTOR, targetKey, latest == null,
                     latest == null ? null : plain(latest.getFactorValue()), plain(request.getFactorValue()),
                     request.getEffFrom(), empId, globalTxId);
@@ -293,7 +296,7 @@ public class PremiumAdminService {
                 || !done.getAfterVal().equals(plain(request.getFactorValue()))) {
             throw replayMismatch();
         }
-        List<PremiumFactor> history = factorRepository
+        List<PremiumFactor> history = factorMapper
                 .findByInsrClsCdAndFactorTypeOrderByEffFromAsc(request.getInsrClsCd(), request.getFactorType()).stream()
                 .filter(f -> sameSlot(f, request)).toList();
         PremiumFactor current = history.stream().filter(f -> f.getEffFrom().equals(done.getEffFrom())).findFirst()
@@ -319,7 +322,7 @@ public class PremiumAdminService {
             ProductType.fromInsrClsCd(request.getInsrClsCd());
         }
         LocalDate today = LocalDate.now(clock);
-        List<PolicyItem> items = policyRepository.findAll().stream()
+        List<PolicyItem> items = policyMapper.findAll().stream()
                 .filter(p -> !StringUtils.hasText(request.getInsrClsCd()) || p.getInsrClsCd().equals(request.getInsrClsCd()))
                 .sorted(Comparator.comparing(PremiumFactorPolicy::getInsrClsCd).thenComparing(PremiumFactorPolicy::getFactorType)
                         .thenComparing(PremiumFactorPolicy::getEffFrom))
@@ -344,29 +347,18 @@ public class PremiumAdminService {
         if (request.getFromDate() != null && request.getToDate() != null && request.getFromDate().isAfter(request.getToDate())) {
             throw new BusinessException("E-ADM-001", "처리일 시작이 종료보다 늦을 수 없습니다.");
         }
-        var pageable = pageRequest(request.getPage(), request.getSize(), Sort.by("chgDt").descending().and(Sort.by("auditId").descending()));
+        PageQuery pageable = pageRequest(request.getPage(), request.getSize());
 
-        Specification<PremiumAudit> spec = (root, query, cb) -> {
-            List<jakarta.persistence.criteria.Predicate> where = new java.util.ArrayList<>();
-            if (StringUtils.hasText(request.getTargetType())) {
-                where.add(cb.equal(root.get("targetType"), request.getTargetType()));
-            }
-            if (StringUtils.hasText(request.getTargetKey())) {
-                String prefix = request.getTargetKey().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-                where.add(cb.like(root.get("targetKey"), prefix + "%", '\\'));
-            }
-            if (StringUtils.hasText(request.getEmpId())) {
-                where.add(cb.equal(root.get("empId"), normalizeEmpId(request.getEmpId())));
-            }
-            if (request.getFromDate() != null) {
-                where.add(cb.greaterThanOrEqualTo(root.get("chgDt"), request.getFromDate().atStartOfDay()));
-            }
-            if (request.getToDate() != null) {
-                where.add(cb.lessThan(root.get("chgDt"), request.getToDate().plusDays(1).atStartOfDay()));
-            }
-            return cb.and(where.toArray(jakarta.persistence.criteria.Predicate[]::new));
-        };
-        Page<PremiumAudit> result = auditRepository.findAll(spec, pageable);
+        PremiumAuditMapper.SearchCondition condition = PremiumAuditMapper.SearchCondition.builder()
+                .targetType(StringUtils.hasText(request.getTargetType()) ? request.getTargetType() : null)
+                .targetKeyLike(StringUtils.hasText(request.getTargetKey())
+                        ? request.getTargetKey().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" : null)
+                .empId(StringUtils.hasText(request.getEmpId()) ? normalizeEmpId(request.getEmpId()) : null)
+                .chgFrom(request.getFromDate() == null ? null : request.getFromDate().atStartOfDay())
+                .chgTo(request.getToDate() == null ? null : request.getToDate().plusDays(1).atStartOfDay())
+                .build();
+        PageResult<PremiumAudit> result = new PageResult<>(auditMapper.search(condition, pageable), pageable,
+                auditMapper.countSearch(condition));
         return AuditListResponse.builder()
                 .page(pageable.getPageNumber())
                 .size(pageable.getPageSize())
@@ -412,12 +404,12 @@ public class PremiumAdminService {
 
         String targetKey = request.getInsrClsCd() + "/" + request.getFactorType();
         String after = String.valueOf(request.getRequired());
-        Optional<PremiumAudit> done = auditRepository.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_POLICY, globalTxId);
+        Optional<PremiumAudit> done = auditMapper.findByTargetTypeAndGlobalTxId(PremiumAudit.TARGET_POLICY, globalTxId);
         if (done.isPresent()) {
             return replayPolicy(done.get(), targetKey, after, request, today);
         }
 
-        List<PremiumFactorPolicy> history = policyRepository
+        List<PremiumFactorPolicy> history = policyMapper
                 .findByInsrClsCdAndFactorTypeOrderByEffFromAsc(request.getInsrClsCd(), request.getFactorType());
         PremiumFactorPolicy latest = history.isEmpty() ? null : history.get(history.size() - 1);
         if (latest != null && !request.getEffFrom().isAfter(latest.getEffFrom())) {
@@ -429,14 +421,16 @@ public class PremiumAdminService {
             PremiumFactorPolicy previous = null;
             if (latest != null && (latest.getEffTo() == null || !latest.getEffTo().isBefore(request.getEffFrom()))) {
                 latest.closeAt(request.getEffFrom().minusDays(1));
-                previous = policyRepository.saveAndFlush(latest);
+                policyMapper.updateEffTo(latest);
+                previous = latest;
             }
-            PremiumFactorPolicy created = policyRepository.saveAndFlush(PremiumFactorPolicy.builder()
+            PremiumFactorPolicy created = PremiumFactorPolicy.builder()
                     .insrClsCd(request.getInsrClsCd())
                     .factorType(request.getFactorType())
                     .required(request.getRequired())
                     .effFrom(request.getEffFrom())
-                    .build());
+                    .build();
+            policyMapper.insert(created);
             audit(PremiumAudit.TARGET_POLICY, targetKey, latest == null,
                     latest == null ? null : String.valueOf(latest.isRequired()), after, request.getEffFrom(), empId, globalTxId);
             log.info("필수 계수 정책 {}: {} {} → {} (적용 시작 {}), 거래={}", latest == null ? "신규" : "개정", targetKey,
@@ -457,7 +451,7 @@ public class PremiumAdminService {
                 || !done.getAfterVal().equals(after)) {
             throw replayMismatch();
         }
-        List<PremiumFactorPolicy> history = policyRepository
+        List<PremiumFactorPolicy> history = policyMapper
                 .findByInsrClsCdAndFactorTypeOrderByEffFromAsc(request.getInsrClsCd(), request.getFactorType());
         PremiumFactorPolicy current = history.stream().filter(p -> p.getEffFrom().equals(done.getEffFrom())).findFirst()
                 .orElseThrow(MissingAuditTargetException::new);
@@ -537,7 +531,7 @@ public class PremiumAdminService {
 
     private void audit(String targetType, String targetKey, boolean created, String before, String after,
                        LocalDate effFrom, String empId, String globalTxId) {
-        auditRepository.saveAndFlush(PremiumAudit.builder()
+        auditMapper.insert(PremiumAudit.builder()
                 .targetType(targetType)
                 .targetKey(targetKey)
                 .action(created ? PremiumAudit.ACTION_CREATE : PremiumAudit.ACTION_REVISE)

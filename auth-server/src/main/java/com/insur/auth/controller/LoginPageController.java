@@ -1,7 +1,7 @@
 package com.insur.auth.controller;
 
 import com.insur.auth.common.BusinessException;
-import com.insur.auth.domain.EmployeeRepository;
+import com.insur.auth.mapper.EmployeeMapper;
 import com.insur.auth.security.EmployeeAuthenticationProvider;
 import com.insur.auth.security.LoginSuccessHandler;
 import com.insur.auth.service.AuthService;
@@ -37,16 +37,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class LoginPageController {
 
     private final AuthService authService;
-    private final EmployeeRepository employeeRepository;
+    private final EmployeeMapper employeeMapper;
     private final Clock clock;
     private final boolean devHint;
     private final RequestCache requestCache = new HttpSessionRequestCache();
     private final SecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
 
-    public LoginPageController(AuthService authService, EmployeeRepository employeeRepository, Clock clock,
+    public LoginPageController(AuthService authService, EmployeeMapper employeeMapper, Clock clock,
                                @Value("${app.login.dev-hint:false}") boolean devHint) {
         this.authService = authService;
-        this.employeeRepository = employeeRepository;
+        this.employeeMapper = employeeMapper;
         this.clock = clock;
         this.devHint = devHint;
     }
@@ -100,7 +100,7 @@ public class LoginPageController {
         request.changeSessionId();
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(EmployeeAuthenticationProvider.authenticated(
-                employeeRepository.findById(empId).orElseThrow(), clock.instant()));
+                employeeMapper.findById(empId).orElseThrow(), clock.instant()));
         SecurityContextHolder.setContext(context);
         contextRepository.saveContext(context, request, response);
 

@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.service.contract;
 
+import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -8,10 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.contract.ContractRepository;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.domain.contract.CoverageRepository;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -42,9 +43,9 @@ class ContractRenewalIntegrationTest {
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    ContractRepository contractRepository;
+    ContractMapper contractMapper;
     @Autowired
-    CoverageRepository coverageRepository;
+    CoverageMapper coverageMapper;
 
     private ResultActions renew(String txId, String body, RequestPostProcessor auth) throws Exception {
         return mockMvc.perform(post("/api/contract/renew").with(auth).contentType(MediaType.APPLICATION_JSON)
@@ -59,12 +60,12 @@ class ContractRenewalIntegrationTest {
     private Contract source(String statCd, int daysToEnd, String regEmpId) {
         LocalDate end = TODAY.plusDays(daysToEnd);
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        Contract contract = contractRepository.save(Contract.builder()
+        Contract contract = TestRows.insert(contractMapper::insert, Contract.builder()
                 .contractNo("POL-T-" + suffix).applNo("APP-T-" + suffix).insrClsCd("01").ctrStatCd(statCd)
                 .startDate(end.minusYears(1)).endDate(end).policyholderId("C0001").insuredId("C0002")
                 .totalPremium(new BigDecimal("500000")).sysRegDt(LocalDateTime.now()).regEmpId(regEmpId)
                 .driverAge(35).discountGrade("3").build());
-        coverageRepository.save(Coverage.builder().contract(contract).cvrgCd("CA001")
+        TestRows.insert(coverageMapper::insert, Coverage.builder().contractNo(contract.getContractNo()).cvrgCd("CA001")
                 .isrdAmt(new BigDecimal("100000000")).prem(new BigDecimal("500000")).build());
         return contract;
     }
@@ -90,12 +91,12 @@ class ContractRenewalIntegrationTest {
                 .andExpect(jsonPath("$.body.totalPremium").value(Long.parseLong(expectedPremium(source, "1.0"))))
                 .andExpect(jsonPath("$.body.coverageCount").value(1));
 
-        Contract renewal = contractRepository.findByGlobalTxId("tx-rn-1").orElseThrow();
+        Contract renewal = contractMapper.findByGlobalTxId("tx-rn-1").orElseThrow();
         assertThat(renewal.getRenewedFrom()).isEqualTo(source.getContractNo());
         assertThat(renewal.getRegEmpId()).isEqualTo("E100");
         assertThat(renewal.getPolicyholderId()).isEqualTo("C0001");
         assertThat(renewal.getDriverAge()).isEqualTo(35);   // 요율 계수도 이어받는다
-        assertThat(coverageRepository.findByContractContractNo(renewal.getContractNo())).singleElement()
+        assertThat(coverageMapper.findByContractNo(renewal.getContractNo())).singleElement()
                 .satisfies(c -> assertThat(c.getCvrgCd()).isEqualTo("CA001"));
 
         // 조회 응답에 원 계약이 나온다
@@ -112,7 +113,7 @@ class ContractRenewalIntegrationTest {
                 TestAuth.as("E100", Roles.AGENT))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.body.totalPremium").value(Long.parseLong(expectedPremium(source, "0.8"))));
-        assertThat(contractRepository.findByGlobalTxId("tx-rn-r").orElseThrow().getDiscountGrade()).isEqualTo("1");
+        assertThat(contractMapper.findByGlobalTxId("tx-rn-r").orElseThrow().getDiscountGrade()).isEqualTo("1");
     }
 
     @Test
@@ -139,9 +140,9 @@ class ContractRenewalIntegrationTest {
         renewNo("tx-rn-4", source.getContractNo()).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.header.responseCode").value("E-CTR-025"));
 
-        Contract renewal = contractRepository.findByGlobalTxId("tx-rn-3").orElseThrow();
+        Contract renewal = contractMapper.findByGlobalTxId("tx-rn-3").orElseThrow();
         renewal.changeStatus(ContractStatus.CANCELED);
-        contractRepository.saveAndFlush(renewal);
+        contractMapper.update(renewal);
         renewNo("tx-rn-5", source.getContractNo()).andExpect(status().isOk());
     }
 
@@ -177,7 +178,7 @@ class ContractRenewalIntegrationTest {
             renew("tx-rn-r", "{ \"contractNo\": \"" + source.getContractNo() + "\" }", TestAuth.withRoles(role))
                     .andExpect(status().isForbidden());
         }
-        assertThat(contractRepository.findByGlobalTxId("tx-rn-r")).isEmpty();
+        assertThat(contractMapper.findByGlobalTxId("tx-rn-r")).isEmpty();
     }
 
     private ResultActions preview(String body, RequestPostProcessor auth) throws Exception {
@@ -189,7 +190,7 @@ class ContractRenewalIntegrationTest {
     void 미리보기는_저장하지_않고_갱신과_같은_보험료와_원_계약과의_차이를_보여준다() throws Exception {
         Contract source = source("20", 20, "E100");
         long expected = Long.parseLong(expectedPremium(source, "1.0"));
-        long contracts = contractRepository.count();
+        long contracts = contractMapper.count();
 
         preview("{ \"contractNo\": \"" + source.getContractNo() + "\" }", TestAuth.as("E100", Roles.AGENT))
                 .andExpect(status().isOk())
@@ -203,7 +204,7 @@ class ContractRenewalIntegrationTest {
                 .andExpect(jsonPath("$.body.coverages[0].cvrgCd").value("CA001"))
                 .andExpect(jsonPath("$.body.coverages[0].previousPrem").value(500000))
                 .andExpect(jsonPath("$.body.coverages[0].prem").value(expected));
-        assertThat(contractRepository.count()).isEqualTo(contracts);   // 아무것도 저장하지 않았다
+        assertThat(contractMapper.count()).isEqualTo(contracts);   // 아무것도 저장하지 않았다
 
         // 요율 계수를 바꿔 보면 보험료가 달라지고, 이어서 같은 요청으로 갱신하면 그 보험료가 된다
         String withRating = "{ \"contractNo\": \"" + source.getContractNo() + "\", \"rating\": { \"driverAge\": 35, \"discountGrade\": \"1\" } }";

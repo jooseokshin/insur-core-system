@@ -3,10 +3,10 @@ package com.insur.auth.service;
 import com.insur.auth.common.BusinessException;
 import com.insur.auth.domain.Employee;
 import com.insur.auth.domain.EmployeeAudit;
-import com.insur.auth.domain.EmployeeAuditRepository;
-import com.insur.auth.domain.EmployeeRepository;
+import com.insur.auth.mapper.EmployeeAuditMapper;
+import com.insur.auth.mapper.EmployeeMapper;
 import com.insur.auth.domain.LoginHistory;
-import com.insur.auth.domain.LoginHistoryRepository;
+import com.insur.auth.mapper.LoginHistoryMapper;
 import com.insur.auth.service.dto.AuthDto;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -30,21 +30,21 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
-    private final EmployeeRepository employeeRepository;
-    private final LoginHistoryRepository loginHistoryRepository;
-    private final EmployeeAuditRepository auditRepository;
+    private final EmployeeMapper employeeMapper;
+    private final LoginHistoryMapper loginHistoryMapper;
+    private final EmployeeAuditMapper auditMapper;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
     private final int maxFailures;
     /** 없는 사번에도 해시 비교를 하기 위한 값 (응답 시간으로 사번 존재 여부를 알 수 없게) */
     private final String dummyHash;
 
-    public AuthService(EmployeeRepository employeeRepository, LoginHistoryRepository loginHistoryRepository,
-                       EmployeeAuditRepository auditRepository, PasswordEncoder passwordEncoder,
+    public AuthService(EmployeeMapper employeeMapper, LoginHistoryMapper loginHistoryMapper,
+                       EmployeeAuditMapper auditMapper, PasswordEncoder passwordEncoder,
                        Clock clock, @Value("${app.login.max-failures}") int maxFailures) {
-        this.employeeRepository = employeeRepository;
-        this.loginHistoryRepository = loginHistoryRepository;
-        this.auditRepository = auditRepository;
+        this.employeeMapper = employeeMapper;
+        this.loginHistoryMapper = loginHistoryMapper;
+        this.auditMapper = auditMapper;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
         this.maxFailures = maxFailures;
@@ -64,7 +64,7 @@ public class AuthService {
         }
         String empId = empIdInput.trim();
         LocalDateTime now = LocalDateTime.now(clock);
-        Optional<Employee> found = employeeRepository.findForUpdateByEmpId(empId);
+        Optional<Employee> found = employeeMapper.findForUpdateByEmpId(empId);
 
         if (found.isEmpty()) {
             passwordEncoder.matches(password, dummyHash);
@@ -82,6 +82,7 @@ public class AuthService {
         }
         if (!passwordEncoder.matches(password, employee.getPwdHash())) {
             boolean nowLocked = employee.loginFailed(maxFailures);
+            employeeMapper.updateRow(employee);   // 아래에서 예외를 던져도 커밋된다 (noRollbackFor)
             record(empId, LoginHistory.BAD_CREDENTIALS, clientIp, now);
             log.warn("로그인 실패: 사번={}, 연속 실패 {}회{}", empId, employee.getLoginFailCnt(), nowLocked ? " (잠금)" : "");
             if (nowLocked) {
@@ -91,6 +92,7 @@ public class AuthService {
         }
 
         employee.loginSucceeded(now);
+        employeeMapper.updateRow(employee);
         record(empId, LoginHistory.SUCCESS, clientIp, now);
         log.info("로그인 성공: 사번={}, 비밀번호 변경 필요={}", empId, employee.isPasswordChangeRequired());
         return employee;
@@ -104,7 +106,7 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public Employee requireTokenEligible(String empId) {
-        Employee employee = employeeRepository.findById(empId)
+        Employee employee = employeeMapper.findById(empId)
                 .filter(emp -> emp.isActive() && !emp.isLocked())
                 .orElseThrow(() -> new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-103", "사용할 수 없는 계정입니다."));
         if (employee.isPasswordChangeRequired()) {
@@ -120,7 +122,7 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public AuthDto.Profile profile(String empId) {
-        Employee employee = employeeRepository.findById(empId)
+        Employee employee = employeeMapper.findById(empId)
                 .filter(Employee::isActive)
                 .orElseThrow(() -> new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-103", "사용할 수 없는 계정입니다."));
         return profileOf(employee, employee.getLastLoginDt());
@@ -137,7 +139,7 @@ public class AuthService {
         if (request.getCurrentPassword() == null || request.getNewPassword() == null) {
             throw new BusinessException("E-AUTH-100", "현재 비밀번호와 새 비밀번호를 입력해 주세요.");
         }
-        Employee employee = employeeRepository.findForUpdateByEmpId(empId)
+        Employee employee = employeeMapper.findForUpdateByEmpId(empId)
                 .filter(emp -> emp.isActive() && !emp.isLocked())
                 .orElseThrow(() -> new BusinessException(HttpStatus.FORBIDDEN, "E-AUTH-103", "사용할 수 없는 계정입니다."));
         if (!passwordEncoder.matches(request.getCurrentPassword(), employee.getPwdHash())) {
@@ -150,7 +152,8 @@ public class AuthService {
 
         LocalDateTime now = LocalDateTime.now(clock);
         employee.changePassword(passwordEncoder.encode(request.getNewPassword()), now);
-        auditRepository.save(EmployeeAudit.builder().empId(empId).action("CHANGE_PASSWORD").detail("본인 비밀번호 변경")
+        employeeMapper.updateRow(employee);
+        auditMapper.insert(EmployeeAudit.builder().empId(empId).action("CHANGE_PASSWORD").detail("본인 비밀번호 변경")
                 .actEmpId(empId).globalTxId(globalTxId).actDt(now).build());
         log.info("비밀번호 변경: 사번={}", empId);
         return profileOf(employee, employee.getLastLoginDt());
@@ -168,7 +171,7 @@ public class AuthService {
     }
 
     private void record(String empId, String resultCd, String clientIp, LocalDateTime now) {
-        loginHistoryRepository.save(LoginHistory.builder()
+        loginHistoryMapper.insert(LoginHistory.builder()
                 .empId(empId.length() > 64 ? empId.substring(0, 64) : empId)
                 .resultCd(resultCd)
                 .clientIp(clientIp != null && clientIp.length() > 45 ? clientIp.substring(0, 45) : clientIp)
