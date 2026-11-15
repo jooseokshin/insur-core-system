@@ -3,14 +3,13 @@ package com.insur.insurcoresystem.ext.outbox;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.kcis.KcisClient;
 import com.insur.insurcoresystem.ext.kcis.KcisLayouts;
+import com.insur.insurcoresystem.mapper.ext.OutboxMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,13 +32,13 @@ public class OutboxSender {
     private static final Duration MAX_BACKOFF = Duration.ofHours(1);
     private static final int BATCH = 100;
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final OutboxMapper outboxMapper;
     private final TransactionTemplate tx;
     private final Clock clock;
     private final Map<String, Consumer<String>> senders;
 
-    public OutboxSender(NamedParameterJdbcTemplate jdbc, PlatformTransactionManager txManager, Clock clock, KcisClient kcis) {
-        this.jdbc = jdbc;
+    public OutboxSender(OutboxMapper outboxMapper, PlatformTransactionManager txManager, Clock clock, KcisClient kcis) {
+        this.outboxMapper = outboxMapper;
         this.tx = new TransactionTemplate(txManager);
         this.clock = clock;
         this.senders = Map.of(KcisLayouts.AGENCY, kcis::send);
@@ -61,41 +60,28 @@ public class OutboxSender {
     /** 한 건을 보낸다. 보낼 건이 없으면 false */
     private boolean sendOne() {
         LocalDateTime now = LocalDateTime.now(clock);
-        var due = jdbc.query("""
-                SELECT OUTBOX_ID, AGENCY_CD, TX_TYPE, BIZ_KEY, PAYLOAD, ATTEMPTS FROM TB_EXT_OUTBOX
-                 WHERE STAT_CD = '10' AND NEXT_TRY_DT <= :now
-                 ORDER BY NEXT_TRY_DT, OUTBOX_ID
-                 LIMIT 1
-                 FOR UPDATE SKIP LOCKED
-                """, new MapSqlParameterSource("now", now), (rs, i) -> new Object[] {
-                rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getInt(6)});
+        var due = outboxMapper.lockNextDue(now);
         if (due.isEmpty()) {
             return false;
         }
-        Object[] row = due.get(0);
-        long id = (Long) row[0];
-        String agency = (String) row[1];
-        int attempts = (Integer) row[5] + 1;
+        OutboxMapper.Due row = due.get();
+        long id = row.outboxId();
+        String agency = row.agencyCd();
+        int attempts = row.attempts() + 1;
         try {
             Consumer<String> sender = senders.get(agency);
             if (sender == null) {
                 throw new ExternalAgencyException(agency, null, "전송 방법이 없는 기관입니다: " + agency);
             }
-            sender.accept((String) row[4]);
-            jdbc.update("UPDATE TB_EXT_OUTBOX SET STAT_CD = '20', ATTEMPTS = :attempts, SENT_DT = :now, LAST_ERROR = NULL WHERE OUTBOX_ID = :id",
-                    new MapSqlParameterSource("id", id).addValue("attempts", attempts).addValue("now", now));
-            log.info("대외기관 전송 완료: 대기열={}, 기관={}, 거래={}, 업무키={}", id, agency, row[2], row[3]);
+            sender.accept(row.payload());
+            outboxMapper.markSent(id, attempts, now);
+            log.info("대외기관 전송 완료: 대기열={}, 기관={}, 거래={}, 업무키={}", id, agency, row.txType(), row.bizKey());
         } catch (RuntimeException e) {
             boolean giveUp = attempts >= MAX_ATTEMPTS;
-            jdbc.update("""
-                    UPDATE TB_EXT_OUTBOX SET STAT_CD = :stat, ATTEMPTS = :attempts, NEXT_TRY_DT = :next, LAST_ERROR = :error
-                     WHERE OUTBOX_ID = :id""", new MapSqlParameterSource("id", id)
-                    .addValue("stat", giveUp ? OutboxService.STAT_FAILED : OutboxService.STAT_PENDING)
-                    .addValue("attempts", attempts)
-                    .addValue("next", now.plus(backoff(attempts)))
-                    .addValue("error", truncate(e.getMessage())));
+            outboxMapper.markFailure(id, giveUp ? OutboxService.STAT_FAILED : OutboxService.STAT_PENDING, attempts,
+                    now.plus(backoff(attempts)), truncate(e.getMessage()));
             if (giveUp) {
-                log.error("대외기관 전송 재시도 한도 초과, 담당자 확인 필요: 대기열={}, 기관={}, 업무키={}, 사유={}", id, agency, row[3], e.getMessage());
+                log.error("대외기관 전송 재시도 한도 초과, 담당자 확인 필요: 대기열={}, 기관={}, 업무키={}, 사유={}", id, agency, row.bizKey(), e.getMessage());
             } else {
                 log.warn("대외기관 전송 실패, 다시 시도 예정: 대기열={}, 시도={}, 사유={}", id, attempts, e.getMessage());
             }

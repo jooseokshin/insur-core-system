@@ -30,6 +30,15 @@
                 #{endRegDt}, #{endEmpId}, #{endTxId}, #{drivenKm}, #{annualKm}, #{refundRate}, #{refundBasePrem}, #{refundAmt})
     </insert>
 
+    <!-- 환급률표 TB_PRM_MILEAGE_RATE: 연간 주행거리 구간과 적용 기간(보험시기 기준) -->
+    <select id="findRefundRate" resultType="java.math.BigDecimal">
+        SELECT REFUND_RATE FROM TB_PRM_MILEAGE_RATE
+         WHERE #{annualKm} BETWEEN KM_FROM AND KM_TO
+           AND EFF_FROM &lt;= #{startDate} AND (EFF_TO IS NULL OR EFF_TO &gt;= #{startDate})
+         ORDER BY EFF_FROM DESC
+         LIMIT 1
+    </select>
+
     <update id="updateSettlement">
         UPDATE TB_CTR_MILEAGE
            SET MIL_STAT_CD = #{milStatCd}, END_ODO_KM = #{endOdoKm}, END_REG_DT = #{endRegDt}, END_EMP_ID = #{endEmpId},

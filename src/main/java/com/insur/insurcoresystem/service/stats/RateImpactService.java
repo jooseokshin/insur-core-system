@@ -1,6 +1,7 @@
 package com.insur.insurcoresystem.service.stats;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.stats.StatsMapper;
 import com.insur.insurcoresystem.service.stats.dto.LossRatioRequest;
 import com.insur.insurcoresystem.service.stats.dto.LossRatioResponse;
 import com.insur.insurcoresystem.service.stats.dto.RateImpactRequest;
@@ -17,8 +18,6 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -54,44 +53,8 @@ public class RateImpactService {
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final MathContext MC = MathContext.DECIMAL64;
 
-    /** 오늘 적용 중인 담보별 연 요율 */
-    private static final String CURRENT_TARIFF = """
-            SELECT CVRG_CD, CVRG_NM, ANNUAL_RATE
-              FROM TB_PRM_RATE
-             WHERE INSR_CLS_CD = :cls AND EFF_FROM <= :today AND (EFF_TO IS NULL OR EFF_TO >= :today)
-             ORDER BY CVRG_CD
-            """;
-
-    /** 경험 기간 중(시작일 다음 날 ~ 종료일)에 시작한 요율·계수 개정과 오늘 이후로 예정된 개정 */
-    private static final String REVISIONS = """
-            SELECT 'RATE' AS KIND, CVRG_CD AS TARGET, EFF_FROM FROM TB_PRM_RATE
-             WHERE INSR_CLS_CD = :cls AND (EFF_FROM > :fromDate AND EFF_FROM <= :toDate OR EFF_FROM > :today)
-            UNION ALL
-            SELECT 'FACTOR', FACTOR_TYPE, EFF_FROM FROM TB_PRM_FACTOR
-             WHERE INSR_CLS_CD = :cls AND (EFF_FROM > :fromDate AND EFF_FROM <= :toDate OR EFF_FROM > :today)
-             ORDER BY 3, 1, 2
-            """;
-
-    /** 오늘 유효한 계약과, 그 가운데 갱신 영향 기간 안에 만기가 오고 아직 갱신하지 않은 계약 (갱신 대상 화면과 같은 기준) */
-    private static final String IN_FORCE = """
-            SELECT %s
-                   COUNT(DISTINCT L.CONTRACT_NO) AS CNT,
-                   COALESCE(SUM(V.PREM), 0) AS PREM,
-                   COUNT(DISTINCT CASE WHEN L.END_DATE <= :renewTo AND NOT EXISTS (
-                           SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = L.CONTRACT_NO AND R.CTR_STAT_CD <> '90')
-                         THEN L.CONTRACT_NO END) AS RCNT,
-                   COALESCE(SUM(CASE WHEN L.END_DATE <= :renewTo AND NOT EXISTS (
-                           SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = L.CONTRACT_NO AND R.CTR_STAT_CD <> '90')
-                         THEN V.PREM ELSE 0 END), 0) AS RPREM
-              FROM TB_CTR_LGD L
-              JOIN TB_CTR_CVRG V ON V.CONTRACT_NO = L.CONTRACT_NO
-             WHERE L.CTR_STAT_CD = '20' AND L.INSR_CLS_CD = :cls
-               AND L.START_DATE <= :today AND L.END_DATE > :today
-            %s
-            """;
-
     private final LossRatioService lossRatioService;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final StatsMapper statsMapper;
     private final Clock clock;
 
     /**
@@ -105,12 +68,8 @@ public class RateImpactService {
         if (cls == null) {
             throw new BusinessException("E-STAT-003", "보험종목 코드를 입력해 주세요.");
         }
-        MapSqlParameterSource params = new MapSqlParameterSource().addValue("cls", cls).addValue("today", today);
-
         Map<String, Object[]> tariff = new LinkedHashMap<>();
-        jdbc.query(CURRENT_TARIFF, params, rs -> {
-            tariff.put(rs.getString("CVRG_CD"), new Object[] {rs.getString("CVRG_NM"), rs.getBigDecimal("ANNUAL_RATE")});
-        });
+        statsMapper.currentTariff(cls, today).forEach(t -> tariff.put(t.cvrgCd(), new Object[] {t.cvrgNm(), t.annualRate()}));
         if (tariff.isEmpty()) {
             throw new BusinessException("E-STAT-003", "오늘 적용 중인 요율표가 없는 보험종목입니다: " + cls);
         }
@@ -134,12 +93,11 @@ public class RateImpactService {
         byCoverage.getRows().stream().filter(r -> cls.equals(r.getInsrClsCd())).forEach(r -> experience.put(r.getCvrgCd(), r));
         LossRatioResponse.Row classTotal = byClass.getRows().stream().filter(r -> cls.equals(r.getInsrClsCd())).findFirst().orElse(null);
 
-        params.addValue("renewTo", renewTo).addValue("fromDate", from).addValue("toDate", to);
         Map<String, long[]> counts = new HashMap<>();
         Map<String, BigDecimal[]> premiums = new HashMap<>();
-        jdbc.query(IN_FORCE.formatted("V.CVRG_CD,", "GROUP BY V.CVRG_CD"), params, rs -> {
-            counts.put(rs.getString("CVRG_CD"), new long[] {rs.getLong("CNT"), rs.getLong("RCNT")});
-            premiums.put(rs.getString("CVRG_CD"), new BigDecimal[] {rs.getBigDecimal("PREM"), rs.getBigDecimal("RPREM")});
+        statsMapper.inForce(cls, today, renewTo, true).forEach(r -> {
+            counts.put(r.cvrgCd(), new long[] {r.cnt(), r.rcnt()});
+            premiums.put(r.cvrgCd(), new BigDecimal[] {r.prem(), r.rprem()});
         });
 
         List<RateImpactResponse.Row> rows = new ArrayList<>();
@@ -170,11 +128,11 @@ public class RateImpactService {
         // 전체: 경과보험료·손해액은 담보 합계와 같고, 계약·사고 건수는 중복 없이 다시 센다
         long[] totalCounts = new long[2];
         BigDecimal[] totalPremiums = {BigDecimal.ZERO, BigDecimal.ZERO};
-        jdbc.query(IN_FORCE.formatted("", ""), params, rs -> {
-            totalCounts[0] = rs.getLong("CNT");
-            totalCounts[1] = rs.getLong("RCNT");
-            totalPremiums[0] = rs.getBigDecimal("PREM");
-            totalPremiums[1] = rs.getBigDecimal("RPREM");
+        statsMapper.inForce(cls, today, renewTo, false).forEach(r -> {
+            totalCounts[0] = r.cnt();
+            totalCounts[1] = r.rcnt();
+            totalPremiums[0] = r.prem();
+            totalPremiums[1] = r.rprem();
         });
         BigDecimal incurredTotal = classTotal == null ? BigDecimal.ZERO : classTotal.getIncurredLoss();
         long claimTotal = classTotal == null ? 0 : classTotal.getClaimCount();
@@ -183,7 +141,7 @@ public class RateImpactService {
         RateImpactResponse.Row total = row(null, null, null, null, averagePct, earnedTotal, simulatedEarnedTotal, incurredTotal,
                 claimTotal, target, totalCounts[0], totalPremiums[0], totalCounts[1], totalPremiums[1], renewalChangeTotal);
 
-        List<String> warnings = warnings(params, from, to, today, claimTotal);
+        List<String> warnings = warnings(cls, from, to, today, claimTotal);
         log.info("요율 영향 시뮬레이션: 종목={}, 경험 {} ~ {}, 변경 {}건, 손해율 {} → {}", cls, from, to, changes.size(),
                 total.getLossRatio(), total.getSimulatedLossRatio());
         return RateImpactResponse.builder()
@@ -255,11 +213,11 @@ public class RateImpactService {
                 .build();
     }
 
-    private List<String> warnings(MapSqlParameterSource params, LocalDate from, LocalDate to, LocalDate today, long claims) {
+    private List<String> warnings(String cls, LocalDate from, LocalDate to, LocalDate today, long claims) {
         List<String> warnings = new ArrayList<>();
-        jdbc.query(REVISIONS, params, rs -> {
-            String what = ("RATE".equals(rs.getString("KIND")) ? "담보 요율 " : "요율 계수 ") + rs.getString("TARGET");
-            LocalDate effFrom = rs.getDate("EFF_FROM").toLocalDate();
+        statsMapper.revisions(cls, from, to, today).forEach(r -> {
+            String what = ("RATE".equals(r.kind()) ? "담보 요율 " : "요율 계수 ") + r.target();
+            LocalDate effFrom = r.effFrom();
             warnings.add(effFrom.isAfter(today)
                     ? what + " 개정이 " + effFrom + " 부터 예정되어 있습니다. 갱신 영향은 오늘 요율을 기준으로 계산했습니다."
                     : what + " 개정(" + effFrom + " 시작)이 경험 기간 안에 있습니다. 경과보험료를 현재 요율 수준으로 맞추지(온레벨) 않았으므로 손해율이 왜곡될 수 있습니다.");

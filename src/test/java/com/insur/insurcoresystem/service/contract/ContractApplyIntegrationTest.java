@@ -1,6 +1,5 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,25 +7,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.security.Roles;
+import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
-import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import com.insur.insurcoresystem.common.security.Roles;
-import com.insur.insurcoresystem.common.security.TestAuth;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

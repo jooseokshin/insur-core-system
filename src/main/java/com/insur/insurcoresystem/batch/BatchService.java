@@ -1,6 +1,8 @@
 package com.insur.insurcoresystem.batch;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.batch.BatchMapper;
+import com.insur.insurcoresystem.mapper.cms.CmsMapper;
 import com.insur.insurcoresystem.service.stats.ReserveService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -16,8 +18,6 @@ import org.springframework.batch.core.launch.JobInstanceAlreadyCompleteException
 import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,17 +33,19 @@ public class BatchService {
     private final Job reserveCloseJob;
     private final Job payoutReconJob;
     private final Job cmsDebitJob;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final BatchMapper batchMapper;
+    private final CmsMapper cmsMapper;
     private final Clock clock;
 
     public BatchService(JobOperator jobOperator, @Qualifier("reserveCloseJob") Job reserveCloseJob,
                         @Qualifier("payoutReconJob") Job payoutReconJob, @Qualifier("cmsDebitJob") Job cmsDebitJob,
-                        NamedParameterJdbcTemplate jdbc, Clock clock) {
+                        BatchMapper batchMapper, CmsMapper cmsMapper, Clock clock) {
         this.jobOperator = jobOperator;
         this.reserveCloseJob = reserveCloseJob;
         this.payoutReconJob = payoutReconJob;
         this.cmsDebitJob = cmsDebitJob;
-        this.jdbc = jdbc;
+        this.batchMapper = batchMapper;
+        this.cmsMapper = cmsMapper;
         this.clock = clock;
     }
 
@@ -133,62 +135,31 @@ public class BatchService {
         if (debitDate == null) {
             throw new BusinessException("E-BAT-001", "출금일을 입력해야 합니다.");
         }
-        MapSqlParameterSource p = new MapSqlParameterSource("d", debitDate);
-        List<CmsDebitRow> debits = jdbc.query("SELECT D.*, M.BANK_CD, M.ACCOUNT_MASK, M.PAYER_NM FROM TB_CMS_DEBIT D"
-                        + " JOIN TB_CMS_MANDATE M ON M.MANDATE_ID = D.MANDATE_ID WHERE D.DEBIT_DT = :d"
-                        + " ORDER BY CASE WHEN D.STAT_CD = '30' THEN 1 ELSE 0 END, D.DEBIT_ID", p,
-                (rs, i) -> new CmsDebitRow(rs.getLong("DEBIT_ID"), rs.getString("CONTRACT_NO"), rs.getBigDecimal("AMOUNT"), rs.getInt("ATTEMPT_NO"),
-                        rs.getString("STAT_CD"), rs.getString("RESULT_CD"), rs.getString("RESULT_MSG"), (Long) rs.getObject("PAYMENT_ID"),
-                        rs.getString("BANK_CD"), rs.getString("ACCOUNT_MASK"), rs.getString("PAYER_NM")));
-        List<CmsFileRow> files = jdbc.query("SELECT * FROM TB_CMS_FILE WHERE FILE_DT = :d ORDER BY FILE_ID", p,
-                (rs, i) -> new CmsFileRow(rs.getString("FILE_TYPE"), rs.getString("DIRECTION"), rs.getInt("RECORD_COUNT"), rs.getBigDecimal("TOTAL_AMT"),
-                        rs.getInt("BYTES"), rs.getString("FILE_HASH"), rs.getLong("JOB_EXECUTION_ID"), rs.getObject("CREATED_DT", LocalDateTime.class)));
+        List<CmsDebitRow> debits = cmsMapper.findDayDebits(debitDate);
+        List<CmsFileRow> files = cmsMapper.findDayFiles(debitDate);
         return new CmsDay(debitDate, debits, files);
     }
 
     /** 실행 이력 (최근순) */
     public List<Execution> executions(String jobName, Integer limit) {
-        MapSqlParameterSource p = new MapSqlParameterSource("limit", limit == null ? 20 : Math.max(1, Math.min(limit, 100)));
-        String where = "";
-        if (StringUtils.hasText(jobName)) {
-            where = " WHERE I.JOB_NAME = :job";
-            p.addValue("job", jobName);
-        }
-        List<Long> ids = jdbc.queryForList("SELECT E.JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION E JOIN BATCH_JOB_INSTANCE I"
-                + " ON I.JOB_INSTANCE_ID = E.JOB_INSTANCE_ID" + where + " ORDER BY E.JOB_EXECUTION_ID DESC LIMIT :limit", p, Long.class);
+        List<Long> ids = batchMapper.findExecutionIds(StringUtils.hasText(jobName) ? jobName : null,
+                limit == null ? 20 : Math.max(1, Math.min(limit, 100)));
         return ids.stream().map(this::execution).toList();
     }
 
     public Execution execution(long id) {
-        MapSqlParameterSource p = new MapSqlParameterSource("id", id);
-        List<StepSummary> steps = jdbc.query("""
-                SELECT STEP_NAME, STATUS, READ_COUNT, WRITE_COUNT, FILTER_COUNT, COMMIT_COUNT FROM BATCH_STEP_EXECUTION
-                 WHERE JOB_EXECUTION_ID = :id ORDER BY STEP_EXECUTION_ID""", p,
-                (rs, i) -> new StepSummary(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4), rs.getLong(5), rs.getLong(6)));
-        String params = String.join(", ", jdbc.queryForList("""
-                SELECT PARAMETER_NAME || '=' || PARAMETER_VALUE FROM BATCH_JOB_EXECUTION_PARAMS
-                 WHERE JOB_EXECUTION_ID = :id AND IDENTIFYING = 'Y' ORDER BY PARAMETER_NAME""", p, String.class));
-        return jdbc.query("""
-                SELECT I.JOB_NAME, E.STATUS, E.EXIT_CODE, E.EXIT_MESSAGE, E.START_TIME, E.END_TIME
-                  FROM BATCH_JOB_EXECUTION E JOIN BATCH_JOB_INSTANCE I ON I.JOB_INSTANCE_ID = E.JOB_INSTANCE_ID
-                 WHERE E.JOB_EXECUTION_ID = :id""", p, (rs, i) -> {
-            String msg = rs.getString("EXIT_MESSAGE");
-            return new Execution(id, rs.getString("JOB_NAME"), params, rs.getString("STATUS"), rs.getString("EXIT_CODE"),
-                    msg == null || msg.isBlank() ? null : msg.length() > 500 ? msg.substring(0, 500) : msg,
-                    rs.getObject("START_TIME", LocalDateTime.class), rs.getObject("END_TIME", LocalDateTime.class), steps);
-        }).get(0);
+        List<StepSummary> steps = batchMapper.findSteps(id);
+        String params = String.join(", ", batchMapper.findIdentifyingParams(id));
+        BatchMapper.ExecutionHead head = batchMapper.findExecution(id).orElseThrow();
+        String msg = head.exitMessage();
+        return new Execution(id, head.jobName(), params, head.status(), head.exitCode(),
+                msg == null || msg.isBlank() ? null : msg.length() > 500 ? msg.substring(0, 500) : msg,
+                head.startTime(), head.endTime(), steps);
     }
 
     /** 결산 결과 (기준일을 주지 않으면 최근 결산 8번) */
     public List<CloseRow> reserveCloses(LocalDate closeDate) {
-        MapSqlParameterSource p = new MapSqlParameterSource("d", closeDate);
-        String where = closeDate == null
-                ? " WHERE CLOSE_DT IN (SELECT DISTINCT CLOSE_DT FROM TB_RSV_CLOSE ORDER BY CLOSE_DT DESC LIMIT 8)"
-                : " WHERE CLOSE_DT = :d";
-        return jdbc.query("SELECT * FROM TB_RSV_CLOSE" + where + " ORDER BY CLOSE_DT DESC, INSR_CLS_CD", p, (rs, i) -> new CloseRow(
-                rs.getObject("CLOSE_DT", LocalDate.class), rs.getString("INSR_CLS_CD"), rs.getBigDecimal("PAID_AMT"), rs.getBigDecimal("CASE_RSV"),
-                rs.getBigDecimal("IBNR_CL"), rs.getBigDecimal("IBNR_BF"), rs.getBigDecimal("IBNR_AMT"), rs.getBigDecimal("TOTAL_RSV"),
-                rs.getBigDecimal("ELR"), rs.getLong("JOB_EXECUTION_ID"), rs.getObject("CLOSE_TM", LocalDateTime.class), rs.getString("CLOSE_EMP_ID")));
+        return batchMapper.findCloses(closeDate);
     }
 
     /**
@@ -200,14 +171,7 @@ public class BatchService {
         if (reconDate == null) {
             throw new BusinessException("E-BAT-001", "대사일을 입력해야 합니다.");
         }
-        return jdbc.query("""
-                SELECT R.*, P.SRC_TYPE, P.SRC_NO FROM TB_PAY_RECON R LEFT JOIN TB_PAY_OUT P ON P.PAYOUT_ID = R.PAYOUT_ID
-                 WHERE R.RECON_DT = :d""" + (diffOnly ? " AND R.RESULT_CD <> 'MATCHED'" : "")
-                + " ORDER BY CASE WHEN R.RESULT_CD = 'MATCHED' THEN 1 ELSE 0 END, R.TRACE_NO",
-                new MapSqlParameterSource("d", reconDate), (rs, i) -> new ReconResult(rs.getObject("RECON_DT", LocalDate.class),
-                        rs.getString("TRACE_NO"), (Long) rs.getObject("PAYOUT_ID"), rs.getString("RESULT_CD"), rs.getString("OUR_STAT_CD"),
-                        rs.getBigDecimal("OUR_AMT"), rs.getBigDecimal("BANK_AMT"), rs.getString("SRC_TYPE"), rs.getString("SRC_NO"),
-                        rs.getLong("JOB_EXECUTION_ID")));
+        return batchMapper.findReconResults(reconDate, diffOnly);
     }
 
     private Execution launch(Job job, org.springframework.batch.core.job.parameters.JobParameters params, String alreadyMessage) {

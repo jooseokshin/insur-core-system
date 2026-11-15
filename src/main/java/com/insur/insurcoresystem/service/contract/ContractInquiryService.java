@@ -1,24 +1,23 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.common.paging.PageResult;
-import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isReadable;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
+import com.insur.insurcoresystem.common.paging.PageResult;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.domain.product.Product;
-import com.insur.insurcoresystem.mapper.product.ProductMapper;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
-import com.insur.insurcoresystem.mapper.contract.ContractSearchCondition;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
+import com.insur.insurcoresystem.domain.product.Product;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractSearchCondition;
 import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractInquiryResponse;
-import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.contract.dto.ContractListRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractListResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractSummaryResponse;
@@ -26,6 +25,7 @@ import com.insur.insurcoresystem.service.contract.dto.CoverageResponse;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryInquiryRequest;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryPageResponse;
 import com.insur.insurcoresystem.service.contract.dto.StatusHistoryResponse;
+import com.insur.insurcoresystem.service.medical.MedicalCheckService;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import java.time.LocalDate;
 import java.util.List;

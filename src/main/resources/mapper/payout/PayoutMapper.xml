@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 지급 원장 TB_PAY_OUT -->
+<mapper namespace="com.insur.insurcoresystem.mapper.payout.PayoutMapper">
+
+    <sql id="payoutColumns">
+        PAYOUT_ID, SRC_TYPE, SRC_NO, CONTRACT_NO, PAY_AMT, BANK_CD, ACCOUNT_MASK, HOLDER_NM, STAT_CD, TRACE_NO, SEND_COUNT,
+        INQUIRY_COUNT, NEXT_TRY_DT, RESULT_CD, RESULT_MSG, REQ_EMP_ID, REQ_DT, SENT_DT, DONE_DT
+    </sql>
+
+    <select id="findClaimSource" resultType="com.insur.insurcoresystem.mapper.payout.PayoutMapper$Source">
+        SELECT CONTRACT_NO, TOTAL_PAY_AMT AS AMOUNT FROM TB_CLM WHERE CLM_NO = #{clmNo} AND CLM_STAT_CD = '40' AND TOTAL_PAY_AMT &gt; 0
+    </select>
+
+    <select id="findMileageSource" resultType="com.insur.insurcoresystem.mapper.payout.PayoutMapper$Source">
+        SELECT CONTRACT_NO, REFUND_AMT AS AMOUNT FROM TB_CTR_MILEAGE
+         WHERE CONTRACT_NO = #{contractNo} AND MIL_STAT_CD = '20' AND REFUND_AMT &gt; 0
+    </select>
+
+    <select id="existsActive" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_PAY_OUT WHERE SRC_TYPE = #{srcType} AND SRC_NO = #{srcNo} AND STAT_CD &lt;&gt; '80')
+    </select>
+
+    <insert id="insert">
+        INSERT INTO TB_PAY_OUT (SRC_TYPE, SRC_NO, CONTRACT_NO, PAY_AMT, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, HOLDER_NM, STAT_CD,
+                                TRACE_NO, NEXT_TRY_DT, REQ_EMP_ID, REQ_DT, GLOBAL_TX_ID)
+        VALUES (#{srcType}, #{srcNo}, #{contractNo}, #{payAmt}, #{bankCd}, #{accountEnc}, #{accountMask}, #{holderNm}, '10',
+                #{traceNo}, #{now}, #{reqEmpId}, #{now}, #{globalTxId})
+    </insert>
+
+    <select id="findByGlobalTxId" resultType="com.insur.insurcoresystem.service.payout.dto.PayoutResponses$Payout">
+        SELECT <include refid="payoutColumns"/> FROM TB_PAY_OUT WHERE GLOBAL_TX_ID = #{globalTxId}
+    </select>
+
+    <select id="search" resultType="com.insur.insurcoresystem.service.payout.dto.PayoutResponses$Payout">
+        SELECT <include refid="payoutColumns"/> FROM TB_PAY_OUT
+        <where>
+            <if test="srcType != null">AND SRC_TYPE = #{srcType}</if>
+            <if test="srcNo != null">AND SRC_NO = #{srcNo}</if>
+            <if test="contractNo != null">AND CONTRACT_NO = #{contractNo}</if>
+            <if test="statCd != null">AND STAT_CD = #{statCd}</if>
+        </where>
+         ORDER BY PAYOUT_ID DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="lockNextDue" resultType="com.insur.insurcoresystem.mapper.payout.PayoutMapper$Due">
+        SELECT PAYOUT_ID, STAT_CD, BANK_CD, ACCOUNT_ENC, PAY_AMT, HOLDER_NM, TRACE_NO, SEND_COUNT, INQUIRY_COUNT, SRC_TYPE
+          FROM TB_PAY_OUT WHERE STAT_CD IN ('10', '70') AND NEXT_TRY_DT &lt;= #{now}
+         ORDER BY NEXT_TRY_DT, PAYOUT_ID
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+    </select>
+
+    <update id="updateResult">
+        UPDATE TB_PAY_OUT
+           SET STAT_CD = #{statCd}, RESULT_CD = #{resultCd}, RESULT_MSG = #{resultMsg}, SEND_COUNT = #{sendCount},
+               INQUIRY_COUNT = COALESCE(#{inquiryCount, jdbcType=INTEGER}, INQUIRY_COUNT), NEXT_TRY_DT = #{nextTryDt}
+               <if test="markSent">, SENT_DT = COALESCE(SENT_DT, #{now})</if>
+               <if test="done">, DONE_DT = #{now}</if>
+         WHERE PAYOUT_ID = #{payoutId}
+    </update>
+</mapper>

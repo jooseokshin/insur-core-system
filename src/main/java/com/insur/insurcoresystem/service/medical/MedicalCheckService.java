@@ -4,17 +4,18 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.normali
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.product.Product;
-import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.TraceNumbers;
 import com.insur.insurcoresystem.ext.kcis.KcisClient;
 import com.insur.insurcoresystem.ext.kcis.KcisLayouts;
 import com.insur.insurcoresystem.ext.outbox.OutboxService;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.mapper.medical.MedicalMapper;
+import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.medical.dto.MedicalCheckResponse;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -24,8 +25,6 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,7 +47,7 @@ public class MedicalCheckService {
     public static final String CHECK_DONE = "10";
     public static final String CHECK_FAILED = "80";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final MedicalMapper medicalMapper;
     private final KcisClient kcis;
     private final TraceNumbers traceNumbers;
     private final OutboxService outbox;
@@ -64,17 +63,14 @@ public class MedicalCheckService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void checkAtApplication(Contract contract, LocalDateTime consentDt, String empId) {
-        jdbc.update("""
-                INSERT INTO TB_CTR_MED_CHECK (CONTRACT_NO, CONSENT_DT, CHECK_STAT_CD) VALUES (:contractNo, :consentDt, '80')
-                """, new MapSqlParameterSource("contractNo", contract.getContractNo()).addValue("consentDt", consentDt));
+        medicalMapper.insertCheck(contract.getContractNo(), consentDt);
         query(contract, empId);
     }
 
     /** 원 계약의 동의 일시 (갱신에서 잇는다). 원 계약에 동의 기록이 없으면 빈 값 */
     @Transactional(readOnly = true)
     public Optional<LocalDateTime> consentOf(String contractNo) {
-        return jdbc.query("SELECT CONSENT_DT FROM TB_CTR_MED_CHECK WHERE CONTRACT_NO = :contractNo",
-                new MapSqlParameterSource("contractNo", contractNo), (rs, i) -> rs.getObject(1, LocalDateTime.class)).stream().findFirst();
+        return medicalMapper.findConsentDt(contractNo);
     }
 
     /**
@@ -124,16 +120,7 @@ public class MedicalCheckService {
     /** 조회 기록 */
     @Transactional(readOnly = true)
     public Optional<MedicalCheckResponse> find(String contractNo) {
-        return jdbc.query("SELECT * FROM TB_CTR_MED_CHECK WHERE CONTRACT_NO = :contractNo",
-                new MapSqlParameterSource("contractNo", contractNo), (rs, i) -> MedicalCheckResponse.builder()
-                        .contractNo(rs.getString("CONTRACT_NO"))
-                        .consentDt(rs.getObject("CONSENT_DT", LocalDateTime.class))
-                        .checkStatCd(rs.getString("CHECK_STAT_CD"))
-                        .otherCount((Integer) rs.getObject("OTHER_COUNT"))
-                        .checkedDt(rs.getObject("CHECKED_DT", LocalDateTime.class))
-                        .checkEmpId(rs.getString("CHECK_EMP_ID"))
-                        .lastError(rs.getString("LAST_ERROR"))
-                        .build()).stream().findFirst();
+        return medicalMapper.findCheck(contractNo);
     }
 
     /**
@@ -154,22 +141,16 @@ public class MedicalCheckService {
     /** 조회해서 결과를 기록한다. 장애면 null */
     private List<KcisClient.OtherContract> query(Contract contract, String empId) {
         LocalDateTime now = LocalDateTime.now(clock);
-        MapSqlParameterSource params = new MapSqlParameterSource("contractNo", contract.getContractNo())
-                .addValue("now", now).addValue("empId", normalizeEmpId(empId));
         try {
             List<KcisClient.OtherContract> others = kcis.findMedicalContracts(contract.getInsuredId(), contract.getStartDate(),
                     traceNumbers.next());
-            jdbc.update("""
-                    UPDATE TB_CTR_MED_CHECK SET CHECK_STAT_CD = '10', OTHER_COUNT = :count, CHECKED_DT = :now, CHECK_EMP_ID = :empId,
-                           LAST_ERROR = NULL WHERE CONTRACT_NO = :contractNo""", params.addValue("count", others.size()));
+            medicalMapper.markCheckDone(contract.getContractNo(), others.size(), now, normalizeEmpId(empId));
             log.info("실손 중복가입 조회: 증권번호={}, 다른 보험사 실손 {}건", contract.getContractNo(), others.size());
             return others;
         } catch (ExternalAgencyException e) {
             String reason = e.getMessage() == null ? "신용정보원 연계 실패" : e.getMessage();
-            jdbc.update("""
-                    UPDATE TB_CTR_MED_CHECK SET CHECK_STAT_CD = '80', OTHER_COUNT = NULL, CHECKED_DT = :now, CHECK_EMP_ID = :empId,
-                           LAST_ERROR = :error WHERE CONTRACT_NO = :contractNo""",
-                    params.addValue("error", reason.length() > 200 ? reason.substring(0, 200) : reason));
+            medicalMapper.markCheckFailed(contract.getContractNo(), now, normalizeEmpId(empId),
+                    reason.length() > 200 ? reason.substring(0, 200) : reason);
             log.warn("실손 중복가입 조회 실패(승인 보류): 증권번호={}, 사유={}", contract.getContractNo(), reason);
             return null;
         }

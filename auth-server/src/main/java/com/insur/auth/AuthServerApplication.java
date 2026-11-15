@@ -2,8 +2,8 @@ package com.insur.auth;
 
 import com.insur.auth.config.BusinessClockConfig;
 import java.util.TimeZone;
-import org.springframework.boot.SpringApplication;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication

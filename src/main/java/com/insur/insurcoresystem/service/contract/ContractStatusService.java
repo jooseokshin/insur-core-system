@@ -3,13 +3,13 @@ package com.insur.insurcoresystem.service.contract;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
-import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
 import com.insur.insurcoresystem.domain.claim.ClaimStatus;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.ContractStatusHistory;
+import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;

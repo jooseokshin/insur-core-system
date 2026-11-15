@@ -2,9 +2,9 @@ package com.insur.insurcoresystem.service.product;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
-import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.domain.product.Product;
 import com.insur.insurcoresystem.domain.product.ProductCoverage;
+import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.product.dto.ProductListRequest;
 import com.insur.insurcoresystem.service.product.dto.ProductListResponse;

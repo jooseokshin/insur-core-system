@@ -1,6 +1,5 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.common.paging.PageQuery;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,10 +10,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.service.contract.dto.PaymentHistoryRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
 import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;

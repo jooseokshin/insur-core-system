@@ -1,11 +1,11 @@
 package com.insur.insurcoresystem.service.sequence;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.common.SequenceMapper;
 import java.time.Clock;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,15 +27,7 @@ public class ContractNumberGenerator {
     static final String SEQ_TYPE_CLAIM = "CLM";
     private static final long MAX_SERIAL = 999_999L;
 
-    private static final String NEXT_SEQ_SQL = """
-            INSERT INTO TB_CMN_SEQ (SEQ_TYPE, PROD_CD, SEQ_YEAR, LAST_NO)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT (SEQ_TYPE, PROD_CD, SEQ_YEAR)
-            DO UPDATE SET LAST_NO = TB_CMN_SEQ.LAST_NO + 1
-            RETURNING LAST_NO
-            """;
-
-    private final JdbcTemplate jdbcTemplate;
+    private final SequenceMapper sequenceMapper;
     private final Clock clock;
 
     /**
@@ -76,8 +68,8 @@ public class ContractNumberGenerator {
      * @throws BusinessException 일련번호가 최대값(999,999)을 초과한 경우(E-SEQ-002)
      */
     private String next(String seqType, ProductType productType, String year) {
-        Long serial = jdbcTemplate.queryForObject(NEXT_SEQ_SQL, Long.class, seqType, productType.name(), year);
-        if (serial == null || serial > MAX_SERIAL) {
+        long serial = sequenceMapper.next(seqType, productType.name(), year);
+        if (serial > MAX_SERIAL) {
             // 클라이언트가 고칠 수 없는 서버 측 한도 소진이므로 500 으로 응답한다.
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "E-SEQ-002",
                     "채번 한도를 초과했습니다: " + seqType + "-" + productType.name() + "-" + year);

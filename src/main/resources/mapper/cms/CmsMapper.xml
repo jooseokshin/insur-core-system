@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 보험료 자동이체: TB_CMS_MANDATE, TB_CMS_DEBIT, TB_CMS_FILE -->
+<mapper namespace="com.insur.insurcoresystem.mapper.cms.CmsMapper">
+
+    <select id="findMandateContractByTx" resultType="string">
+        SELECT CONTRACT_NO FROM TB_CMS_MANDATE WHERE GLOBAL_TX_ID = #{globalTxId}
+    </select>
+
+    <select id="existsActiveMandate" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM TB_CMS_MANDATE WHERE CONTRACT_NO = #{contractNo} AND STAT_CD IN ('10', '20', '30'))
+    </select>
+
+    <insert id="insertMandate">
+        INSERT INTO TB_CMS_MANDATE (CONTRACT_NO, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
+                                    STAT_CD, REG_EMP_ID, REG_DT, GLOBAL_TX_ID)
+        VALUES (#{contractNo}, #{payerNm}, #{bankCd}, #{accountEnc}, #{accountMask}, #{consentMethod}, #{now}, #{consentRef},
+                '10', #{regEmpId}, #{now}, #{globalTxId})
+    </insert>
+
+    <update id="cancelActiveMandate">
+        UPDATE TB_CMS_MANDATE SET STAT_CD = '90', CANCEL_DT = #{now}, CANCEL_EMP_ID = #{empId}
+         WHERE CONTRACT_NO = #{contractNo} AND STAT_CD IN ('10', '20', '30')
+    </update>
+
+    <select id="findLatestMandate" resultType="com.insur.insurcoresystem.service.cms.dto.AutoDebitResponse$Mandate">
+        SELECT MANDATE_ID, STAT_CD, PAYER_NM, BANK_CD, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF, RESULT_CD, RESULT_MSG,
+               INHERITED_FROM, REG_EMP_ID, REG_DT, DONE_DT, CANCEL_DT
+          FROM TB_CMS_MANDATE WHERE CONTRACT_NO = #{contractNo}
+         ORDER BY MANDATE_ID DESC
+         LIMIT 1
+    </select>
+
+    <select id="findRecentDebits" resultType="com.insur.insurcoresystem.service.cms.dto.AutoDebitResponse$Debit">
+        SELECT DEBIT_ID, DEBIT_DT, AMOUNT, ATTEMPT_NO, STAT_CD, RESULT_CD, RESULT_MSG, PAYMENT_ID
+          FROM TB_CMS_DEBIT WHERE CONTRACT_NO = #{contractNo}
+         ORDER BY DEBIT_ID DESC
+         LIMIT 20
+    </select>
+
+    <select id="countDebitsInFlight" resultType="long">
+        SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE CONTRACT_NO = #{contractNo} AND STAT_CD IN ('10', '20')
+    </select>
+
+    <insert id="inheritMandate">
+        INSERT INTO TB_CMS_MANDATE (CONTRACT_NO, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
+                                    STAT_CD, INHERITED_FROM, REG_EMP_ID, REG_DT, GLOBAL_TX_ID)
+        SELECT #{renewalContractNo}, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
+               '10', CONTRACT_NO, #{empId}, #{now}, 'INH-' || #{renewalContractNo}
+          FROM TB_CMS_MANDATE WHERE CONTRACT_NO = #{sourceContractNo} AND STAT_CD = '30'
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!-- ==== 출금 배치 (cmsDebitJob) ==== -->
+
+    <select id="lockPendingMandates" resultType="com.insur.insurcoresystem.mapper.cms.CmsMapper$PendingMandate">
+        SELECT MANDATE_ID, CONTRACT_NO, BANK_CD, ACCOUNT_ENC, PAYER_NM, CONSENT_METHOD, CONSENT_DT
+          FROM TB_CMS_MANDATE WHERE STAT_CD = '10' ORDER BY MANDATE_ID FOR UPDATE
+    </select>
+
+    <update id="markMandatesSent">
+        UPDATE TB_CMS_MANDATE SET STAT_CD = '20'
+         WHERE STAT_CD = '10' AND MANDATE_ID IN <foreach collection="mandateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+    <select id="countMandatesSent" resultType="long">
+        SELECT COUNT(*) FROM TB_CMS_MANDATE WHERE STAT_CD = '20'
+    </select>
+
+    <update id="applyMandateResult">
+        UPDATE TB_CMS_MANDATE SET STAT_CD = #{statCd}, RESULT_CD = #{resultCd}, RESULT_MSG = #{resultMsg}, DONE_DT = #{now}
+         WHERE CONTRACT_NO = #{contractNo} AND STAT_CD = '20'
+    </update>
+
+    <!-- 커서 읽기 (MyBatisCursorItemReader) -->
+    <select id="dueContracts" resultType="com.insur.insurcoresystem.batch.CmsDebitJobConfig$DueContract" fetchSize="100">
+        SELECT L.CONTRACT_NO, M.MANDATE_ID,
+               L.TOTAL_PREMIUM - COALESCE((SELECT SUM(P.PAY_AMT) FROM TB_CTR_PAYMENT P WHERE P.CONTRACT_NO = L.CONTRACT_NO), 0) AS REMAINING,
+               (SELECT COUNT(*) FROM TB_CMS_DEBIT D WHERE D.MANDATE_ID = M.MANDATE_ID AND D.STAT_CD = '80') AS FAILS,
+               (SELECT MAX(D.DEBIT_DT) FROM TB_CMS_DEBIT D WHERE D.MANDATE_ID = M.MANDATE_ID) AS LAST_DEBIT_DT
+          FROM TB_CTR_LGD L
+          JOIN TB_CMS_MANDATE M ON M.CONTRACT_NO = L.CONTRACT_NO AND M.STAT_CD = '30'
+         WHERE L.CTR_STAT_CD = '10'
+           AND NOT EXISTS (SELECT 1 FROM TB_CMS_DEBIT D WHERE D.CONTRACT_NO = L.CONTRACT_NO AND D.STAT_CD IN ('10', '20'))
+         ORDER BY L.CONTRACT_NO
+    </select>
+
+    <insert id="insertDebit">
+        INSERT INTO TB_CMS_DEBIT (DEBIT_DT, MANDATE_ID, CONTRACT_NO, AMOUNT, ATTEMPT_NO, STAT_CD, JOB_EXECUTION_ID, CREATED_DT)
+        VALUES (#{debitDt}, #{d.mandateId}, #{d.contractNo}, #{d.amount}, #{d.attemptNo}, '10', #{jobExecutionId}, #{now})
+        ON CONFLICT (CONTRACT_NO, DEBIT_DT) DO NOTHING
+    </insert>
+
+    <select id="lockDebitsToSend" resultType="com.insur.insurcoresystem.mapper.cms.CmsMapper$DebitToSend">
+        SELECT D.DEBIT_ID, D.CONTRACT_NO, D.AMOUNT, M.BANK_CD, M.ACCOUNT_ENC
+          FROM TB_CMS_DEBIT D JOIN TB_CMS_MANDATE M ON M.MANDATE_ID = D.MANDATE_ID
+         WHERE D.DEBIT_DT = #{debitDt} AND D.STAT_CD = '10'
+         ORDER BY D.DEBIT_ID
+         FOR UPDATE OF D
+    </select>
+
+    <update id="markDebitsSent">
+        UPDATE TB_CMS_DEBIT SET STAT_CD = '20' WHERE DEBIT_DT = #{debitDt} AND STAT_CD = '10'
+    </update>
+
+    <select id="countDebitsSent" resultType="long">
+        SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE DEBIT_DT = #{debitDt} AND STAT_CD = '20'
+    </select>
+
+    <select id="lockSentDebit" resultType="com.insur.insurcoresystem.mapper.cms.CmsMapper$SentDebit">
+        SELECT DEBIT_ID, AMOUNT FROM TB_CMS_DEBIT
+         WHERE DEBIT_DT = #{debitDt} AND CONTRACT_NO = #{contractNo} AND STAT_CD = '20'
+         FOR UPDATE
+    </select>
+
+    <update id="markDebitPaid">
+        UPDATE TB_CMS_DEBIT SET STAT_CD = '30', RESULT_CD = #{resultCd}, RESULT_MSG = #{resultMsg}, PAYMENT_ID = #{paymentId},
+                                DONE_DT = #{now}
+         WHERE DEBIT_ID = #{debitId}
+    </update>
+
+    <update id="markDebitFailed">
+        UPDATE TB_CMS_DEBIT SET STAT_CD = '80', RESULT_CD = #{resultCd}, RESULT_MSG = #{resultMsg}, DONE_DT = #{now}
+         WHERE DEBIT_ID = #{debitId}
+    </update>
+
+    <insert id="insertFileLog">
+        INSERT INTO TB_CMS_FILE (FILE_TYPE, FILE_DT, DIRECTION, RECORD_COUNT, TOTAL_AMT, BYTES, FILE_HASH, JOB_EXECUTION_ID, CREATED_DT)
+        VALUES (#{fileType}, #{fileDt}, #{direction}, #{recordCount}, #{totalAmt}, #{bytes}, #{fileHash}, #{jobExecutionId}, #{createdDt})
+    </insert>
+
+    <select id="findDayDebits" resultType="com.insur.insurcoresystem.batch.BatchService$CmsDebitRow">
+        SELECT D.DEBIT_ID, D.CONTRACT_NO, D.AMOUNT, D.ATTEMPT_NO, D.STAT_CD, D.RESULT_CD, D.RESULT_MSG, D.PAYMENT_ID,
+               M.BANK_CD, M.ACCOUNT_MASK, M.PAYER_NM
+          FROM TB_CMS_DEBIT D JOIN TB_CMS_MANDATE M ON M.MANDATE_ID = D.MANDATE_ID
+         WHERE D.DEBIT_DT = #{debitDt}
+         ORDER BY CASE WHEN D.STAT_CD = '30' THEN 1 ELSE 0 END, D.DEBIT_ID
+    </select>
+
+    <select id="findDayFiles" resultType="com.insur.insurcoresystem.batch.BatchService$CmsFileRow">
+        SELECT FILE_TYPE, DIRECTION, RECORD_COUNT, TOTAL_AMT, BYTES, FILE_HASH, JOB_EXECUTION_ID, CREATED_DT
+          FROM TB_CMS_FILE WHERE FILE_DT = #{debitDt} ORDER BY FILE_ID
+    </select>
+</mapper>

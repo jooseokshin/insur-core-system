@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 대외기관 전송 대기열 TB_EXT_OUTBOX -->
+<mapper namespace="com.insur.insurcoresystem.mapper.ext.OutboxMapper">
+
+    <sql id="entryColumns">OUTBOX_ID, AGENCY_CD, TX_TYPE, BIZ_KEY, STAT_CD, ATTEMPTS, NEXT_TRY_DT, LAST_ERROR, CREATED_DT, SENT_DT</sql>
+
+    <insert id="insertIgnore">
+        INSERT INTO TB_EXT_OUTBOX (AGENCY_CD, TX_TYPE, BIZ_KEY, PAYLOAD, STAT_CD, ATTEMPTS, NEXT_TRY_DT, CREATED_DT)
+        VALUES (#{agency}, #{txType}, #{bizKey}, #{payload}, '10', 0, #{now}, #{now})
+        ON CONFLICT (AGENCY_CD, TX_TYPE, BIZ_KEY) DO NOTHING
+    </insert>
+
+    <select id="findEntries" resultType="com.insur.insurcoresystem.ext.outbox.OutboxService$Entry">
+        SELECT <include refid="entryColumns"/> FROM TB_EXT_OUTBOX
+        <where>
+            <if test="statCd != null">AND STAT_CD = #{statCd}</if>
+            <if test="bizKeyLike != null">AND BIZ_KEY LIKE #{bizKeyLike}</if>
+        </where>
+         ORDER BY OUTBOX_ID DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="findEntry" resultType="com.insur.insurcoresystem.ext.outbox.OutboxService$Entry">
+        SELECT <include refid="entryColumns"/> FROM TB_EXT_OUTBOX WHERE OUTBOX_ID = #{outboxId}
+    </select>
+
+    <select id="findStatForUpdate" resultType="string">
+        SELECT STAT_CD FROM TB_EXT_OUTBOX WHERE OUTBOX_ID = #{outboxId} FOR UPDATE
+    </select>
+
+    <update id="resetForRetry">
+        UPDATE TB_EXT_OUTBOX SET STAT_CD = '10', ATTEMPTS = 0, NEXT_TRY_DT = #{now} WHERE OUTBOX_ID = #{outboxId}
+    </update>
+
+    <select id="lockNextDue" resultType="com.insur.insurcoresystem.mapper.ext.OutboxMapper$Due">
+        SELECT OUTBOX_ID, AGENCY_CD, TX_TYPE, BIZ_KEY, PAYLOAD, ATTEMPTS FROM TB_EXT_OUTBOX
+         WHERE STAT_CD = '10' AND NEXT_TRY_DT &lt;= #{now}
+         ORDER BY NEXT_TRY_DT, OUTBOX_ID
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+    </select>
+
+    <update id="markSent">
+        UPDATE TB_EXT_OUTBOX SET STAT_CD = '20', ATTEMPTS = #{attempts}, SENT_DT = #{now}, LAST_ERROR = NULL
+         WHERE OUTBOX_ID = #{outboxId}
+    </update>
+
+    <update id="markFailure">
+        UPDATE TB_EXT_OUTBOX SET STAT_CD = #{statCd}, ATTEMPTS = #{attempts}, NEXT_TRY_DT = #{nextTryDt}, LAST_ERROR = #{lastError}
+         WHERE OUTBOX_ID = #{outboxId}
+    </update>
+</mapper>

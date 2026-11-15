@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 배치: 실행 이력(BATCH_*), 지급준비금 결산, 지급 대사 -->
+<mapper namespace="com.insur.insurcoresystem.mapper.batch.BatchMapper">
+
+    <select id="findExecutionIds" resultType="long">
+        SELECT E.JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION E JOIN BATCH_JOB_INSTANCE I ON I.JOB_INSTANCE_ID = E.JOB_INSTANCE_ID
+        <where><if test="jobName != null">I.JOB_NAME = #{jobName}</if></where>
+         ORDER BY E.JOB_EXECUTION_ID DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="findExecution" resultType="com.insur.insurcoresystem.mapper.batch.BatchMapper$ExecutionHead">
+        SELECT I.JOB_NAME, E.STATUS, E.EXIT_CODE, E.EXIT_MESSAGE, E.START_TIME, E.END_TIME
+          FROM BATCH_JOB_EXECUTION E JOIN BATCH_JOB_INSTANCE I ON I.JOB_INSTANCE_ID = E.JOB_INSTANCE_ID
+         WHERE E.JOB_EXECUTION_ID = #{jobExecutionId}
+    </select>
+
+    <select id="findSteps" resultType="com.insur.insurcoresystem.batch.BatchService$StepSummary">
+        SELECT STEP_NAME, STATUS, READ_COUNT, WRITE_COUNT, FILTER_COUNT, COMMIT_COUNT FROM BATCH_STEP_EXECUTION
+         WHERE JOB_EXECUTION_ID = #{jobExecutionId} ORDER BY STEP_EXECUTION_ID
+    </select>
+
+    <select id="findIdentifyingParams" resultType="string">
+        SELECT PARAMETER_NAME || '=' || PARAMETER_VALUE FROM BATCH_JOB_EXECUTION_PARAMS
+         WHERE JOB_EXECUTION_ID = #{jobExecutionId} AND IDENTIFYING = 'Y' ORDER BY PARAMETER_NAME
+    </select>
+
+    <select id="findClassesWithContracts" resultType="string">
+        SELECT DISTINCT INSR_CLS_CD FROM TB_CTR_LGD WHERE CTR_STAT_CD IN ('20', '30') ORDER BY INSR_CLS_CD
+    </select>
+
+    <delete id="deleteCloseDetails">
+        DELETE FROM TB_RSV_CLOSE_DTL WHERE CLOSE_DT = #{closeDt} AND INSR_CLS_CD = #{insrClsCd}
+    </delete>
+
+    <delete id="deleteClose">
+        DELETE FROM TB_RSV_CLOSE WHERE CLOSE_DT = #{closeDt} AND INSR_CLS_CD = #{insrClsCd}
+    </delete>
+
+    <insert id="insertClose">
+        INSERT INTO TB_RSV_CLOSE (CLOSE_DT, INSR_CLS_CD, PERIOD_TYPE, PERIOD_COUNT, PAID_AMT, CASE_RSV, IBNR_CL, IBNR_BF,
+                                  IBNR_AMT, TOTAL_RSV, ELR, TAIL_FACTOR, JOB_EXECUTION_ID, CLOSE_TM, CLOSE_EMP_ID)
+        VALUES (#{closeDt}, #{insrClsCd}, #{r.periodType}, #{periodCount}, #{r.total.paid}, #{r.total.caseReserve},
+                #{r.total.clIbnr}, #{r.total.bfIbnr, jdbcType=NUMERIC}, #{r.total.ibnr}, #{r.total.reserve},
+                #{r.expectedLossRatio, jdbcType=NUMERIC}, #{r.tailFactor}, #{jobExecutionId}, #{now}, #{empId})
+    </insert>
+
+    <insert id="insertCloseDetail">
+        INSERT INTO TB_RSV_CLOSE_DTL (CLOSE_DT, INSR_CLS_CD, ACDT_PERIOD, PERIOD_FROM, PERIOD_TO, AGE, EARNED_PREM, PAID_AMT,
+                                      CASE_RSV, CDF, CL_ULT, BF_ULT, METHOD, IBNR_AMT)
+        VALUES (#{closeDt}, #{insrClsCd}, #{p.period}, #{p.periodFrom}, #{p.periodTo}, #{p.age}, #{p.earnedPremium}, #{p.paid},
+                #{p.caseReserve}, #{p.cdf}, #{p.clUltimate}, #{p.bfUltimate, jdbcType=NUMERIC}, #{p.method}, #{p.ibnr})
+    </insert>
+
+    <select id="findCloses" resultType="com.insur.insurcoresystem.batch.BatchService$CloseRow">
+        SELECT CLOSE_DT, INSR_CLS_CD, PAID_AMT, CASE_RSV, IBNR_CL, IBNR_BF, IBNR_AMT, TOTAL_RSV, ELR, JOB_EXECUTION_ID, CLOSE_TM, CLOSE_EMP_ID
+          FROM TB_RSV_CLOSE
+        <choose>
+            <when test="closeDt == null">
+         WHERE CLOSE_DT IN (SELECT DISTINCT CLOSE_DT FROM TB_RSV_CLOSE ORDER BY CLOSE_DT DESC LIMIT 8)
+            </when>
+            <otherwise>
+         WHERE CLOSE_DT = #{closeDt}
+            </otherwise>
+        </choose>
+         ORDER BY CLOSE_DT DESC, INSR_CLS_CD
+    </select>
+
+    <delete id="deleteRecon">
+        DELETE FROM TB_PAY_RECON WHERE RECON_DT = #{reconDt}
+    </delete>
+
+    <delete id="deleteReconBank">
+        DELETE FROM TB_PAY_RECON_BANK WHERE RECON_DT = #{reconDt}
+    </delete>
+
+    <insert id="insertReconBank">
+        INSERT INTO TB_PAY_RECON_BANK (RECON_DT, TRACE_NO, BANK_CD, ACCOUNT_MASK, AMOUNT, PROC_DT)
+        VALUES (#{reconDt}, #{traceNo}, #{bankCd}, #{accountMask}, #{amount}, #{procDt})
+    </insert>
+
+    <!-- 커서 읽기 (MyBatisCursorItemReader). 반환 행: 거래고유번호, 지급 번호·상태·금액(우리), 은행 금액 -->
+    <select id="reconSources" resultType="com.insur.insurcoresystem.batch.PayoutReconJobConfig$ReconSource" fetchSize="100">
+        SELECT COALESCE(P.TRACE_NO, B.TRACE_NO) AS TRACE_NO, P.PAYOUT_ID, P.STAT_CD AS OUR_STAT, P.PAY_AMT AS OUR_AMT,
+               B.AMOUNT AS BANK_AMT
+          FROM (SELECT * FROM TB_PAY_OUT
+                 WHERE (SENT_DT &gt;= #{dayStart} AND SENT_DT &lt; #{dayEnd})
+                    OR TRACE_NO IN (SELECT TRACE_NO FROM TB_PAY_RECON_BANK WHERE RECON_DT = #{reconDt})) P
+          FULL OUTER JOIN (SELECT * FROM TB_PAY_RECON_BANK WHERE RECON_DT = #{reconDt}) B ON B.TRACE_NO = P.TRACE_NO
+         ORDER BY 1
+    </select>
+
+    <insert id="insertRecon">
+        INSERT INTO TB_PAY_RECON (RECON_DT, TRACE_NO, PAYOUT_ID, RESULT_CD, OUR_STAT_CD, OUR_AMT, BANK_AMT, JOB_EXECUTION_ID, CREATED_DT)
+        VALUES (#{reconDt}, #{r.traceNo}, #{r.payoutId, jdbcType=BIGINT}, #{r.result}, #{r.ourStat, jdbcType=VARCHAR},
+                #{r.ourAmt, jdbcType=NUMERIC}, #{r.bankAmt, jdbcType=NUMERIC}, #{jobExecutionId}, #{now})
+    </insert>
+
+    <select id="findReconResults" resultType="com.insur.insurcoresystem.batch.BatchService$ReconResult">
+        SELECT R.RECON_DT, R.TRACE_NO, R.PAYOUT_ID, R.RESULT_CD, R.OUR_STAT_CD, R.OUR_AMT, R.BANK_AMT, P.SRC_TYPE, P.SRC_NO,
+               R.JOB_EXECUTION_ID
+          FROM TB_PAY_RECON R LEFT JOIN TB_PAY_OUT P ON P.PAYOUT_ID = R.PAYOUT_ID
+         WHERE R.RECON_DT = #{reconDt}
+        <if test="diffOnly">AND R.RESULT_CD &lt;&gt; 'MATCHED'</if>
+         ORDER BY CASE WHEN R.RESULT_CD = 'MATCHED' THEN 1 ELSE 0 END, R.TRACE_NO
+    </select>
+</mapper>

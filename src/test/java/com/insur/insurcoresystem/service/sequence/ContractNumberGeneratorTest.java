@@ -5,17 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.common.SequenceMapper;
 import java.time.Clock;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 class ContractNumberGeneratorTest {
 
     @Test
     void 일련번호가_한도를_넘으면_500_업무예외가_발생한다() {
-        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class, invocation -> 1_000_000L);
-        ContractNumberGenerator generator = new ContractNumberGenerator(jdbcTemplate, Clock.systemUTC());
+        SequenceMapper sequenceMapper = mock(SequenceMapper.class, invocation -> 1_000_000L);
+        ContractNumberGenerator generator = new ContractNumberGenerator(sequenceMapper, Clock.systemUTC());
 
         assertThatThrownBy(() -> generator.generate(ProductType.CAR))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {

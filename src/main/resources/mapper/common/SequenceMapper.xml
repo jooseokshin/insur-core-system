@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 채번 TB_CMN_SEQ -->
+<mapper namespace="com.insur.insurcoresystem.mapper.common.SequenceMapper">
+
+    <!-- 값을 바꾸는 문장이지만 결과를 돌려받아야 하므로 select 로 둔다 (캐시하지 않는다) -->
+    <select id="next" resultType="long" flushCache="true" useCache="false">
+        INSERT INTO TB_CMN_SEQ (SEQ_TYPE, PROD_CD, SEQ_YEAR, LAST_NO)
+        VALUES (#{seqType}, #{prodCd}, #{seqYear}, 1)
+        ON CONFLICT (SEQ_TYPE, PROD_CD, SEQ_YEAR)
+        DO UPDATE SET LAST_NO = TB_CMN_SEQ.LAST_NO + 1
+        RETURNING LAST_NO
+    </select>
+</mapper>

@@ -1,12 +1,11 @@
 package com.insur.insurcoresystem.ext.fep;
 
+import com.insur.insurcoresystem.mapper.ext.FepMapper;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,20 +18,17 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class FepMessageLogger {
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final FepMapper fepMapper;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void log(String instCd, String txType, String traceNo, LocalDateTime reqDt, long elapsedMs, String result,
                     String responseCode, byte[] request, Integer resBytes, String error) {
-        jdbc.update("""
-                INSERT INTO TB_FEP_MSG_LOG (INST_CD, TX_TYPE, TRACE_NO, REQ_DT, ELAPSED_MS, RESULT_CD, RESPONSE_CD, REQ_BYTES, RES_BYTES, REQ_HASH, ERROR_MSG)
-                VALUES (:inst, :txType, :traceNo, :reqDt, :elapsed, :result, :code, :reqBytes, :resBytes, :hash, :error)
-                """, new MapSqlParameterSource()
-                .addValue("inst", instCd).addValue("txType", txType).addValue("traceNo", traceNo).addValue("reqDt", reqDt)
-                .addValue("elapsed", (int) Math.min(elapsedMs, Integer.MAX_VALUE)).addValue("result", result)
-                .addValue("code", responseCode).addValue("reqBytes", request.length).addValue("resBytes", resBytes)
-                .addValue("hash", sha256(request))
-                .addValue("error", error == null ? null : error.length() > 200 ? error.substring(0, 200) : error));
+        fepMapper.insertMessageLog(FepMapper.MessageLogRow.builder()
+                .instCd(instCd).txType(txType).traceNo(traceNo).reqDt(reqDt)
+                .elapsedMs((int) Math.min(elapsedMs, Integer.MAX_VALUE)).resultCd(result).responseCd(responseCode)
+                .reqBytes(request.length).resBytes(resBytes).reqHash(sha256(request))
+                .errorMsg(error == null ? null : error.length() > 200 ? error.substring(0, 200) : error)
+                .build());
     }
 
     private static String sha256(byte[] bytes) {

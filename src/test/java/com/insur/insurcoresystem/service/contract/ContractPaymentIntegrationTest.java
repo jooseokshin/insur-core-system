@@ -1,6 +1,5 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -9,8 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
+import com.insur.insurcoresystem.support.TestRows;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;

@@ -1,22 +1,22 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.common.paging.PageResult;
-import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isReadable;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.normalizeEmpId;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.pageRequest;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
+import com.insur.insurcoresystem.common.paging.PageResult;
 import com.insur.insurcoresystem.common.web.LogSanitizer;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractEndorsement;
+import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.mapper.contract.ContractEndorsementMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractMapper;
-import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseRequest;
-import com.insur.insurcoresystem.service.contract.dto.ContractEndorseResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractEndorseResponse.Change;
+import com.insur.insurcoresystem.service.contract.dto.ContractEndorseResponse;
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryPageResponse;
 import com.insur.insurcoresystem.service.contract.dto.EndorsementHistoryRequest;
 import java.time.Clock;

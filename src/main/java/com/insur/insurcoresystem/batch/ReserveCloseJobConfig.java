@@ -1,12 +1,12 @@
 package com.insur.insurcoresystem.batch;
 
+import com.insur.insurcoresystem.mapper.batch.BatchMapper;
 import com.insur.insurcoresystem.service.stats.ReserveService;
 import com.insur.insurcoresystem.service.stats.dto.IbnrResponse;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.Clock;
-import java.util.List;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -19,8 +19,6 @@ import org.springframework.batch.infrastructure.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -64,10 +62,8 @@ public class ReserveCloseJobConfig {
 
     @Bean
     @StepScope
-    ListItemReader<String> reserveClassReader(NamedParameterJdbcTemplate jdbc) {
-        return new ListItemReader<>(jdbc.queryForList(
-                "SELECT DISTINCT INSR_CLS_CD FROM TB_CTR_LGD WHERE CTR_STAT_CD IN ('20', '30') ORDER BY INSR_CLS_CD",
-                new MapSqlParameterSource(), String.class));
+    ListItemReader<String> reserveClassReader(BatchMapper batchMapper) {
+        return new ListItemReader<>(batchMapper.findClassesWithContracts());
     }
 
     @Bean
@@ -79,39 +75,18 @@ public class ReserveCloseJobConfig {
 
     @Bean
     @StepScope
-    ItemWriter<ClassClose> reserveCloseWriter(NamedParameterJdbcTemplate jdbc, Clock clock,
+    ItemWriter<ClassClose> reserveCloseWriter(BatchMapper batchMapper, Clock clock,
                                               @Value("#{jobParameters['closeDate']}") LocalDate closeDate,
                                               @Value("#{jobParameters['empId']}") String empId,
                                               @Value("#{stepExecution.jobExecutionId}") Long jobExecutionId) {
         return chunk -> {
             for (ClassClose item : chunk.getItems()) {
-                MapSqlParameterSource key = new MapSqlParameterSource("closeDt", closeDate).addValue("cls", item.insrClsCd());
-                jdbc.update("DELETE FROM TB_RSV_CLOSE_DTL WHERE CLOSE_DT = :closeDt AND INSR_CLS_CD = :cls", key);
-                jdbc.update("DELETE FROM TB_RSV_CLOSE WHERE CLOSE_DT = :closeDt AND INSR_CLS_CD = :cls", key);
+                batchMapper.deleteCloseDetails(closeDate, item.insrClsCd());
+                batchMapper.deleteClose(closeDate, item.insrClsCd());
                 IbnrResponse r = item.result();
-                IbnrResponse.Total t = r.getTotal();
-                jdbc.update("""
-                        INSERT INTO TB_RSV_CLOSE (CLOSE_DT, INSR_CLS_CD, PERIOD_TYPE, PERIOD_COUNT, PAID_AMT, CASE_RSV, IBNR_CL, IBNR_BF,
-                                                  IBNR_AMT, TOTAL_RSV, ELR, TAIL_FACTOR, JOB_EXECUTION_ID, CLOSE_TM, CLOSE_EMP_ID)
-                        VALUES (:closeDt, :cls, :type, :count, :paid, :case, :cl, :bf, :ibnr, :total, :elr, :tail, :exec, :now, :emp)
-                        """, new MapSqlParameterSource(key.getValues())
-                        .addValue("type", r.getPeriodType()).addValue("count", r.getPeriods().size()).addValue("paid", t.getPaid())
-                        .addValue("case", t.getCaseReserve()).addValue("cl", t.getClIbnr()).addValue("bf", t.getBfIbnr(), java.sql.Types.NUMERIC)
-                        .addValue("ibnr", t.getIbnr()).addValue("total", t.getReserve())
-                        .addValue("elr", r.getExpectedLossRatio(), java.sql.Types.NUMERIC).addValue("tail", r.getTailFactor())
-                        .addValue("exec", jobExecutionId).addValue("now", LocalDateTime.now(clock)).addValue("emp", empId));
-                List<IbnrResponse.Period> periods = r.getPeriods();
-                for (IbnrResponse.Period p : periods) {
-                    jdbc.update("""
-                            INSERT INTO TB_RSV_CLOSE_DTL (CLOSE_DT, INSR_CLS_CD, ACDT_PERIOD, PERIOD_FROM, PERIOD_TO, AGE, EARNED_PREM, PAID_AMT,
-                                                          CASE_RSV, CDF, CL_ULT, BF_ULT, METHOD, IBNR_AMT)
-                            VALUES (:closeDt, :cls, :period, :from, :to, :age, :ep, :paid, :case, :cdf, :cl, :bf, :method, :ibnr)
-                            """, new MapSqlParameterSource(key.getValues())
-                            .addValue("period", p.getPeriod()).addValue("from", p.getPeriodFrom()).addValue("to", p.getPeriodTo())
-                            .addValue("age", p.getAge()).addValue("ep", p.getEarnedPremium()).addValue("paid", p.getPaid())
-                            .addValue("case", p.getCaseReserve()).addValue("cdf", p.getCdf()).addValue("cl", p.getClUltimate())
-                            .addValue("bf", p.getBfUltimate(), java.sql.Types.NUMERIC).addValue("method", p.getMethod())
-                            .addValue("ibnr", p.getIbnr()));
+                batchMapper.insertClose(closeDate, item.insrClsCd(), r, r.getPeriods().size(), jobExecutionId, LocalDateTime.now(clock), empId);
+                for (IbnrResponse.Period p : r.getPeriods()) {
+                    batchMapper.insertCloseDetail(closeDate, item.insrClsCd(), p);
                 }
             }
         };

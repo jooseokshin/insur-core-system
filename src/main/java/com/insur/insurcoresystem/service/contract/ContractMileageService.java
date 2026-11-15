@@ -8,9 +8,9 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.validat
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractMileage;
-import com.insur.insurcoresystem.mapper.contract.ContractMileageMapper;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMileageMapper;
 import com.insur.insurcoresystem.service.contract.dto.MileageRequest;
 import com.insur.insurcoresystem.service.contract.dto.MileageResponse;
 import java.math.BigDecimal;
@@ -24,8 +24,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,15 +49,8 @@ public class ContractMileageService {
     static final int SETTLE_AFTER_DAYS = 60;
     static final int MAX_ODOMETER_KM = 9_999_999;
 
-    private static final String RATE_SQL = """
-            SELECT REFUND_RATE FROM TB_PRM_MILEAGE_RATE
-             WHERE :annualKm BETWEEN KM_FROM AND KM_TO
-               AND EFF_FROM <= :startDate AND (EFF_TO IS NULL OR EFF_TO >= :startDate)
-            """;
-
     private final ContractMapper contractMapper;
     private final ContractMileageMapper mileageMapper;
-    private final NamedParameterJdbcTemplate jdbc;
     private final Clock clock;
 
     /**
@@ -140,9 +131,7 @@ public class ContractMileageService {
         long termDays = ChronoUnit.DAYS.between(contract.getStartDate(), contract.getEndDate());
         int annual = BigDecimal.valueOf(driven).multiply(BigDecimal.valueOf(365))
                 .divide(BigDecimal.valueOf(termDays), 0, RoundingMode.HALF_UP).intValueExact();
-        BigDecimal rate = jdbc.query(RATE_SQL, new MapSqlParameterSource()
-                        .addValue("annualKm", annual).addValue("startDate", contract.getStartDate()),
-                (rs, i) -> rs.getBigDecimal("REFUND_RATE")).stream().findFirst().orElse(BigDecimal.ZERO);
+        BigDecimal rate = mileageMapper.findRefundRate(annual, contract.getStartDate()).orElse(BigDecimal.ZERO);
         BigDecimal base = contract.getTotalPremium();
         BigDecimal refund = base.multiply(rate).setScale(0, RoundingMode.DOWN);
 

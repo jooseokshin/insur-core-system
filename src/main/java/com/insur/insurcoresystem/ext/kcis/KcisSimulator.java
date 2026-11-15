@@ -6,6 +6,7 @@ import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.FixedLengthCodec;
 import com.insur.insurcoresystem.ext.fep.FepHeader;
 import com.insur.insurcoresystem.ext.fep.FepTransport;
+import com.insur.insurcoresystem.mapper.sim.SimulatorMapper;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -16,7 +17,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,12 +35,12 @@ public class KcisSimulator implements FepTransport {
     private static final DateTimeFormatter YMD = DateTimeFormatter.BASIC_ISO_DATE;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
-    private final JdbcTemplate jdbc;
+    private final SimulatorMapper sim;
     private final Clock clock;
     private final AtomicBoolean failAll = new AtomicBoolean(false);
 
-    public KcisSimulator(JdbcTemplate jdbc, Clock clock) {
-        this.jdbc = jdbc;
+    public KcisSimulator(SimulatorMapper sim, Clock clock) {
+        this.sim = sim;
         this.clock = clock;
     }
 
@@ -85,23 +85,18 @@ public class KcisSimulator implements FepTransport {
             return respond(header, "E101", "");
         }
         LocalDate base = LocalDate.parse(body.get("baseDate"), YMD);
-        List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT INSURER_CD, POLICY_NO, KIND_CD, START_DATE, END_DATE, COVERED_YN, NON_COVERED_YN
-                  FROM TB_SIM_KCIS_CONTRACT
-                 WHERE INSURED_ID = ? AND START_DATE <= ? AND END_DATE > ?
-                 ORDER BY INSURER_CD, POLICY_NO
-                """, insuredId, base, base);
+        List<SimulatorMapper.KcisContract> rows = sim.findKcisContracts(insuredId, base);
         StringBuilder out = new StringBuilder(FixedLengthCodec.encode(KcisLayouts.Q001_RESPONSE_COUNT,
                 Map.of("count", String.valueOf(Math.min(rows.size(), KcisLayouts.MAX_ROWS)))));
         rows.stream().limit(KcisLayouts.MAX_ROWS).forEach(r -> {
             Map<String, Object> row = new HashMap<>();
-            row.put("insurerCode", r.get("insurer_cd"));
-            row.put("policyNo", mask((String) r.get("policy_no")));
-            row.put("kind", r.get("kind_cd"));
-            row.put("startDate", ((java.sql.Date) r.get("start_date")).toLocalDate().format(YMD));
-            row.put("endDate", ((java.sql.Date) r.get("end_date")).toLocalDate().format(YMD));
-            row.put("coveredYn", Boolean.TRUE.equals(r.get("covered_yn")) ? "Y" : "N");
-            row.put("nonCoveredYn", Boolean.TRUE.equals(r.get("non_covered_yn")) ? "Y" : "N");
+            row.put("insurerCode", r.insurerCd());
+            row.put("policyNo", mask(r.policyNo()));
+            row.put("kind", r.kindCd());
+            row.put("startDate", r.startDate().format(YMD));
+            row.put("endDate", r.endDate().format(YMD));
+            row.put("coveredYn", r.coveredYn() ? "Y" : "N");
+            row.put("nonCoveredYn", r.nonCoveredYn() ? "Y" : "N");
             row.put("productName", "실손의료보험");
             out.append(FixedLengthCodec.encode(KcisLayouts.Q001_RESPONSE_ROW, row));
         });
@@ -113,22 +108,16 @@ public class KcisSimulator implements FepTransport {
         LocalDate start = LocalDate.parse(body.get("startDate"), YMD);
         LocalDate end = LocalDate.parse(body.get("endDate"), YMD);
         if ("N".equals(body.get("change"))) {
-            jdbc.update("""
-                    INSERT INTO TB_SIM_KCIS_CONTRACT (INSURED_ID, INSURER_CD, POLICY_NO, KIND_CD, START_DATE, END_DATE, COVERED_YN, NON_COVERED_YN)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (INSURER_CD, POLICY_NO) DO NOTHING
-                    """, body.get("insuredId"), insurer, body.get("policyNo"), body.get("kind"), start, end,
-                    "Y".equals(body.get("coveredYn")), "Y".equals(body.get("nonCoveredYn")));
+            sim.insertKcisContract(body.get("insuredId"), new SimulatorMapper.KcisContract(insurer, body.get("policyNo"),
+                    body.get("kind"), start, end, "Y".equals(body.get("coveredYn")), "Y".equals(body.get("nonCoveredYn"))));
         } else {
-            jdbc.update("UPDATE TB_SIM_KCIS_CONTRACT SET END_DATE = ? WHERE INSURER_CD = ? AND POLICY_NO = ?",
-                    end, insurer, body.get("policyNo"));
+            sim.updateKcisContractEnd(insurer, body.get("policyNo"), end);
         }
         return receive(header, message);
     }
 
     private byte[] receive(Map<String, String> header, String message) {
-        jdbc.update("INSERT INTO TB_SIM_KCIS_RECEIPT (TX_TYPE, TRACE_NO, MESSAGE, RECEIVED_DT) VALUES (?, ?, ?, ?)",
-                header.get("txType"), header.get("traceNo"), message, LocalDateTime.now(clock));
+        sim.insertKcisReceipt(header.get("txType"), header.get("traceNo"), message, LocalDateTime.now(clock));
         return respond(header, KcisLayouts.OK, "");
     }
 

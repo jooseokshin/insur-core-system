@@ -7,10 +7,11 @@ import com.insur.insurcoresystem.domain.claim.Claim;
 import com.insur.insurcoresystem.domain.claim.ClaimCoverage;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
+import com.insur.insurcoresystem.ext.TraceNumbers;
 import com.insur.insurcoresystem.ext.kcis.KcisClient;
 import com.insur.insurcoresystem.ext.kcis.KcisLayouts;
 import com.insur.insurcoresystem.ext.outbox.OutboxService;
-import com.insur.insurcoresystem.ext.TraceNumbers;
+import com.insur.insurcoresystem.mapper.medical.MedicalMapper;
 import com.insur.insurcoresystem.service.claim.dto.ClaimRequests;
 import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
 import java.math.BigDecimal;
@@ -26,8 +27,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,7 +47,7 @@ public class MedicalClaimService {
     private static final Set<String> CARE_TYPES = Set.of("IN", "OUT");
     private static final Set<String> FACILITY_TYPES = Set.of("CLINIC", "HOSPITAL", "GENERAL", "TERTIARY");
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final MedicalMapper medicalMapper;
     private final KcisClient kcis;
     private final TraceNumbers traceNumbers;
     private final OutboxService outbox;
@@ -117,14 +116,8 @@ public class MedicalClaimService {
                 .sorted(Comparator.comparing(ClaimRequests.MedicalItem::getTreatDt)).toList();
         for (int i = 0; i < sorted.size(); i++) {
             ClaimRequests.MedicalItem item = sorted.get(i);
-            jdbc.update("""
-                    INSERT INTO TB_CLM_MED_ITEM (CLM_NO, SEQ, TREAT_DT, CARE_TYPE, FACILITY_TYPE, FACILITY_NM, COVERED_AMT, NON_COVERED_AMT, SOURCE_CD)
-                    VALUES (:clmNo, :seq, :treatDt, :careType, :facilityType, :facilityNm, :covered, :nonCovered, :source)
-                    """, new MapSqlParameterSource().addValue("clmNo", clmNo).addValue("seq", i + 1)
-                    .addValue("treatDt", item.getTreatDt()).addValue("careType", item.getCareType())
-                    .addValue("facilityType", item.getFacilityType()).addValue("facilityNm", item.getFacilityNm().trim())
-                    .addValue("covered", item.getCoveredAmt()).addValue("nonCovered", item.getNonCoveredAmt())
-                    .addValue("source", sourceCd));
+            medicalMapper.insertItem(clmNo, i + 1, item.getTreatDt(), item.getCareType(), item.getFacilityType(),
+                    item.getFacilityNm().trim(), item.getCoveredAmt(), item.getNonCoveredAmt(), sourceCd);
         }
     }
 
@@ -139,9 +132,7 @@ public class MedicalClaimService {
     @Transactional(propagation = Propagation.MANDATORY)
     public Map<String, ClaimCoverage.Assessment> assess(Claim claim, Contract contract, Set<String> held,
                                                         List<ClaimRequests.MedicalAdjust> adjustments, Map<String, BigDecimal> limits) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT SEQ, CARE_TYPE, FACILITY_TYPE, COVERED_AMT, NON_COVERED_AMT FROM TB_CLM_MED_ITEM WHERE CLM_NO = :clmNo ORDER BY SEQ",
-                new MapSqlParameterSource("clmNo", claim.getClmNo()));
+        List<MedicalMapper.ClaimedItem> rows = medicalMapper.findClaimedItems(claim.getClmNo());
         Map<Integer, ClaimRequests.MedicalAdjust> adjust = new HashMap<>();
         for (ClaimRequests.MedicalAdjust a : adjustments == null ? List.<ClaimRequests.MedicalAdjust>of() : adjustments) {
             if (a == null || a.getSeq() == null || adjust.put(a.getSeq(), a) != null) {
@@ -150,17 +141,17 @@ public class MedicalClaimService {
         }
         List<MedicalClaimCalculator.Item> items = new ArrayList<>();
         Set<Integer> seqs = new HashSet<>();
-        for (Map<String, Object> r : rows) {
-            int seq = ((Number) r.get("seq")).intValue();
+        for (MedicalMapper.ClaimedItem r : rows) {
+            int seq = r.seq();
             seqs.add(seq);
-            BigDecimal covered = (BigDecimal) r.get("covered_amt");
-            BigDecimal nonCovered = (BigDecimal) r.get("non_covered_amt");
+            BigDecimal covered = r.coveredAmt();
+            BigDecimal nonCovered = r.nonCoveredAmt();
             ClaimRequests.MedicalAdjust a = adjust.get(seq);
             if (a != null) {
                 covered = recognized(a.getCoveredAmt(), covered, seq);
                 nonCovered = recognized(a.getNonCoveredAmt(), nonCovered, seq);
             }
-            items.add(new MedicalClaimCalculator.Item(seq, (String) r.get("care_type"), (String) r.get("facility_type"), covered, nonCovered));
+            items.add(new MedicalClaimCalculator.Item(seq, r.careType(), r.facilityType(), covered, nonCovered));
         }
         if (!seqs.containsAll(adjust.keySet())) {
             throw new BusinessException("E-MED-006", "없는 진료 순번입니다: " + adjust.keySet().stream().filter(s -> !seqs.contains(s)).toList());
@@ -169,17 +160,12 @@ public class MedicalClaimService {
         MedicalClaimCalculator.Result result = MedicalClaimCalculator.calculate(items, rules(contract.getPrdCd()), held);
         List<KcisClient.OtherContract> others = otherContracts(contract, claim.getAcdtDt());
 
-        jdbc.update("DELETE FROM TB_CLM_MED_SHARE WHERE CLM_NO = :clmNo", new MapSqlParameterSource("clmNo", claim.getClmNo()));
+        medicalMapper.deleteShares(claim.getClmNo());
         for (int i = 0; i < items.size(); i++) {
             MedicalClaimCalculator.Item item = items.get(i);
             MedicalClaimCalculator.ItemResult r = result.items().get(i);
-            jdbc.update("""
-                    UPDATE TB_CLM_MED_ITEM SET COVERED_ASSESSED = :ca, NON_COVERED_ASSESSED = :na, COVERED_DEDUCT = :cd, COVERED_PAY = :cp,
-                           NON_COVERED_DEDUCT = :nd, NON_COVERED_PAY = :np
-                     WHERE CLM_NO = :clmNo AND SEQ = :seq""", new MapSqlParameterSource().addValue("clmNo", claim.getClmNo())
-                    .addValue("seq", item.seq()).addValue("ca", item.coveredAmt()).addValue("na", item.nonCoveredAmt())
-                    .addValue("cd", r.coveredDeduct()).addValue("cp", r.coveredPay())
-                    .addValue("nd", r.nonCoveredDeduct()).addValue("np", r.nonCoveredPay()));
+            medicalMapper.updateItemResult(claim.getClmNo(), item.seq(), item.coveredAmt(), item.nonCoveredAmt(), r.coveredDeduct(),
+                    r.coveredPay(), r.nonCoveredDeduct(), r.nonCoveredPay());
         }
 
         Map<String, ClaimCoverage.Assessment> assessments = new HashMap<>();
@@ -231,41 +217,13 @@ public class MedicalClaimService {
     /** 사고 상세의 진료 내역 */
     @Transactional(readOnly = true)
     public List<ClaimResponses.MedicalItem> items(String clmNo) {
-        return jdbc.query("SELECT * FROM TB_CLM_MED_ITEM WHERE CLM_NO = :clmNo ORDER BY SEQ", new MapSqlParameterSource("clmNo", clmNo),
-                (rs, i) -> ClaimResponses.MedicalItem.builder()
-                        .seq(rs.getInt("SEQ"))
-                        .treatDt(rs.getObject("TREAT_DT", LocalDate.class))
-                        .careType(rs.getString("CARE_TYPE"))
-                        .facilityType(rs.getString("FACILITY_TYPE"))
-                        .facilityNm(rs.getString("FACILITY_NM"))
-                        .coveredAmt(rs.getBigDecimal("COVERED_AMT"))
-                        .nonCoveredAmt(rs.getBigDecimal("NON_COVERED_AMT"))
-                        .coveredAssessed(rs.getBigDecimal("COVERED_ASSESSED"))
-                        .nonCoveredAssessed(rs.getBigDecimal("NON_COVERED_ASSESSED"))
-                        .coveredDeduct(rs.getBigDecimal("COVERED_DEDUCT"))
-                        .coveredPay(rs.getBigDecimal("COVERED_PAY"))
-                        .nonCoveredDeduct(rs.getBigDecimal("NON_COVERED_DEDUCT"))
-                        .nonCoveredPay(rs.getBigDecimal("NON_COVERED_PAY"))
-                        .sourceCd(rs.getString("SOURCE_CD"))
-                        .build());
+        return medicalMapper.findItems(clmNo);
     }
 
     /** 사고 상세의 비례보상 내역 (우리 회사 행이 먼저) */
     @Transactional(readOnly = true)
     public List<ClaimResponses.MedicalShare> shares(String clmNo) {
-        String own = kcis.orgCode();
-        return jdbc.query("""
-                SELECT CVRG_CD, INSURER_CD, POLICY_NO, LIABILITY_AMT, SHARE_AMT FROM TB_CLM_MED_SHARE WHERE CLM_NO = :clmNo
-                 ORDER BY CVRG_CD, CASE WHEN INSURER_CD = :own THEN 0 ELSE 1 END, INSURER_CD, POLICY_NO""",
-                new MapSqlParameterSource("clmNo", clmNo).addValue("own", own),
-                (rs, i) -> ClaimResponses.MedicalShare.builder()
-                        .cvrgCd(rs.getString("CVRG_CD"))
-                        .insurerCd(rs.getString("INSURER_CD"))
-                        .policyNo(rs.getString("POLICY_NO"))
-                        .own(own.equals(rs.getString("INSURER_CD")))
-                        .liabilityAmt(rs.getBigDecimal("LIABILITY_AMT"))
-                        .shareAmt(rs.getBigDecimal("SHARE_AMT"))
-                        .build());
+        return medicalMapper.findShares(clmNo, kcis.orgCode());
     }
 
     private List<KcisClient.OtherContract> otherContracts(Contract contract, LocalDate accidentDate) {
@@ -279,18 +237,11 @@ public class MedicalClaimService {
     }
 
     private List<MedicalClaimCalculator.Rule> rules(String prdCd) {
-        return jdbc.query("SELECT * FROM TB_PRD_MED_RULE WHERE PRD_CD = :prdCd", new MapSqlParameterSource("prdCd", prdCd),
-                (rs, i) -> new MedicalClaimCalculator.Rule(rs.getString("CVRG_CD"), rs.getString("CARE_TYPE"),
-                        rs.getString("FACILITY_GRADE"), rs.getBigDecimal("COPAY_RATE"), rs.getBigDecimal("MIN_DEDUCT_AMT"),
-                        rs.getBigDecimal("PER_VISIT_LIMIT")));
+        return medicalMapper.findRules(prdCd);
     }
 
     private void insertShare(String clmNo, String cvrgCd, String insurerCd, String policyNo, BigDecimal liability, BigDecimal share) {
-        jdbc.update("""
-                INSERT INTO TB_CLM_MED_SHARE (CLM_NO, CVRG_CD, INSURER_CD, POLICY_NO, LIABILITY_AMT, SHARE_AMT)
-                VALUES (:clmNo, :cvrgCd, :insurer, :policyNo, :liability, :share)
-                """, new MapSqlParameterSource().addValue("clmNo", clmNo).addValue("cvrgCd", cvrgCd).addValue("insurer", insurerCd)
-                .addValue("policyNo", policyNo).addValue("liability", liability).addValue("share", share));
+        medicalMapper.insertShare(clmNo, cvrgCd, insurerCd, policyNo, liability, share);
     }
 
     private static BigDecimal recognized(BigDecimal value, BigDecimal claimed, int seq) {

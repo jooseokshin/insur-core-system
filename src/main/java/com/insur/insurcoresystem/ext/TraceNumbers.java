@@ -1,10 +1,10 @@
 package com.insur.insurcoresystem.ext;
 
+import com.insur.insurcoresystem.mapper.ext.FepMapper;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,19 +14,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class TraceNumbers {
 
-    private final JdbcTemplate jdbc;
+    private final FepMapper fepMapper;
     private final Clock clock;
     private final String orgCode;
 
-    public TraceNumbers(JdbcTemplate jdbc, Clock clock, @Value("${app.ext.kcis.org-code:K99}") String orgCode) {
-        this.jdbc = jdbc;
+    public TraceNumbers(FepMapper fepMapper, Clock clock, @Value("${app.ext.kcis.org-code:K99}") String orgCode) {
+        this.fepMapper = fepMapper;
         this.clock = clock;
         this.orgCode = orgCode;
     }
 
     /** 새 추적번호 */
     public String next() {
-        Long seq = jdbc.queryForObject("SELECT nextval('SQ_EXT_TRACE')", Long.class);
+        long seq = fepMapper.nextTraceSeq();
         return orgCode + LocalDate.now(clock).format(DateTimeFormatter.BASIC_ISO_DATE) + String.format("%09d", seq);
     }
 }

@@ -1,25 +1,25 @@
 package com.insur.insurcoresystem.service.contract;
 
-import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.contract.Contract;
 import com.insur.insurcoresystem.domain.contract.ContractPayment;
-import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import com.insur.insurcoresystem.mapper.contract.ContractStatusHistoryMapper;
 import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractApplyResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewRequest;
-import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
-import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractRenewResponse;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeRequest;
 import com.insur.insurcoresystem.service.contract.dto.ContractStatusChangeResponse;
 import com.insur.insurcoresystem.service.contract.dto.CoverageRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentRequest;
+import com.insur.insurcoresystem.service.contract.dto.PaymentResponse;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.support.TestRows;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;

@@ -1,6 +1,5 @@
 package com.insur.insurcoresystem.service.claim;
 
-import com.insur.insurcoresystem.common.paging.PageQuery;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 import static com.insur.insurcoresystem.service.contract.ContractSupport.isConstraintViolation;
@@ -10,20 +9,21 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.pageReq
 import static com.insur.insurcoresystem.service.contract.ContractSupport.validateGlobalTxId;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.domain.claim.Claim;
 import com.insur.insurcoresystem.domain.claim.ClaimCoverage;
 import com.insur.insurcoresystem.domain.claim.ClaimHistory;
-import com.insur.insurcoresystem.mapper.claim.ClaimHistoryMapper;
-import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
 import com.insur.insurcoresystem.domain.claim.ClaimStatus;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.ContractStatus;
 import com.insur.insurcoresystem.domain.contract.Coverage;
-import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.domain.product.Product;
 import com.insur.insurcoresystem.domain.product.ProductCoverage;
+import com.insur.insurcoresystem.mapper.claim.ClaimHistoryMapper;
+import com.insur.insurcoresystem.mapper.claim.ClaimMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
+import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
 import com.insur.insurcoresystem.mapper.product.ProductMapper;
 import com.insur.insurcoresystem.service.claim.dto.ClaimRequests;
 import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
@@ -52,8 +52,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -88,7 +86,6 @@ public class ClaimService {
     private final CoverageMapper coverageMapper;
     private final ProductMapper productMapper;
     private final ContractNumberGenerator numberGenerator;
-    private final NamedParameterJdbcTemplate jdbc;
     private final MedicalClaimService medicalClaimService;
     private final Clock clock;
 
@@ -391,47 +388,17 @@ public class ClaimService {
         if (cond.getRptDateFrom() != null && cond.getRptDateTo() != null && cond.getRptDateFrom().isAfter(cond.getRptDateTo())) {
             throw new BusinessException("E-CLM-001", "접수일 시작은 종료보다 클 수 없습니다.");
         }
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("owner", ownerEmpId == null ? null : normalizeEmpId(ownerEmpId))
-                .addValue("stat", cond.getClmStatCd())
-                .addValue("contractNo", cond.getContractNo())
-                .addValue("from", cond.getRptDateFrom() == null ? null : cond.getRptDateFrom().atStartOfDay())
-                .addValue("to", cond.getRptDateTo() == null ? null : cond.getRptDateTo().plusDays(1).atStartOfDay())
-                .addValue("threshold", THRESHOLD)
-                .addValue("limit", pageable.getPageSize())
-                .addValue("offset", pageable.getOffset());
-        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
-        if (ownerEmpId != null) where.append(" AND L.REG_EMP_ID = :owner");
-        if (StringUtils.hasText(cond.getClmStatCd())) where.append(" AND C.CLM_STAT_CD = :stat");
-        if (StringUtils.hasText(cond.getContractNo())) where.append(" AND C.CONTRACT_NO = :contractNo");
-        if (cond.getRptDateFrom() != null) where.append(" AND C.RPT_DT >= :from");
-        if (cond.getRptDateTo() != null) where.append(" AND C.RPT_DT < :to");
-        if (Boolean.TRUE.equals(cond.getHighValueOnly())) where.append(" AND C.CLM_STAT_CD = '20' AND C.TOTAL_PAY_AMT > :threshold");
-        String from = " FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO" + where;
-
-        Long total = jdbc.queryForObject("SELECT COUNT(*)" + from, params, Long.class);
-        List<ClaimResponses.Summary> items = jdbc.query("""
-                SELECT C.CLM_NO, C.CONTRACT_NO, L.INSR_CLS_CD, C.CLM_STAT_CD, C.ACDT_DT, C.CLAIMANT_ID, C.TOTAL_CLAIM_AMT,
-                       C.TOTAL_PAY_AMT, C.RPT_DT, C.RPT_EMP_ID""" + from + """
-                 ORDER BY C.RPT_DT DESC, C.CLM_NO DESC
-                 LIMIT :limit OFFSET :offset
-                """, params, (rs, i) -> {
-            BigDecimal pay = rs.getBigDecimal("TOTAL_PAY_AMT");
-            return ClaimResponses.Summary.builder()
-                    .clmNo(rs.getString("CLM_NO"))
-                    .contractNo(rs.getString("CONTRACT_NO"))
-                    .insrClsCd(rs.getString("INSR_CLS_CD"))
-                    .clmStatCd(rs.getString("CLM_STAT_CD"))
-                    .acdtDt(rs.getObject("ACDT_DT", LocalDate.class))
-                    .claimantId(rs.getString("CLAIMANT_ID"))
-                    .totalClaimAmt(rs.getBigDecimal("TOTAL_CLAIM_AMT"))
-                    .totalPayAmt(pay)
-                    .highValue(pay != null && pay.compareTo(THRESHOLD) > 0)
-                    .rptDt(rs.getObject("RPT_DT", LocalDateTime.class))
-                    .rptEmpId(rs.getString("RPT_EMP_ID"))
-                    .build();
-        });
-        long count = total == null ? 0 : total;
+        ClaimMapper.SearchCondition condition = ClaimMapper.SearchCondition.builder()
+                .regEmpId(ownerEmpId == null ? null : normalizeEmpId(ownerEmpId))
+                .clmStatCd(StringUtils.hasText(cond.getClmStatCd()) ? cond.getClmStatCd() : null)
+                .contractNo(StringUtils.hasText(cond.getContractNo()) ? cond.getContractNo() : null)
+                .rptFrom(cond.getRptDateFrom() == null ? null : cond.getRptDateFrom().atStartOfDay())
+                .rptTo(cond.getRptDateTo() == null ? null : cond.getRptDateTo().plusDays(1).atStartOfDay())
+                .highValueOnly(Boolean.TRUE.equals(cond.getHighValueOnly()))
+                .threshold(THRESHOLD)
+                .build();
+        long count = claimMapper.countSearch(condition);
+        List<ClaimResponses.Summary> items = claimMapper.search(condition, pageable);
         return ClaimResponses.Page.builder()
                 .page(pageable.getPageNumber())
                 .size(pageable.getPageSize())

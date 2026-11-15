@@ -10,21 +10,17 @@ import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.TraceNumbers;
 import com.insur.insurcoresystem.ext.bank.BankClient;
 import com.insur.insurcoresystem.ext.bank.BankLayouts;
+import com.insur.insurcoresystem.mapper.payout.PayoutMapper;
 import com.insur.insurcoresystem.service.payout.dto.PayoutRequests;
 import com.insur.insurcoresystem.service.payout.dto.PayoutResponses;
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -48,7 +44,7 @@ public class PayoutService {
     private static final String ACTIVE_SRC_INDEX = "uk_pay_out_active_src";
     private static final String GLOBAL_TX_ID_CONSTRAINT = "uk_pay_out_global_tx_id";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final PayoutMapper payoutMapper;
     private final BankClient bank;
     private final AccountCipher cipher;
     private final TraceNumbers traceNumbers;
@@ -87,7 +83,7 @@ public class PayoutService {
         }
         validateAccount(request.getBankCd(), request.getAccountNo(), request.getHolderNm());
 
-        Optional<PayoutResponses.Payout> replay = findOne("GLOBAL_TX_ID = :v", globalTxId);
+        Optional<PayoutResponses.Payout> replay = payoutMapper.findByGlobalTxId(globalTxId);
         if (replay.isPresent()) {
             if (!replay.get().getSrcType().equals(srcType) || !replay.get().getSrcNo().equals(request.getSrcNo())) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-PAY-007", "같은 거래 UUID(globalTxId)로 다른 지급 요청이 들어왔습니다.");
@@ -95,7 +91,7 @@ public class PayoutService {
             return replay.get();
         }
 
-        Map<String, Object> source = source(srcType, request.getSrcNo());
+        PayoutMapper.Source source = source(srcType, request.getSrcNo());
         if (activeExists(srcType, request.getSrcNo())) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-PAY-004", "이미 진행 중이거나 완료된 지급이 있습니다. (실패한 지급만 다시 요청할 수 있습니다)");
         }
@@ -108,28 +104,22 @@ public class PayoutService {
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("srcType", srcType).addValue("srcNo", request.getSrcNo())
-                .addValue("contractNo", source.get("contract_no")).addValue("amount", source.get("amount"))
-                .addValue("bankCd", request.getBankCd()).addValue("enc", cipher.encrypt(request.getAccountNo()))
-                .addValue("mask", AccountCipher.mask(request.getAccountNo())).addValue("holder", verified.holderNm().trim())
-                .addValue("trace", traceNumbers.next()).addValue("now", now).addValue("emp", normalizeEmpId(empId))
-                .addValue("tx", globalTxId);
         try {
-            jdbc.update("""
-                    INSERT INTO TB_PAY_OUT (SRC_TYPE, SRC_NO, CONTRACT_NO, PAY_AMT, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, HOLDER_NM, STAT_CD,
-                                            TRACE_NO, NEXT_TRY_DT, REQ_EMP_ID, REQ_DT, GLOBAL_TX_ID)
-                    VALUES (:srcType, :srcNo, :contractNo, :amount, :bankCd, :enc, :mask, :holder, '10', :trace, :now, :emp, :now, :tx)
-                    """, params);
+            payoutMapper.insert(PayoutMapper.NewPayout.builder()
+                    .srcType(srcType).srcNo(request.getSrcNo()).contractNo(source.contractNo()).payAmt(source.amount())
+                    .bankCd(request.getBankCd()).accountEnc(cipher.encrypt(request.getAccountNo()))
+                    .accountMask(AccountCipher.mask(request.getAccountNo())).holderNm(verified.holderNm().trim())
+                    .traceNo(traceNumbers.next()).now(now).reqEmpId(normalizeEmpId(empId)).globalTxId(globalTxId)
+                    .build());
         } catch (DataIntegrityViolationException e) {
             if (isConstraintViolation(e, ACTIVE_SRC_INDEX) || isConstraintViolation(e, GLOBAL_TX_ID_CONSTRAINT)) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-PAY-004", "같은 원천의 지급이 동시에 요청되었습니다. 지급 목록을 확인해 주세요.");
             }
             throw e;
         }
-        log.info("지급 요청: 원천={} {}, 금액={}, 계좌={} {}", srcType, request.getSrcNo(), source.get("amount"), request.getBankCd(),
+        log.info("지급 요청: 원천={} {}, 금액={}, 계좌={} {}", srcType, request.getSrcNo(), source.amount(), request.getBankCd(),
                 AccountCipher.mask(request.getAccountNo()));
-        return findOne("GLOBAL_TX_ID = :v", globalTxId).orElseThrow();
+        return payoutMapper.findByGlobalTxId(globalTxId).orElseThrow();
     }
 
     /**
@@ -142,73 +132,24 @@ public class PayoutService {
         if (StringUtils.hasText(cond.getStatCd()) && !List.of("10", "30", "70", "80").contains(cond.getStatCd())) {
             throw new BusinessException("E-PAY-001", "지급 상태는 10, 30, 70, 80 중 하나여야 합니다: " + cond.getStatCd());
         }
-        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
-        MapSqlParameterSource p = new MapSqlParameterSource("limit", cond.getLimit() == null ? 50 : Math.max(1, Math.min(cond.getLimit(), 200)));
-        if (StringUtils.hasText(cond.getSrcType())) {
-            where.append(" AND SRC_TYPE = :srcType");
-            p.addValue("srcType", cond.getSrcType());
-        }
-        if (StringUtils.hasText(cond.getSrcNo())) {
-            where.append(" AND SRC_NO = :srcNo");
-            p.addValue("srcNo", cond.getSrcNo());
-        }
-        if (StringUtils.hasText(cond.getContractNo())) {
-            where.append(" AND CONTRACT_NO = :contractNo");
-            p.addValue("contractNo", cond.getContractNo());
-        }
-        if (StringUtils.hasText(cond.getStatCd())) {
-            where.append(" AND STAT_CD = :stat");
-            p.addValue("stat", cond.getStatCd());
-        }
-        return jdbc.query("SELECT * FROM TB_PAY_OUT" + where + " ORDER BY PAYOUT_ID DESC LIMIT :limit", p, MAPPER);
+        return payoutMapper.search(textOrNull(cond.getSrcType()), textOrNull(cond.getSrcNo()), textOrNull(cond.getContractNo()),
+                textOrNull(cond.getStatCd()), cond.getLimit() == null ? 50 : Math.max(1, Math.min(cond.getLimit(), 200)));
     }
 
-    static final RowMapper<PayoutResponses.Payout> MAPPER = (rs, i) -> PayoutResponses.Payout.builder()
-            .payoutId(rs.getLong("PAYOUT_ID"))
-            .srcType(rs.getString("SRC_TYPE"))
-            .srcNo(rs.getString("SRC_NO"))
-            .contractNo(rs.getString("CONTRACT_NO"))
-            .payAmt(rs.getBigDecimal("PAY_AMT"))
-            .bankCd(rs.getString("BANK_CD"))
-            .accountMask(rs.getString("ACCOUNT_MASK"))
-            .holderNm(rs.getString("HOLDER_NM"))
-            .statCd(rs.getString("STAT_CD"))
-            .traceNo(rs.getString("TRACE_NO"))
-            .sendCount(rs.getInt("SEND_COUNT"))
-            .inquiryCount(rs.getInt("INQUIRY_COUNT"))
-            .nextTryDt(rs.getObject("NEXT_TRY_DT", LocalDateTime.class))
-            .resultCd(rs.getString("RESULT_CD"))
-            .resultMsg(rs.getString("RESULT_MSG"))
-            .reqEmpId(rs.getString("REQ_EMP_ID"))
-            .reqDt(rs.getObject("REQ_DT", LocalDateTime.class))
-            .sentDt(rs.getObject("SENT_DT", LocalDateTime.class))
-            .doneDt(rs.getObject("DONE_DT", LocalDateTime.class))
-            .build();
-
-    private Optional<PayoutResponses.Payout> findOne(String condition, Object value) {
-        return jdbc.query("SELECT * FROM TB_PAY_OUT WHERE " + condition, new MapSqlParameterSource("v", value), MAPPER).stream().findFirst();
+    private static String textOrNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
     }
 
     /** 원천의 증권번호와 지급액. 지급할 수 없으면 E-PAY-002 */
-    private Map<String, Object> source(String srcType, String srcNo) {
-        List<Map<String, Object>> rows = SRC_CLAIM.equals(srcType)
-                ? jdbc.queryForList("SELECT CONTRACT_NO, TOTAL_PAY_AMT AS AMOUNT FROM TB_CLM WHERE CLM_NO = :no AND CLM_STAT_CD = '40' AND TOTAL_PAY_AMT > 0",
-                        new MapSqlParameterSource("no", srcNo))
-                : jdbc.queryForList("SELECT CONTRACT_NO, REFUND_AMT AS AMOUNT FROM TB_CTR_MILEAGE WHERE CONTRACT_NO = :no AND MIL_STAT_CD = '20' AND REFUND_AMT > 0",
-                        new MapSqlParameterSource("no", srcNo));
-        if (rows.isEmpty()) {
-            throw new BusinessException("E-PAY-002", SRC_CLAIM.equals(srcType)
-                    ? "지급 결정(40)되고 지급액이 있는 사고만 지급할 수 있습니다: " + srcNo
-                    : "정산(20)되고 환급액이 있는 마일리지 특약만 지급할 수 있습니다: " + srcNo);
-        }
-        Map<String, Object> row = rows.get(0);
-        return Map.of("contract_no", row.get("contract_no"), "amount", (BigDecimal) row.get("amount"));
+    private PayoutMapper.Source source(String srcType, String srcNo) {
+        return (SRC_CLAIM.equals(srcType) ? payoutMapper.findClaimSource(srcNo) : payoutMapper.findMileageSource(srcNo))
+                .orElseThrow(() -> new BusinessException("E-PAY-002", SRC_CLAIM.equals(srcType)
+                        ? "지급 결정(40)되고 지급액이 있는 사고만 지급할 수 있습니다: " + srcNo
+                        : "정산(20)되고 환급액이 있는 마일리지 특약만 지급할 수 있습니다: " + srcNo));
     }
 
     private boolean activeExists(String srcType, String srcNo) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM TB_PAY_OUT WHERE SRC_TYPE = :t AND SRC_NO = :n AND STAT_CD <> '80'",
-                new MapSqlParameterSource("t", srcType).addValue("n", srcNo), Integer.class);
-        return n != null && n > 0;
+        return payoutMapper.existsActive(srcType, srcNo);
     }
 
     private BankClient.VerifyResult callVerify(String bankCd, String accountNo) {

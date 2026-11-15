@@ -42,6 +42,30 @@
          WHERE C.CONTRACT_NO = #{contractNo} AND C.CLM_STAT_CD = '40' AND I.CVRG_CD = #{cvrgCd} AND C.CLM_NO &lt;&gt; #{excludeClmNo}
     </select>
 
+    <sql id="searchFrom">
+          FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
+        <where>
+            <if test="c.regEmpId != null">AND L.REG_EMP_ID = #{c.regEmpId}</if>
+            <if test="c.clmStatCd != null">AND C.CLM_STAT_CD = #{c.clmStatCd}</if>
+            <if test="c.contractNo != null">AND C.CONTRACT_NO = #{c.contractNo}</if>
+            <if test="c.rptFrom != null">AND C.RPT_DT &gt;= #{c.rptFrom}</if>
+            <if test="c.rptTo != null">AND C.RPT_DT &lt; #{c.rptTo}</if>
+            <if test="c.highValueOnly">AND C.CLM_STAT_CD = '20' AND C.TOTAL_PAY_AMT &gt; #{c.threshold}</if>
+        </where>
+    </sql>
+
+    <select id="search" resultType="com.insur.insurcoresystem.service.claim.dto.ClaimResponses$Summary">
+        SELECT C.CLM_NO, C.CONTRACT_NO, L.INSR_CLS_CD, C.CLM_STAT_CD, C.ACDT_DT, C.CLAIMANT_ID, C.TOTAL_CLAIM_AMT, C.TOTAL_PAY_AMT,
+               COALESCE(C.TOTAL_PAY_AMT &gt; #{c.threshold}, FALSE) AS HIGH_VALUE, C.RPT_DT, C.RPT_EMP_ID
+        <include refid="searchFrom"/>
+         ORDER BY C.RPT_DT DESC, C.CLM_NO DESC
+         LIMIT #{page.pageSize} OFFSET #{page.offset}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) <include refid="searchFrom"/>
+    </select>
+
     <insert id="insertHeader">
         INSERT INTO TB_CLM (<include refid="columns"/>)
         VALUES (#{clmNo}, #{contractNo}, #{clmStatCd}, #{acdtDt}, #{acdtDesc}, #{claimantId}, #{totalClaimAmt}, #{totalPayAmt},

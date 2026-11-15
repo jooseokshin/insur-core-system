@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 통계 (읽기 전용): 손해율, 요율 영향, IBNR -->
+<mapper namespace="com.insur.insurcoresystem.mapper.stats.StatsMapper">
+
+    <!--
+        경과보험료 노출: 계약 담보마다 보험기간 일수와 [fromDate, toExcl) 안에서 보장한 일수.
+        보장 종료는 min(보험종기, 해지일) 미포함 (해지 환급·사고 보장과 같은 규칙). 매개변수: fromDate, toExcl
+    -->
+    <sql id="exposure">
+        SELECT L.CONTRACT_NO, L.INSR_CLS_CD, L.PRD_CD, V.CVRG_CD, V.PREM,
+               (L.END_DATE - L.START_DATE) AS TERM_DAYS,
+               GREATEST(0, LEAST(L.END_DATE, COALESCE(L.TERM_DT, L.END_DATE), #{toExcl}) - GREATEST(L.START_DATE, #{fromDate})) AS EXPOSED_DAYS
+          FROM TB_CTR_LGD L
+          JOIN TB_CTR_CVRG V ON V.CONTRACT_NO = L.CONTRACT_NO
+         WHERE L.CTR_STAT_CD IN ('20', '30')
+    </sql>
+
+    <!-- 사고년도 기준 손해: 사고일이 [fromDate, toExcl) 인 사고의 담보별 지급·미결 -->
+    <sql id="losses">
+        SELECT L.INSR_CLS_CD, L.PRD_CD, I.CVRG_CD, C.CLM_NO,
+               CASE WHEN C.CLM_STAT_CD = '40' THEN I.PAY_AMT ELSE 0 END AS PAID,
+               CASE WHEN C.CLM_STAT_CD = '20' THEN I.PAY_AMT
+                    WHEN C.CLM_STAT_CD = '10' THEN I.CLAIM_AMT ELSE 0 END AS OUTSTANDING
+          FROM TB_CLM C
+          JOIN TB_CLM_CVRG I ON I.CLM_NO = C.CLM_NO
+          JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
+         WHERE C.CLM_STAT_CD IN ('10', '20', '40')
+           AND C.ACDT_DT &gt;= #{fromDate} AND C.ACDT_DT &lt; #{toExcl}
+    </sql>
+
+    <!-- 묶음 키: 묶지 않는 키는 NULL 로 돌려 결과 모양을 같게 한다 -->
+    <sql id="groupColumns">
+        <choose><when test="g.byClass">INSR_CLS_CD</when><otherwise>CAST(NULL AS VARCHAR)</otherwise></choose> AS INSR_CLS_CD,
+        <choose><when test="g.byProduct">PRD_CD</when><otherwise>CAST(NULL AS VARCHAR)</otherwise></choose> AS PRD_CD,
+        <choose><when test="g.byCoverage">CVRG_CD</when><otherwise>CAST(NULL AS VARCHAR)</otherwise></choose> AS CVRG_CD,
+    </sql>
+    <sql id="groupBy">
+        <trim prefix="GROUP BY" suffixOverrides=",">
+            <if test="g.byClass">INSR_CLS_CD,</if>
+            <if test="g.byProduct">PRD_CD,</if>
+            <if test="g.byCoverage">CVRG_CD,</if>
+        </trim>
+    </sql>
+
+    <select id="aggregateEarned" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$EarnedRow">
+        SELECT <include refid="groupColumns"/>
+               COUNT(DISTINCT CONTRACT_NO) AS CNT, COALESCE(SUM(PREM * EXPOSED_DAYS / NULLIF(TERM_DAYS, 0)), 0) AS EARNED
+          FROM (<include refid="exposure"/>) E
+         WHERE EXPOSED_DAYS &gt; 0
+        <include refid="groupBy"/>
+    </select>
+
+    <select id="aggregateLosses" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$LossRow">
+        SELECT <include refid="groupColumns"/>
+               COUNT(DISTINCT CLM_NO) AS CNT, COALESCE(SUM(PAID), 0) AS PAID, COALESCE(SUM(OUTSTANDING), 0) AS OUTSTANDING
+          FROM (<include refid="losses"/>) X
+        <include refid="groupBy"/>
+    </select>
+
+    <select id="earnedPremium" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(PREM * EXPOSED_DAYS / NULLIF(TERM_DAYS, 0)), 0)
+          FROM (<include refid="exposure"/>) E
+         WHERE EXPOSED_DAYS &gt; 0 AND INSR_CLS_CD = #{insrClsCd}
+    </select>
+
+    <select id="currentTariff" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$TariffRow">
+        SELECT CVRG_CD, CVRG_NM, ANNUAL_RATE
+          FROM TB_PRM_RATE
+         WHERE INSR_CLS_CD = #{insrClsCd} AND EFF_FROM &lt;= #{today} AND (EFF_TO IS NULL OR EFF_TO &gt;= #{today})
+         ORDER BY CVRG_CD
+    </select>
+
+    <select id="revisions" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$RevisionRow">
+        SELECT 'RATE' AS KIND, CVRG_CD AS TARGET, EFF_FROM FROM TB_PRM_RATE
+         WHERE INSR_CLS_CD = #{insrClsCd} AND (EFF_FROM &gt; #{fromDate} AND EFF_FROM &lt;= #{toDate} OR EFF_FROM &gt; #{today})
+        UNION ALL
+        SELECT 'FACTOR', FACTOR_TYPE, EFF_FROM FROM TB_PRM_FACTOR
+         WHERE INSR_CLS_CD = #{insrClsCd} AND (EFF_FROM &gt; #{fromDate} AND EFF_FROM &lt;= #{toDate} OR EFF_FROM &gt; #{today})
+         ORDER BY 3, 1, 2
+    </select>
+
+    <select id="inForce" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$InForceRow">
+        SELECT <choose><when test="byCoverage">V.CVRG_CD</when><otherwise>CAST(NULL AS VARCHAR)</otherwise></choose> AS CVRG_CD,
+               COUNT(DISTINCT L.CONTRACT_NO) AS CNT,
+               COALESCE(SUM(V.PREM), 0) AS PREM,
+               COUNT(DISTINCT CASE WHEN L.END_DATE &lt;= #{renewTo} AND NOT EXISTS (
+                       SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = L.CONTRACT_NO AND R.CTR_STAT_CD &lt;&gt; '90')
+                     THEN L.CONTRACT_NO END) AS RCNT,
+               COALESCE(SUM(CASE WHEN L.END_DATE &lt;= #{renewTo} AND NOT EXISTS (
+                       SELECT 1 FROM TB_CTR_LGD R WHERE R.RENEWED_FROM = L.CONTRACT_NO AND R.CTR_STAT_CD &lt;&gt; '90')
+                     THEN V.PREM ELSE 0 END), 0) AS RPREM
+          FROM TB_CTR_LGD L
+          JOIN TB_CTR_CVRG V ON V.CONTRACT_NO = L.CONTRACT_NO
+         WHERE L.CTR_STAT_CD = '20' AND L.INSR_CLS_CD = #{insrClsCd}
+           AND L.START_DATE &lt;= #{today} AND L.END_DATE &gt; #{today}
+        <if test="byCoverage">GROUP BY V.CVRG_CD</if>
+    </select>
+
+    <select id="paidClaims" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$PaidClaimRow">
+        SELECT C.ACDT_DT, CAST(C.DECIDE_DT AS DATE) AS PAID_DT, C.TOTAL_PAY_AMT
+          FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
+         WHERE L.INSR_CLS_CD = #{insrClsCd} AND C.CLM_STAT_CD = '40' AND C.TOTAL_PAY_AMT &gt; 0
+           AND C.ACDT_DT &gt;= #{from} AND C.ACDT_DT &lt;= #{eval} AND C.DECIDE_DT &lt; #{evalExcl}
+    </select>
+
+    <!-- 재사정하면 금액을 덮어쓰므로 과거 시점의 정확한 추산액이 아니라 근사다 -->
+    <select id="caseReserves" resultType="com.insur.insurcoresystem.mapper.stats.StatsMapper$CaseReserveRow">
+        SELECT C.ACDT_DT,
+               CASE WHEN C.ADJ_DT &lt; #{evalExcl} AND C.TOTAL_PAY_AMT IS NOT NULL AND C.CLM_STAT_CD IN ('20', '40')
+                    THEN C.TOTAL_PAY_AMT ELSE C.TOTAL_CLAIM_AMT END AS RSV
+          FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
+         WHERE L.INSR_CLS_CD = #{insrClsCd} AND C.ACDT_DT &gt;= #{from} AND C.ACDT_DT &lt;= #{eval} AND C.RPT_DT &lt; #{evalExcl}
+           AND (C.DECIDE_DT IS NULL OR C.DECIDE_DT &gt;= #{evalExcl})
+    </select>
+</mapper>

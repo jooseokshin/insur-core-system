@@ -52,7 +52,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 로컬 docker-compose 와 같이 DB 시간대를 Asia/Seoul 로 맞춘다 (Hibernate jdbc.time_zone 과 일치)
+      # 로컬 docker-compose 와 같이 DB 시간대를 Asia/Seoul 로 맞춘다 (JVM 기본 시간대·애플리케이션 시간대와 일치)
       - name: DB 시간대 설정
         run: psql -h localhost -U postgres -d insur_core_db -c "ALTER DATABASE insur_core_db SET timezone TO 'Asia/Seoul'"
         env:

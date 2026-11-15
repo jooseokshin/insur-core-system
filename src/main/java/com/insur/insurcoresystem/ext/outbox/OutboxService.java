@@ -2,6 +2,7 @@ package com.insur.insurcoresystem.ext.outbox;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.ext.TraceNumbers;
+import com.insur.insurcoresystem.mapper.ext.OutboxMapper;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -9,8 +10,6 @@ import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +31,7 @@ public class OutboxService {
     public static final String STAT_SENT = "20";
     public static final String STAT_FAILED = "90";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final OutboxMapper outboxMapper;
     private final TraceNumbers traceNumbers;
     private final Clock clock;
 
@@ -44,19 +43,14 @@ public class OutboxService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueue(String agency, String txType, String bizKey, Function<String, String> payload) {
-        int inserted = jdbc.update("""
-                INSERT INTO TB_EXT_OUTBOX (AGENCY_CD, TX_TYPE, BIZ_KEY, PAYLOAD, STAT_CD, ATTEMPTS, NEXT_TRY_DT, CREATED_DT)
-                VALUES (:agency, :txType, :bizKey, :payload, '10', 0, :now, :now)
-                ON CONFLICT (AGENCY_CD, TX_TYPE, BIZ_KEY) DO NOTHING
-                """, new MapSqlParameterSource()
-                .addValue("agency", agency).addValue("txType", txType).addValue("bizKey", bizKey)
-                .addValue("payload", payload.apply(traceNumbers.next()))
-                .addValue("now", LocalDateTime.now(clock)));
+        int inserted = outboxMapper.insertIgnore(agency, txType, bizKey, payload.apply(traceNumbers.next()), LocalDateTime.now(clock));
         if (inserted > 0) {
             log.info("대외기관 전송 대기: 기관={}, 거래={}, 업무키={}", agency, txType, bizKey);
         }
         return inserted > 0;
     }
+
+    /** 대기열 한 건 */
 
     /** 대기열 한 건 */
     public record Entry(long outboxId, String agencyCd, String txType, String bizKey, String statCd, int attempts,
@@ -74,23 +68,8 @@ public class OutboxService {
         if (StringUtils.hasText(statCd) && !List.of(STAT_PENDING, STAT_SENT, STAT_FAILED).contains(statCd)) {
             throw new BusinessException("E-EXT-001", "대기열 상태는 10, 20, 90 중 하나여야 합니다: " + statCd);
         }
-        StringBuilder sql = new StringBuilder("""
-                SELECT OUTBOX_ID, AGENCY_CD, TX_TYPE, BIZ_KEY, STAT_CD, ATTEMPTS, NEXT_TRY_DT, LAST_ERROR, CREATED_DT, SENT_DT
-                  FROM TB_EXT_OUTBOX WHERE 1 = 1""");
-        MapSqlParameterSource params = new MapSqlParameterSource().addValue("limit", Math.max(1, Math.min(limit, 200)));
-        if (StringUtils.hasText(statCd)) {
-            sql.append(" AND STAT_CD = :stat");
-            params.addValue("stat", statCd);
-        }
-        if (StringUtils.hasText(bizKeyPrefix)) {
-            sql.append(" AND BIZ_KEY LIKE :prefix");
-            params.addValue("prefix", bizKeyPrefix.replace("%", "").replace("_", "\\_") + "%");
-        }
-        sql.append(" ORDER BY OUTBOX_ID DESC LIMIT :limit");
-        return jdbc.query(sql.toString(), params, (rs, i) -> new Entry(rs.getLong("OUTBOX_ID"), rs.getString("AGENCY_CD"),
-                rs.getString("TX_TYPE"), rs.getString("BIZ_KEY"), rs.getString("STAT_CD"), rs.getInt("ATTEMPTS"),
-                rs.getObject("NEXT_TRY_DT", LocalDateTime.class), rs.getString("LAST_ERROR"),
-                rs.getObject("CREATED_DT", LocalDateTime.class), rs.getObject("SENT_DT", LocalDateTime.class)));
+        String prefix = StringUtils.hasText(bizKeyPrefix) ? bizKeyPrefix.replace("%", "").replace("_", "\\_") + "%" : null;
+        return outboxMapper.findEntries(StringUtils.hasText(statCd) ? statCd : null, prefix, Math.max(1, Math.min(limit, 200)));
     }
 
     /**
@@ -100,21 +79,13 @@ public class OutboxService {
      */
     @Transactional
     public Entry retry(long outboxId, String empId) {
-        String stat = jdbc.query("SELECT STAT_CD FROM TB_EXT_OUTBOX WHERE OUTBOX_ID = :id FOR UPDATE",
-                        new MapSqlParameterSource("id", outboxId), (rs, i) -> rs.getString(1)).stream().findFirst()
+        String stat = outboxMapper.findStatForUpdate(outboxId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "E-EXT-002", "없는 대기열 번호입니다: " + outboxId));
         if (!STAT_FAILED.equals(stat)) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-EXT-003", "재시도 한도를 넘어 멈춘(90) 건만 다시 보낼 수 있습니다. (상태 " + stat + ")");
         }
-        jdbc.update("UPDATE TB_EXT_OUTBOX SET STAT_CD = '10', ATTEMPTS = 0, NEXT_TRY_DT = :now WHERE OUTBOX_ID = :id",
-                new MapSqlParameterSource("id", outboxId).addValue("now", LocalDateTime.now(clock)));
+        outboxMapper.resetForRetry(outboxId, LocalDateTime.now(clock));
         log.info("대외기관 전송 수동 재시도: 대기열={}, 처리자={}", outboxId, empId);
-        return jdbc.query("""
-                SELECT OUTBOX_ID, AGENCY_CD, TX_TYPE, BIZ_KEY, STAT_CD, ATTEMPTS, NEXT_TRY_DT, LAST_ERROR, CREATED_DT, SENT_DT
-                  FROM TB_EXT_OUTBOX WHERE OUTBOX_ID = :id""", new MapSqlParameterSource("id", outboxId),
-                (rs, i) -> new Entry(rs.getLong("OUTBOX_ID"), rs.getString("AGENCY_CD"), rs.getString("TX_TYPE"),
-                        rs.getString("BIZ_KEY"), rs.getString("STAT_CD"), rs.getInt("ATTEMPTS"),
-                        rs.getObject("NEXT_TRY_DT", LocalDateTime.class), rs.getString("LAST_ERROR"),
-                        rs.getObject("CREATED_DT", LocalDateTime.class), rs.getObject("SENT_DT", LocalDateTime.class))).get(0);
+        return outboxMapper.findEntry(outboxId).orElseThrow();
     }
 }

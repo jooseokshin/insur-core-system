@@ -1,10 +1,15 @@
 package com.insur.insurcoresystem.mapper.claim;
 
+import com.insur.insurcoresystem.common.paging.PageQuery;
 import com.insur.insurcoresystem.domain.claim.Claim;
 import com.insur.insurcoresystem.domain.claim.ClaimCoverage;
+import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import lombok.Builder;
 import org.apache.ibatis.annotations.Param;
 
 /**
@@ -32,6 +37,11 @@ public interface ClaimMapper {
     BigDecimal sumPaid(@Param("contractNo") String contractNo, @Param("cvrgCd") String cvrgCd,
                        @Param("excludeClmNo") String excludeClmNo);
 
+    /** 조건에 맞는 사고 한 페이지 (최근 접수순) */
+    List<ClaimResponses.Summary> search(@Param("c") SearchCondition condition, @Param("page") PageQuery page);
+
+    long countSearch(@Param("c") SearchCondition condition);
+
     /** 사고와 담보 행을 함께 넣는다. */
     default void insert(Claim claim) {
         insertHeader(claim);
@@ -56,4 +66,18 @@ public interface ClaimMapper {
     int updateHeader(Claim claim);
 
     int updateItem(@Param("clmNo") String clmNo, @Param("item") ClaimCoverage item);
+
+    /**
+     * 사고 목록 조건. null 인 항목은 조건에서 빠진다.
+     *
+     * @param regEmpId      계약 접수 사번 (본인 계약만 보는 호출자)
+     * @param rptFrom       접수일시 하한 (포함)
+     * @param rptTo         접수일시 상한 (미포함)
+     * @param highValueOnly 손해사정(20) 중 지급액이 threshold 를 넘는 건만
+     * @param threshold     고액 기준 (응답의 highValue 계산에도 쓴다)
+     */
+    @Builder
+    record SearchCondition(String regEmpId, String clmStatCd, String contractNo, LocalDateTime rptFrom, LocalDateTime rptTo,
+                           boolean highValueOnly, BigDecimal threshold) {
+    }
 }

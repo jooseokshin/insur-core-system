@@ -3,6 +3,7 @@ package com.insur.insurcoresystem.ext.fep;
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.TraceNumbers;
+import com.insur.insurcoresystem.mapper.ext.FepMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -12,8 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -31,7 +30,7 @@ import org.springframework.util.StringUtils;
 public class FepAdminService {
 
     private final FepGateway gateway;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final FepMapper fepMapper;
     private final TraceNumbers traceNumbers;
     private final Clock clock;
     @Value("${app.ext.kcis.org-code:K99}")
@@ -51,24 +50,12 @@ public class FepAdminService {
 
     public List<InstStatus> institutions() {
         LocalDate today = LocalDate.now(clock);
-        return jdbc.query("""
-                SELECT I.*, 
-                       (SELECT COUNT(*) FROM TB_FEP_MSG_LOG L WHERE L.INST_CD = I.INST_CD AND L.REQ_DT >= :from AND L.REQ_DT < :to) AS CNT,
-                       (SELECT COUNT(*) FROM TB_FEP_MSG_LOG L WHERE L.INST_CD = I.INST_CD AND L.REQ_DT >= :from AND L.REQ_DT < :to AND L.RESULT_CD = 'ERROR') AS ERR,
-                       (SELECT COUNT(*) FROM TB_FEP_MSG_LOG L WHERE L.INST_CD = I.INST_CD AND L.REQ_DT >= :from AND L.REQ_DT < :to AND L.RESULT_CD = 'TIMEOUT') AS TMO,
-                       (SELECT COUNT(*) FROM TB_FEP_MSG_LOG L WHERE L.INST_CD = I.INST_CD AND L.REQ_DT >= :from AND L.REQ_DT < :to AND L.RESULT_CD = 'BLOCKED') AS BLK,
-                       (SELECT ROUND(AVG(ELAPSED_MS)) FROM TB_FEP_MSG_LOG L WHERE L.INST_CD = I.INST_CD AND L.REQ_DT >= :from AND L.REQ_DT < :to AND L.RESULT_CD IN ('OK', 'ERROR')) AS AVG_MS
-                  FROM TB_FEP_INST I ORDER BY I.INST_CD
-                """, new MapSqlParameterSource("from", today.atStartOfDay()).addValue("to", today.plusDays(1).atStartOfDay()), (rs, i) -> {
-            String inst = rs.getString("INST_CD");
-            FepGateway.CircuitView c = gateway.circuit(inst);
-            Number avg = (Number) rs.getObject("AVG_MS");
-            return new InstStatus(inst, rs.getString("INST_NM"), rs.getBoolean("SIGN_ON_YN"), gateway.hasTransport(inst),
-                    rs.getObject("LAST_ECHO_DT", LocalDateTime.class), (Boolean) rs.getObject("LAST_ECHO_OK"),
-                    c.open(), c.consecutiveFailures(), c.openUntil(), rs.getLong("CNT"), rs.getLong("ERR"), rs.getLong("TMO"),
-                    rs.getLong("BLK"), avg == null ? null : avg.longValue(),
-                    rs.getObject("UPD_DT", LocalDateTime.class), rs.getString("UPD_EMP_ID"));
-        });
+        return fepMapper.findInstitutions(today.atStartOfDay(), today.plusDays(1).atStartOfDay()).stream().map(r -> {
+            FepGateway.CircuitView c = gateway.circuit(r.instCd());
+            return new InstStatus(r.instCd(), r.instNm(), r.signOnYn(), gateway.hasTransport(r.instCd()), r.lastEchoDt(),
+                    r.lastEchoOk(), c.open(), c.consecutiveFailures(), c.openUntil(), r.cnt(), r.err(), r.tmo(), r.blk(), r.avgMs(),
+                    r.updDt(), r.updEmpId());
+        }).toList();
     }
 
     /**
@@ -113,8 +100,7 @@ public class FepAdminService {
         } catch (ExternalAgencyException e) {
             ok = false;
         }
-        jdbc.update("UPDATE TB_FEP_INST SET LAST_ECHO_DT = :now, LAST_ECHO_OK = :ok WHERE INST_CD = :inst",
-                new MapSqlParameterSource("now", LocalDateTime.now(clock)).addValue("ok", ok).addValue("inst", instCd));
+        fepMapper.updateEcho(instCd, ok, LocalDateTime.now(clock));
         return find(instCd);
     }
 
@@ -132,29 +118,17 @@ public class FepAdminService {
         if (StringUtils.hasText(resultCd) && !List.of("OK", "ERROR", "TIMEOUT", "BLOCKED").contains(resultCd)) {
             throw new BusinessException("E-FEP-003", "결과는 OK, ERROR, TIMEOUT, BLOCKED 중 하나여야 합니다: " + resultCd);
         }
-        StringBuilder sql = new StringBuilder("SELECT * FROM TB_FEP_MSG_LOG WHERE 1 = 1");
-        MapSqlParameterSource p = new MapSqlParameterSource("limit", limit == null ? 100 : Math.max(1, Math.min(limit, 500)));
-        if (StringUtils.hasText(instCd)) {
-            sql.append(" AND INST_CD = :inst");
-            p.addValue("inst", instCd);
-        }
-        if (StringUtils.hasText(traceNo)) {
-            sql.append(" AND TRACE_NO = :trace");
-            p.addValue("trace", traceNo);
-        }
-        if (StringUtils.hasText(resultCd)) {
-            sql.append(" AND RESULT_CD = :result");
-            p.addValue("result", resultCd);
-        }
-        if (date != null) {
-            sql.append(" AND REQ_DT >= :from AND REQ_DT < :to");
-            p.addValue("from", date.atStartOfDay()).addValue("to", date.plusDays(1).atStartOfDay());
-        }
-        sql.append(" ORDER BY LOG_ID DESC LIMIT :limit");
-        return jdbc.query(sql.toString(), p, (rs, i) -> new MessageLog(rs.getLong("LOG_ID"), rs.getString("INST_CD"),
-                rs.getString("TX_TYPE"), rs.getString("TRACE_NO"), rs.getObject("REQ_DT", LocalDateTime.class), rs.getInt("ELAPSED_MS"),
-                rs.getString("RESULT_CD"), rs.getString("RESPONSE_CD"), rs.getInt("REQ_BYTES"), (Integer) rs.getObject("RES_BYTES"),
-                rs.getString("REQ_HASH"), rs.getString("ERROR_MSG")));
+        return fepMapper.findMessageLogs(FepMapper.MessageLogCondition.builder()
+                .instCd(StringUtils.hasText(instCd) ? instCd : null)
+                .traceNo(StringUtils.hasText(traceNo) ? traceNo : null)
+                .resultCd(StringUtils.hasText(resultCd) ? resultCd : null)
+                .reqFrom(date == null ? null : date.atStartOfDay())
+                .reqTo(date == null ? null : date.plusDays(1).atStartOfDay())
+                .limit(limit == null ? 100 : Math.max(1, Math.min(limit, 500)))
+                .build()).stream()
+                .map(r -> new MessageLog(r.logId(), r.instCd(), r.txType(), r.traceNo(), r.reqDt(), r.elapsedMs(), r.resultCd(),
+                        r.responseCd(), r.reqBytes(), r.resBytes(), r.reqHash(), r.errorMsg()))
+                .toList();
     }
 
     private void network(String instCd, String txType) {
@@ -167,8 +141,7 @@ public class FepAdminService {
     }
 
     private void update(String instCd, boolean on, String empId) {
-        jdbc.update("UPDATE TB_FEP_INST SET SIGN_ON_YN = :on, UPD_DT = :now, UPD_EMP_ID = :emp WHERE INST_CD = :inst",
-                new MapSqlParameterSource("on", on).addValue("now", LocalDateTime.now(clock)).addValue("emp", empId).addValue("inst", instCd));
+        fepMapper.updateSignOn(instCd, on, LocalDateTime.now(clock), empId);
     }
 
     private InstStatus find(String instCd) {
@@ -176,9 +149,7 @@ public class FepAdminService {
     }
 
     private void requireInst(String instCd) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM TB_FEP_INST WHERE INST_CD = :inst",
-                new MapSqlParameterSource("inst", instCd == null ? "" : instCd), Integer.class);
-        if (n == null || n == 0) {
+        if (!fepMapper.existsInst(instCd == null ? "" : instCd)) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "E-FEP-001", "없는 기관입니다: " + instCd);
         }
     }

@@ -6,6 +6,7 @@ import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.FixedLengthCodec;
 import com.insur.insurcoresystem.ext.fep.FepHeader;
 import com.insur.insurcoresystem.ext.fep.FepTransport;
+import com.insur.insurcoresystem.mapper.sim.SimulatorMapper;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -15,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,12 +33,12 @@ public class BankSimulator implements FepTransport {
     private static final DateTimeFormatter YMD = DateTimeFormatter.BASIC_ISO_DATE;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
-    private final JdbcTemplate jdbc;
+    private final SimulatorMapper sim;
     private final Clock clock;
     private final AtomicBoolean failAll = new AtomicBoolean(false);
 
-    public BankSimulator(JdbcTemplate jdbc, Clock clock) {
-        this.jdbc = jdbc;
+    public BankSimulator(SimulatorMapper sim, Clock clock) {
+        this.sim = sim;
         this.clock = clock;
     }
 
@@ -75,12 +75,12 @@ public class BankSimulator implements FepTransport {
     }
 
     private byte[] verify(Map<String, String> header, Map<String, String> body) {
-        Map<String, Object> account = account(body.get("bankCd"), body.get("accountNo"));
+        SimulatorMapper.BankAccount account = sim.findBankAccount(body.get("bankCd"), body.get("accountNo")).orElse(null);
         String code = statusCode(account);
         if (!FepHeader.OK.equals(code)) {
             return respond(header, code, "");
         }
-        return respond(header, FepHeader.OK, FixedLengthCodec.encode(BankLayouts.VERIFY_RES, Map.of("holderNm", account.get("holder_nm"))));
+        return respond(header, FepHeader.OK, FixedLengthCodec.encode(BankLayouts.VERIFY_RES, Map.of("holderNm", account.holderNm())));
     }
 
     private byte[] transfer(Map<String, String> header, Map<String, String> body) {
@@ -89,18 +89,17 @@ public class BankSimulator implements FepTransport {
         if (accountNo.endsWith("8888")) {
             throw timeout("받기 전에 연결이 끊김");
         }
-        Integer done = jdbc.queryForObject("SELECT COUNT(*) FROM TB_SIM_BANK_TRANSFER WHERE TRACE_NO = ?", Integer.class, trace);
-        if (done != null && done > 0) {
+        if (sim.findBankTransfer(trace).isPresent()) {
             return respond(header, BankLayouts.DUPLICATE, "");
         }
-        Map<String, Object> account = account(body.get("bankCd"), accountNo);
+        SimulatorMapper.BankAccount account = sim.findBankAccount(body.get("bankCd"), accountNo).orElse(null);
         String code = statusCode(account);
         if (!FepHeader.OK.equals(code)) {
             return respond(header, code, "");
         }
         LocalDateTime now = LocalDateTime.now(clock);
-        jdbc.update("INSERT INTO TB_SIM_BANK_TRANSFER (TRACE_NO, BANK_CD, ACCOUNT_NO, AMOUNT, RECIPIENT_NM, PROC_DT) VALUES (?, ?, ?, ?, ?, ?)",
-                trace, body.get("bankCd"), accountNo, Long.parseLong(body.get("amount")), body.get("recipientNm"), now);
+        sim.insertBankTransfer(new SimulatorMapper.BankTransfer(trace, body.get("bankCd"), accountNo, Long.parseLong(body.get("amount")),
+                body.get("recipientNm"), now));
         if (accountNo.endsWith("7777")) {
             throw timeout("처리 후 응답 유실");
         }
@@ -108,15 +107,14 @@ public class BankSimulator implements FepTransport {
     }
 
     private byte[] inquiry(Map<String, String> header, Map<String, String> body) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT AMOUNT, PROC_DT FROM TB_SIM_BANK_TRANSFER WHERE TRACE_NO = ?",
-                body.get("orgTraceNo"));
+        var done = sim.findBankTransfer(body.get("orgTraceNo"));
         Map<String, Object> out = new HashMap<>();
-        if (rows.isEmpty()) {
+        if (done.isEmpty()) {
             out.put("status", "N");
         } else {
             out.put("status", "S");
-            out.put("amount", ((Number) rows.get(0).get("amount")).longValue());
-            out.put("procDt", ((java.sql.Timestamp) rows.get(0).get("proc_dt")).toLocalDateTime().format(TS));
+            out.put("amount", done.get().amount());
+            out.put("procDt", done.get().procDt().format(TS));
         }
         return respond(header, FepHeader.OK, FixedLengthCodec.encode(BankLayouts.INQUIRY_RES, out));
     }
@@ -124,33 +122,24 @@ public class BankSimulator implements FepTransport {
     private byte[] list(Map<String, String> header, Map<String, String> body) {
         LocalDate date = LocalDate.parse(body.get("date"), YMD);
         int page = Integer.parseInt(body.get("page"));
-        List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT TRACE_NO, BANK_CD, ACCOUNT_NO, AMOUNT, PROC_DT FROM TB_SIM_BANK_TRANSFER
-                 WHERE PROC_DT >= ? AND PROC_DT < ? ORDER BY TRACE_NO LIMIT ? OFFSET ?
-                """, date.atStartOfDay(), date.plusDays(1).atStartOfDay(), BankLayouts.PAGE_SIZE + 1, page * BankLayouts.PAGE_SIZE);
+        List<SimulatorMapper.BankTransfer> rows = sim.findBankTransfers(date.atStartOfDay(), date.plusDays(1).atStartOfDay(),
+                BankLayouts.PAGE_SIZE + 1, page * BankLayouts.PAGE_SIZE);
         boolean more = rows.size() > BankLayouts.PAGE_SIZE;
-        List<Map<String, Object>> pageRows = more ? rows.subList(0, BankLayouts.PAGE_SIZE) : rows;
+        List<SimulatorMapper.BankTransfer> pageRows = more ? rows.subList(0, BankLayouts.PAGE_SIZE) : rows;
         StringBuilder out = new StringBuilder(FixedLengthCodec.encode(BankLayouts.LIST_RES_HEAD,
                 Map.of("count", pageRows.size(), "more", more ? "Y" : "N")));
-        for (Map<String, Object> r : pageRows) {
-            out.append(FixedLengthCodec.encode(BankLayouts.LIST_RES_ROW, Map.of("traceNo", r.get("trace_no"), "bankCd", r.get("bank_cd"),
-                    "accountNo", r.get("account_no"), "amount", ((Number) r.get("amount")).longValue(),
-                    "procDt", ((java.sql.Timestamp) r.get("proc_dt")).toLocalDateTime().format(TS))));
+        for (SimulatorMapper.BankTransfer r : pageRows) {
+            out.append(FixedLengthCodec.encode(BankLayouts.LIST_RES_ROW, Map.of("traceNo", r.traceNo(), "bankCd", r.bankCd(),
+                    "accountNo", r.accountNo(), "amount", r.amount(), "procDt", r.procDt().format(TS))));
         }
         return respond(header, FepHeader.OK, out.toString());
     }
 
-    private Map<String, Object> account(String bankCd, String accountNo) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT HOLDER_NM, STAT_CD FROM TB_SIM_BANK_ACCOUNT WHERE BANK_CD = ? AND ACCOUNT_NO = ?",
-                bankCd, accountNo);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    private static String statusCode(Map<String, Object> account) {
+    private static String statusCode(SimulatorMapper.BankAccount account) {
         if (account == null) {
             return BankLayouts.NO_ACCOUNT;
         }
-        return switch ((String) account.get("stat_cd")) {
+        return switch (account.statCd()) {
             case "CLOSED" -> BankLayouts.CLOSED;
             case "FROZEN" -> BankLayouts.FROZEN;
             default -> FepHeader.OK;

@@ -1,8 +1,11 @@
 package com.insur.insurcoresystem.batch;
 
 import com.insur.insurcoresystem.common.security.AccountCipher;
+import com.insur.insurcoresystem.domain.contract.ContractPayment;
 import com.insur.insurcoresystem.ext.cms.CmsFileCodec;
 import com.insur.insurcoresystem.ext.cms.CmsFileTransport;
+import com.insur.insurcoresystem.mapper.cms.CmsMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractPaymentMapper;
 import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,8 +18,10 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.batch.MyBatisCursorItemReader;
+import org.mybatis.spring.batch.builder.MyBatisCursorItemReaderBuilder;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -26,14 +31,10 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.batch.infrastructure.item.ItemWriter;
-import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
-import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -83,32 +84,30 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    Tasklet cmsRegisterSendTasklet(NamedParameterJdbcTemplate jdbc, CmsFileTransport transport, AccountCipher cipher, Clock clock,
+    Tasklet cmsRegisterSendTasklet(CmsMapper cmsMapper, CmsFileTransport transport, AccountCipher cipher, Clock clock,
                                    @Value("${app.ext.cms.org-code:9900000001}") String orgCode,
                                    @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
                                    @Value("#{stepExecution.jobExecutionId}") Long execId) {
         return (contribution, ctx) -> {
-            List<Map<String, Object>> pending = jdbc.queryForList(
-                    "SELECT * FROM TB_CMS_MANDATE WHERE STAT_CD = '10' ORDER BY MANDATE_ID FOR UPDATE", new MapSqlParameterSource());
+            List<CmsMapper.PendingMandate> pending = cmsMapper.lockPendingMandates();
             if (pending.isEmpty()) {
                 return RepeatStatus.FINISHED;
             }
             List<Map<String, Object>> records = new ArrayList<>();
-            for (Map<String, Object> m : pending) {
+            for (CmsMapper.PendingMandate m : pending) {
                 Map<String, Object> r = new HashMap<>();
-                r.put("payerNo", m.get("contract_no"));
-                r.put("bankCd", m.get("bank_cd"));
-                r.put("accountNo", cipher.decrypt((String) m.get("account_enc")));
-                r.put("payerNm", m.get("payer_nm"));
-                r.put("consent", ((String) m.get("consent_method")).substring(0, 1));
-                r.put("consentDate", ((java.sql.Timestamp) m.get("consent_dt")).toLocalDateTime().toLocalDate().format(YMD));
+                r.put("payerNo", m.contractNo());
+                r.put("bankCd", m.bankCd());
+                r.put("accountNo", cipher.decrypt(m.accountEnc()));
+                r.put("payerNm", m.payerNm());
+                r.put("consent", m.consentMethod().substring(0, 1));
+                r.put("consentDate", m.consentDt().toLocalDate().format(YMD));
                 records.add(r);
             }
             String file = CmsFileCodec.build(CmsFileCodec.EB11, debitDate, orgCode, records);
             transport.send(CmsFileCodec.EB11, debitDate, file);
-            logFile(jdbc, clock, CmsFileCodec.EB11, debitDate, "SEND", records.size(), 0, file, execId);
-            jdbc.update("UPDATE TB_CMS_MANDATE SET STAT_CD = '20' WHERE STAT_CD = '10' AND MANDATE_ID IN (:ids)",
-                    new MapSqlParameterSource("ids", pending.stream().map(m -> m.get("mandate_id")).toList()));
+            logFile(cmsMapper, clock, CmsFileCodec.EB11, debitDate, "SEND", records.size(), 0, file, execId);
+            cmsMapper.markMandatesSent(pending.stream().map(CmsMapper.PendingMandate::mandateId).toList());
             contribution.incrementReadCount();
             contribution.incrementWriteCount(records.size());
             return RepeatStatus.FINISHED;
@@ -123,26 +122,22 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    Tasklet cmsRegisterResultTasklet(NamedParameterJdbcTemplate jdbc, CmsFileTransport transport, Clock clock,
+    Tasklet cmsRegisterResultTasklet(CmsMapper cmsMapper, CmsFileTransport transport, Clock clock,
                                      @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
                                      @Value("#{stepExecution.jobExecutionId}") Long execId) {
         return (contribution, ctx) -> {
-            Integer waiting = jdbc.queryForObject("SELECT COUNT(*) FROM TB_CMS_MANDATE WHERE STAT_CD = '20'", new MapSqlParameterSource(), Integer.class);
-            if (waiting == null || waiting == 0) {
+            if (cmsMapper.countMandatesSent() == 0) {
                 return RepeatStatus.FINISHED;
             }
             String content = transport.receive(CmsFileCodec.EB12, debitDate)
                     .orElseThrow(() -> new IllegalStateException("등록 결과 파일(EB12)이 아직 오지 않았습니다. 받은 뒤 같은 출금일로 다시 실행하면 이 단계부터 이어서 합니다."));
             CmsFileCodec.CmsFile file = CmsFileCodec.parse(CmsFileCodec.EB12, debitDate, content);
-            logFile(jdbc, clock, CmsFileCodec.EB12, debitDate, "RECV", file.records().size(), 0, content, execId);
+            logFile(cmsMapper, clock, CmsFileCodec.EB12, debitDate, "RECV", file.records().size(), 0, content, execId);
             LocalDateTime now = LocalDateTime.now(clock);
             for (Map<String, String> r : file.records()) {
                 String code = r.get("resultCd");
-                int n = jdbc.update("""
-                        UPDATE TB_CMS_MANDATE SET STAT_CD = :stat, RESULT_CD = :code, RESULT_MSG = :msg, DONE_DT = :now
-                         WHERE CONTRACT_NO = :payer AND STAT_CD = '20'""", new MapSqlParameterSource("payer", r.get("payerNo"))
-                        .addValue("stat", CmsFileCodec.OK.equals(code) ? "30" : "80").addValue("code", code)
-                        .addValue("msg", "결제원 등록 " + CmsFileCodec.describe(code)).addValue("now", now));
+                int n = cmsMapper.applyMandateResult(r.get("payerNo"), CmsFileCodec.OK.equals(code) ? "30" : "80", code,
+                        "결제원 등록 " + CmsFileCodec.describe(code), now);
                 if (n == 0) {
                     log.warn("등록 결과에 맞는 의뢰 건이 없습니다: 납부자번호={}", r.get("payerNo"));
                 }
@@ -155,7 +150,7 @@ public class CmsDebitJobConfig {
 
     // 3. 출금 대상 선정 ---------------------------------------------------------------------------------------
     @Bean
-    Step cmsDebitSelectStep(JobRepository jobRepository, PlatformTransactionManager tm, JdbcCursorItemReader<DueContract> cmsDueReader,
+    Step cmsDebitSelectStep(JobRepository jobRepository, PlatformTransactionManager tm, MyBatisCursorItemReader<DueContract> cmsDueReader,
                             ItemProcessor<DueContract, DebitRow> cmsDueProcessor, ItemWriter<DebitRow> cmsDebitWriter) {
         return new StepBuilder("cmsDebitSelectStep", jobRepository)
                 .<DueContract, DebitRow>chunk(100)
@@ -168,23 +163,10 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    JdbcCursorItemReader<DueContract> cmsDueReader(DataSource dataSource) {
-        return new JdbcCursorItemReaderBuilder<DueContract>()
-                .name("cmsDueReader")
-                .dataSource(dataSource)
-                .sql("""
-                        SELECT L.CONTRACT_NO, M.MANDATE_ID,
-                               L.TOTAL_PREMIUM - COALESCE((SELECT SUM(P.PAY_AMT) FROM TB_CTR_PAYMENT P WHERE P.CONTRACT_NO = L.CONTRACT_NO), 0) AS REMAINING,
-                               (SELECT COUNT(*) FROM TB_CMS_DEBIT D WHERE D.MANDATE_ID = M.MANDATE_ID AND D.STAT_CD = '80') AS FAILS,
-                               (SELECT MAX(D.DEBIT_DT) FROM TB_CMS_DEBIT D WHERE D.MANDATE_ID = M.MANDATE_ID) AS LAST_DT
-                          FROM TB_CTR_LGD L
-                          JOIN TB_CMS_MANDATE M ON M.CONTRACT_NO = L.CONTRACT_NO AND M.STAT_CD = '30'
-                         WHERE L.CTR_STAT_CD = '10'
-                           AND NOT EXISTS (SELECT 1 FROM TB_CMS_DEBIT D WHERE D.CONTRACT_NO = L.CONTRACT_NO AND D.STAT_CD IN ('10', '20'))
-                         ORDER BY L.CONTRACT_NO
-                        """)
-                .rowMapper((rs, i) -> new DueContract(rs.getString("CONTRACT_NO"), rs.getLong("MANDATE_ID"), rs.getBigDecimal("REMAINING"),
-                        rs.getInt("FAILS"), rs.getObject("LAST_DT", LocalDate.class)))
+    MyBatisCursorItemReader<DueContract> cmsDueReader(SqlSessionFactory sqlSessionFactory) {
+        return new MyBatisCursorItemReaderBuilder<DueContract>()
+                .sqlSessionFactory(sqlSessionFactory)
+                .queryId("com.insur.insurcoresystem.mapper.cms.CmsMapper.dueContracts")
                 .build();
     }
 
@@ -202,17 +184,12 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    ItemWriter<DebitRow> cmsDebitWriter(NamedParameterJdbcTemplate jdbc, Clock clock, @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
+    ItemWriter<DebitRow> cmsDebitWriter(CmsMapper cmsMapper, Clock clock, @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
                                         @Value("#{stepExecution.jobExecutionId}") Long execId) {
         return chunk -> {
             LocalDateTime now = LocalDateTime.now(clock);
             for (DebitRow d : chunk.getItems()) {
-                jdbc.update("""
-                        INSERT INTO TB_CMS_DEBIT (DEBIT_DT, MANDATE_ID, CONTRACT_NO, AMOUNT, ATTEMPT_NO, STAT_CD, JOB_EXECUTION_ID, CREATED_DT)
-                        VALUES (:d, :m, :c, :amount, :attempt, '10', :exec, :now)
-                        ON CONFLICT (CONTRACT_NO, DEBIT_DT) DO NOTHING
-                        """, new MapSqlParameterSource("d", debitDate).addValue("m", d.mandateId()).addValue("c", d.contractNo())
-                        .addValue("amount", d.amount()).addValue("attempt", d.attemptNo()).addValue("exec", execId).addValue("now", now));
+                cmsMapper.insertDebit(debitDate, d, execId, now);
             }
         };
     }
@@ -225,31 +202,27 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    Tasklet cmsDebitSendTasklet(NamedParameterJdbcTemplate jdbc, CmsFileTransport transport, AccountCipher cipher, Clock clock,
+    Tasklet cmsDebitSendTasklet(CmsMapper cmsMapper, CmsFileTransport transport, AccountCipher cipher, Clock clock,
                                 @Value("${app.ext.cms.org-code:9900000001}") String orgCode,
                                 @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
                                 @Value("#{stepExecution.jobExecutionId}") Long execId) {
         return (contribution, ctx) -> {
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                    SELECT D.DEBIT_ID, D.CONTRACT_NO, D.AMOUNT, M.BANK_CD, M.ACCOUNT_ENC
-                      FROM TB_CMS_DEBIT D JOIN TB_CMS_MANDATE M ON M.MANDATE_ID = D.MANDATE_ID
-                     WHERE D.DEBIT_DT = :d AND D.STAT_CD = '10' ORDER BY D.DEBIT_ID FOR UPDATE OF D
-                    """, new MapSqlParameterSource("d", debitDate));
+            List<CmsMapper.DebitToSend> rows = cmsMapper.lockDebitsToSend(debitDate);
             if (rows.isEmpty()) {
                 return RepeatStatus.FINISHED;
             }
             List<Map<String, Object>> records = new ArrayList<>();
             long total = 0;
-            for (Map<String, Object> r : rows) {
-                long amount = ((BigDecimal) r.get("amount")).longValueExact();
+            for (CmsMapper.DebitToSend r : rows) {
+                long amount = r.amount().longValueExact();
                 total += amount;
-                records.add(Map.of("payerNo", r.get("contract_no"), "bankCd", r.get("bank_cd"),
-                        "accountNo", cipher.decrypt((String) r.get("account_enc")), "amount", amount));
+                records.add(Map.of("payerNo", r.contractNo(), "bankCd", r.bankCd(), "accountNo", cipher.decrypt(r.accountEnc()),
+                        "amount", amount));
             }
             String file = CmsFileCodec.build(CmsFileCodec.EB21, debitDate, orgCode, records);
             transport.send(CmsFileCodec.EB21, debitDate, file);
-            logFile(jdbc, clock, CmsFileCodec.EB21, debitDate, "SEND", records.size(), total, file, execId);
-            jdbc.update("UPDATE TB_CMS_DEBIT SET STAT_CD = '20' WHERE DEBIT_DT = :d AND STAT_CD = '10'", new MapSqlParameterSource("d", debitDate));
+            logFile(cmsMapper, clock, CmsFileCodec.EB21, debitDate, "SEND", records.size(), total, file, execId);
+            cmsMapper.markDebitsSent(debitDate);
             contribution.incrementReadCount();
             contribution.incrementWriteCount(records.size());
             log.info("CMS 출금 의뢰: 출금일={}, {}건, {}원", debitDate, records.size(), total);
@@ -265,50 +238,41 @@ public class CmsDebitJobConfig {
 
     @Bean
     @StepScope
-    Tasklet cmsDebitResultTasklet(NamedParameterJdbcTemplate jdbc, CmsFileTransport transport, Clock clock,
+    Tasklet cmsDebitResultTasklet(CmsMapper cmsMapper, ContractPaymentMapper paymentMapper, CmsFileTransport transport, Clock clock,
                                   @Value("#{jobParameters['debitDate']}") LocalDate debitDate,
                                   @Value("#{stepExecution.jobExecutionId}") Long execId) {
         return (contribution, ctx) -> {
-            Integer waiting = jdbc.queryForObject("SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE DEBIT_DT = :d AND STAT_CD = '20'",
-                    new MapSqlParameterSource("d", debitDate), Integer.class);
-            if (waiting == null || waiting == 0) {
+            if (cmsMapper.countDebitsSent(debitDate) == 0) {
                 return RepeatStatus.FINISHED;
             }
             String content = transport.receive(CmsFileCodec.EB22, debitDate)
                     .orElseThrow(() -> new IllegalStateException("출금 결과 파일(EB22)이 아직 오지 않았습니다. 받은 뒤 같은 출금일로 다시 실행하면 이 단계부터 이어서 합니다."));
             CmsFileCodec.CmsFile file = CmsFileCodec.parse(CmsFileCodec.EB22, debitDate, content);
-            logFile(jdbc, clock, CmsFileCodec.EB22, debitDate, "RECV", file.records().size(), file.totalAmount(), content, execId);
+            logFile(cmsMapper, clock, CmsFileCodec.EB22, debitDate, "RECV", file.records().size(), file.totalAmount(), content, execId);
             LocalDateTime now = LocalDateTime.now(clock);
             int paid = 0;
             for (Map<String, String> r : file.records()) {
-                MapSqlParameterSource key = new MapSqlParameterSource("d", debitDate).addValue("c", r.get("payerNo"));
-                List<Map<String, Object>> debit = jdbc.queryForList(
-                        "SELECT DEBIT_ID, AMOUNT FROM TB_CMS_DEBIT WHERE DEBIT_DT = :d AND CONTRACT_NO = :c AND STAT_CD = '20' FOR UPDATE", key);
+                var debit = cmsMapper.lockSentDebit(debitDate, r.get("payerNo"));
                 if (debit.isEmpty()) {
                     log.warn("출금 결과에 맞는 의뢰 건이 없습니다: 납부자번호={}", r.get("payerNo"));
                     continue;
                 }
-                long debitId = ((Number) debit.get(0).get("debit_id")).longValue();
+                long debitId = debit.get().debitId();
                 long debited = Long.parseLong(r.get("debited"));
                 String code = r.get("resultCd");
                 if (CmsFileCodec.OK.equals(code) && debited > 0) {
                     // 출금된 돈은 이미 우리 계좌에 들어왔으므로 수납으로 남긴다 (계약 상태가 바뀌었어도 남기고 환불은 따로 한다)
-                    Long paymentId = jdbc.queryForObject("""
-                            INSERT INTO TB_CTR_PAYMENT (CONTRACT_NO, PAY_AMT, PAY_METHOD, EMP_ID, GLOBAL_TX_ID, PAID_DT)
-                            VALUES (:c, :amount, 'CMS', 'cms', :tx, :now) RETURNING PAYMENT_ID
-                            """, new MapSqlParameterSource("c", r.get("payerNo")).addValue("amount", debited)
-                            .addValue("tx", "CMS-" + debitId).addValue("now", now), Long.class);
-                    jdbc.update("""
-                            UPDATE TB_CMS_DEBIT SET STAT_CD = '30', RESULT_CD = :code, RESULT_MSG = :msg, PAYMENT_ID = :pay, DONE_DT = :now
-                             WHERE DEBIT_ID = :id""", new MapSqlParameterSource("id", debitId).addValue("code", code)
-                            .addValue("msg", debited == ((BigDecimal) debit.get(0).get("amount")).longValue() ? "출금 성공" : "부분 출금 " + debited + "원")
-                            .addValue("pay", paymentId).addValue("now", now));
+                    ContractPayment payment = ContractPayment.builder()
+                            .contractNo(r.get("payerNo")).payAmt(BigDecimal.valueOf(debited)).payMethod(ContractPayment.METHOD_CMS)
+                            .empId("cms").globalTxId("CMS-" + debitId).paidDt(now)
+                            .build();
+                    paymentMapper.insert(payment);
+                    cmsMapper.markDebitPaid(debitId, code,
+                            debited == debit.get().amount().longValue() ? "출금 성공" : "부분 출금 " + debited + "원",
+                            payment.getPaymentId(), now);
                     paid++;
                 } else {
-                    jdbc.update("""
-                            UPDATE TB_CMS_DEBIT SET STAT_CD = '80', RESULT_CD = :code, RESULT_MSG = :msg, DONE_DT = :now WHERE DEBIT_ID = :id""",
-                            new MapSqlParameterSource("id", debitId).addValue("code", code)
-                                    .addValue("msg", "출금 실패: " + CmsFileCodec.describe(code)).addValue("now", now));
+                    cmsMapper.markDebitFailed(debitId, code, "출금 실패: " + CmsFileCodec.describe(code), now);
                 }
                 contribution.incrementWriteCount(1);
             }
@@ -318,15 +282,10 @@ public class CmsDebitJobConfig {
         };
     }
 
-    private static void logFile(NamedParameterJdbcTemplate jdbc, Clock clock, String type, LocalDate date, String direction, int count,
+    private static void logFile(CmsMapper cmsMapper, Clock clock, String type, LocalDate date, String direction, int count,
                                 long total, String content, Long execId) {
         byte[] bytes = content.getBytes(com.insur.insurcoresystem.ext.FixedLengthCodec.CHARSET);
-        jdbc.update("""
-                INSERT INTO TB_CMS_FILE (FILE_TYPE, FILE_DT, DIRECTION, RECORD_COUNT, TOTAL_AMT, BYTES, FILE_HASH, JOB_EXECUTION_ID, CREATED_DT)
-                VALUES (:type, :d, :dir, :count, :total, :bytes, :hash, :exec, :now)
-                """, new MapSqlParameterSource("type", type).addValue("d", date).addValue("dir", direction).addValue("count", count)
-                .addValue("total", total).addValue("bytes", bytes.length).addValue("hash", sha256(bytes)).addValue("exec", execId)
-                .addValue("now", LocalDateTime.now(clock)));
+        cmsMapper.insertFileLog(type, date, direction, count, total, bytes.length, sha256(bytes), execId, LocalDateTime.now(clock));
     }
 
     private static String sha256(byte[] bytes) {

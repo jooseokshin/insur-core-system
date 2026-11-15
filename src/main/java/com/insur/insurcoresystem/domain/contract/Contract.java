@@ -100,7 +100,7 @@ public class Contract {
     /** 이 계약이 갱신으로 만들어진 경우 원 계약의 증권번호. 갱신 계약이 아니면 null */
     private String renewedFrom;
 
-    /** 판매채널을 정하지 않고 저장하면 대면(10)으로 본다 (DB 기본값과 같은 규칙. JPA 는 null 을 그대로 넣으므로 여기서 채운다) */
+    /** 판매채널을 정하지 않고 저장하면 대면(10)으로 본다 (DB 기본값과 같은 규칙. 매퍼 INSERT 는 null 을 그대로 넣으므로 ContractMapper.insert 가 이 메서드로 채운다) */
     public void defaultSalesChannel() {
         if (salesChnlCd == null) {
             salesChnlCd = "10";

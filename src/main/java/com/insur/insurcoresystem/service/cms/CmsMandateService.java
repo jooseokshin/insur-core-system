@@ -8,25 +8,23 @@ import static com.insur.insurcoresystem.service.contract.ContractSupport.validat
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.common.security.AccountCipher;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
 import com.insur.insurcoresystem.ext.bank.BankClient;
 import com.insur.insurcoresystem.ext.bank.BankLayouts;
+import com.insur.insurcoresystem.mapper.cms.CmsMapper;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.service.cms.dto.AutoDebitRequests;
 import com.insur.insurcoresystem.service.cms.dto.AutoDebitResponse;
 import com.insur.insurcoresystem.service.contract.ContractSupport;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,7 +48,7 @@ public class CmsMandateService {
     private static final Set<String> CONSENTS = Set.of("PAPER", "RECORDING", "ARS", "E_SIGN");
     private static final String ACTIVE_INDEX = "uk_cms_mandate_active";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final CmsMapper cmsMapper;
     private final ContractMapper contractMapper;
     private final BankClient bank;
     private final AccountCipher cipher;
@@ -74,10 +72,9 @@ public class CmsMandateService {
             throw new BusinessException("E-CMS-001", "증권번호, 은행(3자리), 계좌(10~16자리), 예금주(20자 이하), 동의 방식(PAPER/RECORDING/ARS/E_SIGN), "
                     + "동의 증빙 관리번호(100자 이하)를 입력해야 합니다.");
         }
-        List<Map<String, Object>> replay = jdbc.queryForList("SELECT CONTRACT_NO FROM TB_CMS_MANDATE WHERE GLOBAL_TX_ID = :tx",
-                new MapSqlParameterSource("tx", globalTxId));
-        if (!replay.isEmpty()) {
-            if (!request.getContractNo().equals(replay.get(0).get("contract_no"))) {
+        Optional<String> replay = cmsMapper.findMandateContractByTx(globalTxId);
+        if (replay.isPresent()) {
+            if (!request.getContractNo().equals(replay.get())) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CMS-007", "같은 거래 UUID(globalTxId)로 다른 자동이체 등록이 들어왔습니다.");
             }
             return inquiry(ownerEmpId, request.getContractNo());
@@ -104,15 +101,12 @@ public class CmsMandateService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         try {
-            jdbc.update("""
-                    INSERT INTO TB_CMS_MANDATE (CONTRACT_NO, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
-                                                STAT_CD, REG_EMP_ID, REG_DT, GLOBAL_TX_ID)
-                    VALUES (:contractNo, :payer, :bank, :enc, :mask, :consent, :now, :ref, '10', :emp, :now, :tx)
-                    """, new MapSqlParameterSource("contractNo", contract.getContractNo()).addValue("payer", verified.holderNm().trim())
-                    .addValue("bank", request.getBankCd()).addValue("enc", cipher.encrypt(request.getAccountNo()))
-                    .addValue("mask", AccountCipher.mask(request.getAccountNo())).addValue("consent", request.getConsentMethod())
-                    .addValue("now", now).addValue("ref", request.getConsentRef().trim()).addValue("emp", normalizeEmpId(empId))
-                    .addValue("tx", globalTxId));
+            cmsMapper.insertMandate(CmsMapper.NewMandate.builder()
+                    .contractNo(contract.getContractNo()).payerNm(verified.holderNm().trim()).bankCd(request.getBankCd())
+                    .accountEnc(cipher.encrypt(request.getAccountNo())).accountMask(AccountCipher.mask(request.getAccountNo()))
+                    .consentMethod(request.getConsentMethod()).now(now).consentRef(request.getConsentRef().trim())
+                    .regEmpId(normalizeEmpId(empId)).globalTxId(globalTxId)
+                    .build());
         } catch (DataIntegrityViolationException e) {
             if (isConstraintViolation(e, ACTIVE_INDEX)) {
                 throw new BusinessException(HttpStatus.CONFLICT, "E-CMS-004", "같은 계약의 자동이체가 동시에 등록되었습니다.");
@@ -133,15 +127,10 @@ public class CmsMandateService {
     public AutoDebitResponse cancel(String ownerEmpId, String empId, String contractNo) {
         Contract contract = contractMapper.findForUpdateByContractNo(contractNo == null ? "" : contractNo)
                 .filter(c -> isReadable(c, ownerEmpId)).orElseThrow(ContractSupport::contractNotFound);
-        MapSqlParameterSource p = new MapSqlParameterSource("c", contract.getContractNo());
-        Integer inFlight = jdbc.queryForObject("SELECT COUNT(*) FROM TB_CMS_DEBIT WHERE CONTRACT_NO = :c AND STAT_CD IN ('10', '20')", p, Integer.class);
-        if (inFlight != null && inFlight > 0) {
+        if (cmsMapper.countDebitsInFlight(contract.getContractNo()) > 0) {
             throw new BusinessException(HttpStatus.CONFLICT, "E-CMS-005", "출금이 진행 중이라 해지할 수 없습니다. 출금 결과가 나온 뒤 해지해 주세요.");
         }
-        int updated = jdbc.update("""
-                UPDATE TB_CMS_MANDATE SET STAT_CD = '90', CANCEL_DT = :now, CANCEL_EMP_ID = :emp
-                 WHERE CONTRACT_NO = :c AND STAT_CD IN ('10', '20', '30')""",
-                p.addValue("now", LocalDateTime.now(clock)).addValue("emp", normalizeEmpId(empId)));
+        int updated = cmsMapper.cancelActiveMandate(contract.getContractNo(), LocalDateTime.now(clock), normalizeEmpId(empId));
         if (updated == 0) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "E-CMS-008", "해지할 자동이체 등록이 없습니다.");
         }
@@ -158,21 +147,8 @@ public class CmsMandateService {
     public AutoDebitResponse inquiry(String ownerEmpId, String contractNo) {
         Contract contract = contractMapper.findById(contractNo == null ? "" : contractNo)
                 .filter(c -> isReadable(c, ownerEmpId)).orElseThrow(ContractSupport::contractNotFound);
-        MapSqlParameterSource p = new MapSqlParameterSource("c", contract.getContractNo());
-        AutoDebitResponse.Mandate mandate = jdbc.query("SELECT * FROM TB_CMS_MANDATE WHERE CONTRACT_NO = :c ORDER BY MANDATE_ID DESC LIMIT 1", p,
-                (rs, i) -> AutoDebitResponse.Mandate.builder()
-                        .mandateId(rs.getLong("MANDATE_ID")).statCd(rs.getString("STAT_CD")).payerNm(rs.getString("PAYER_NM"))
-                        .bankCd(rs.getString("BANK_CD")).accountMask(rs.getString("ACCOUNT_MASK"))
-                        .consentMethod(rs.getString("CONSENT_METHOD")).consentDt(rs.getObject("CONSENT_DT", LocalDateTime.class))
-                        .consentRef(rs.getString("CONSENT_REF")).resultCd(rs.getString("RESULT_CD")).resultMsg(rs.getString("RESULT_MSG"))
-                        .inheritedFrom(rs.getString("INHERITED_FROM")).regEmpId(rs.getString("REG_EMP_ID"))
-                        .regDt(rs.getObject("REG_DT", LocalDateTime.class)).doneDt(rs.getObject("DONE_DT", LocalDateTime.class))
-                        .cancelDt(rs.getObject("CANCEL_DT", LocalDateTime.class)).build()).stream().findFirst().orElse(null);
-        List<AutoDebitResponse.Debit> debits = jdbc.query("SELECT * FROM TB_CMS_DEBIT WHERE CONTRACT_NO = :c ORDER BY DEBIT_ID DESC LIMIT 20", p,
-                (rs, i) -> AutoDebitResponse.Debit.builder()
-                        .debitId(rs.getLong("DEBIT_ID")).debitDt(rs.getObject("DEBIT_DT", LocalDate.class)).amount(rs.getBigDecimal("AMOUNT"))
-                        .attemptNo(rs.getInt("ATTEMPT_NO")).statCd(rs.getString("STAT_CD")).resultCd(rs.getString("RESULT_CD"))
-                        .resultMsg(rs.getString("RESULT_MSG")).paymentId((Long) rs.getObject("PAYMENT_ID")).build());
+        AutoDebitResponse.Mandate mandate = cmsMapper.findLatestMandate(contract.getContractNo()).orElse(null);
+        List<AutoDebitResponse.Debit> debits = cmsMapper.findRecentDebits(contract.getContractNo());
         return AutoDebitResponse.builder().contractNo(contract.getContractNo()).mandate(mandate).debits(debits).build();
     }
 
@@ -182,23 +158,13 @@ public class CmsMandateService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void inheritForRenewal(String sourceContractNo, String renewalContractNo, String empId) {
-        int n = jdbc.update("""
-                INSERT INTO TB_CMS_MANDATE (CONTRACT_NO, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
-                                            STAT_CD, INHERITED_FROM, REG_EMP_ID, REG_DT, GLOBAL_TX_ID)
-                SELECT :renewal, PAYER_NM, BANK_CD, ACCOUNT_ENC, ACCOUNT_MASK, CONSENT_METHOD, CONSENT_DT, CONSENT_REF,
-                       '10', CONTRACT_NO, :emp, :now, 'INH-' || :renewal
-                  FROM TB_CMS_MANDATE WHERE CONTRACT_NO = :source AND STAT_CD = '30'
-                ON CONFLICT DO NOTHING
-                """, new MapSqlParameterSource("renewal", renewalContractNo).addValue("source", sourceContractNo)
-                .addValue("emp", normalizeEmpId(empId)).addValue("now", LocalDateTime.now(clock)));
+        int n = cmsMapper.inheritMandate(sourceContractNo, renewalContractNo, normalizeEmpId(empId), LocalDateTime.now(clock));
         if (n > 0) {
             log.info("갱신 계약에 자동이체 승계: {} → {}", sourceContractNo, renewalContractNo);
         }
     }
 
     private boolean activeExists(String contractNo) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM TB_CMS_MANDATE WHERE CONTRACT_NO = :c AND STAT_CD IN ('10', '20', '30')",
-                new MapSqlParameterSource("c", contractNo), Integer.class);
-        return n != null && n > 0;
+        return cmsMapper.existsActiveMandate(contractNo);
     }
 }

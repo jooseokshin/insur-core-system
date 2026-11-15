@@ -1,5 +1,6 @@
 package com.insur.insurcoresystem.ext.cms;
 
+import com.insur.insurcoresystem.mapper.sim.SimulatorMapper;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -10,7 +11,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,12 +26,12 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "app.ext.cms.mode", havingValue = "simulator", matchIfMissing = true)
 public class KftcCmsSimulator implements CmsFileTransport {
 
-    private final JdbcTemplate jdbc;
+    private final SimulatorMapper sim;
     private final Clock clock;
     private final AtomicBoolean resultDelayed = new AtomicBoolean(false);
 
-    public KftcCmsSimulator(JdbcTemplate jdbc, Clock clock) {
-        this.jdbc = jdbc;
+    public KftcCmsSimulator(SimulatorMapper sim, Clock clock) {
+        this.sim = sim;
         this.clock = clock;
     }
 
@@ -47,16 +47,13 @@ public class KftcCmsSimulator implements CmsFileTransport {
         if (CmsFileCodec.EB11.equals(fileType)) {
             resultType = CmsFileCodec.EB12;
             for (Map<String, String> r : file.records()) {
-                Map<String, Object> account = account(r.get("bankCd"), r.get("accountNo"));
+                SimulatorMapper.BankAccount account = sim.findBankAccount(r.get("bankCd"), r.get("accountNo")).orElse(null);
                 String code = accountCode(account);
-                if (CmsFileCodec.OK.equals(code) && !((String) account.get("holder_nm")).replaceAll("\\s", "").equals(r.get("payerNm").replaceAll("\\s", ""))) {
+                if (CmsFileCodec.OK.equals(code) && !account.holderNm().replaceAll("\\s", "").equals(r.get("payerNm").replaceAll("\\s", ""))) {
                     code = "C201";
                 }
                 if (CmsFileCodec.OK.equals(code)) {
-                    jdbc.update("""
-                            INSERT INTO TB_SIM_CMS_MANDATE (ORG_CODE, PAYER_NO, BANK_CD, ACCOUNT_NO, REG_DT) VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT (ORG_CODE, PAYER_NO) DO UPDATE SET BANK_CD = EXCLUDED.BANK_CD, ACCOUNT_NO = EXCLUDED.ACCOUNT_NO, REG_DT = EXCLUDED.REG_DT
-                            """, file.orgCode(), r.get("payerNo"), r.get("bankCd"), r.get("accountNo"), LocalDateTime.now(clock));
+                    sim.upsertCmsMandate(file.orgCode(), r.get("payerNo"), r.get("bankCd"), r.get("accountNo"), LocalDateTime.now(clock));
                 }
                 results.add(Map.of("payerNo", r.get("payerNo"), "resultCd", code));
             }
@@ -64,18 +61,15 @@ public class KftcCmsSimulator implements CmsFileTransport {
             resultType = CmsFileCodec.EB22;
             for (Map<String, String> r : file.records()) {
                 long amount = Long.parseLong(r.get("amount"));
-                List<Map<String, Object>> mandate = jdbc.queryForList(
-                        "SELECT 1 FROM TB_SIM_CMS_MANDATE WHERE ORG_CODE = ? AND PAYER_NO = ? AND BANK_CD = ? AND ACCOUNT_NO = ?",
-                        file.orgCode(), r.get("payerNo"), r.get("bankCd"), r.get("accountNo"));
-                Map<String, Object> account = account(r.get("bankCd"), r.get("accountNo"));
-                String code = mandate.isEmpty() ? "C302" : accountCode(account);
-                if (CmsFileCodec.OK.equals(code) && ((Number) account.get("balance")).longValue() < amount) {
+                boolean mandated = sim.existsCmsMandate(file.orgCode(), r.get("payerNo"), r.get("bankCd"), r.get("accountNo"));
+                SimulatorMapper.BankAccount account = sim.findBankAccount(r.get("bankCd"), r.get("accountNo")).orElse(null);
+                String code = !mandated ? "C302" : accountCode(account);
+                if (CmsFileCodec.OK.equals(code) && account.balance() < amount) {
                     code = CmsFileCodec.INSUFFICIENT;
                 }
                 long debited = 0;
                 if (CmsFileCodec.OK.equals(code)) {
-                    jdbc.update("UPDATE TB_SIM_BANK_ACCOUNT SET BALANCE = BALANCE - ? WHERE BANK_CD = ? AND ACCOUNT_NO = ?",
-                            amount, r.get("bankCd"), r.get("accountNo"));
+                    sim.debitBankAccount(r.get("bankCd"), r.get("accountNo"), amount);
                     debited = amount;
                 }
                 Map<String, Object> row = new HashMap<>();
@@ -88,10 +82,7 @@ public class KftcCmsSimulator implements CmsFileTransport {
         } else {
             throw new IllegalArgumentException("의뢰 파일이 아닙니다: " + fileType);
         }
-        jdbc.update("""
-                INSERT INTO TB_SIM_CMS_FILE (FILE_TYPE, FILE_DT, CONTENT, CREATED_DT) VALUES (?, ?, ?, ?)
-                ON CONFLICT (FILE_TYPE, FILE_DT) DO UPDATE SET CONTENT = EXCLUDED.CONTENT, CREATED_DT = EXCLUDED.CREATED_DT
-                """, resultType, fileDate, CmsFileCodec.build(resultType, fileDate, file.orgCode(), results), LocalDateTime.now(clock));
+        sim.upsertCmsFile(resultType, fileDate, CmsFileCodec.build(resultType, fileDate, file.orgCode(), results), LocalDateTime.now(clock));
     }
 
     @Override
@@ -99,21 +90,14 @@ public class KftcCmsSimulator implements CmsFileTransport {
         if (resultDelayed.get()) {
             return Optional.empty();
         }
-        return jdbc.queryForList("SELECT CONTENT FROM TB_SIM_CMS_FILE WHERE FILE_TYPE = ? AND FILE_DT = ?", String.class, fileType, fileDate)
-                .stream().findFirst();
+        return sim.findCmsFile(fileType, fileDate);
     }
 
-    private Map<String, Object> account(String bankCd, String accountNo) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT HOLDER_NM, STAT_CD, BALANCE FROM TB_SIM_BANK_ACCOUNT WHERE BANK_CD = ? AND ACCOUNT_NO = ?", bankCd, accountNo);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    private static String accountCode(Map<String, Object> account) {
+    private static String accountCode(SimulatorMapper.BankAccount account) {
         if (account == null) {
             return "B101";
         }
-        return switch ((String) account.get("stat_cd")) {
+        return switch (account.statCd()) {
             case "CLOSED" -> "B102";
             case "FROZEN" -> "B103";
             default -> CmsFileCodec.OK;

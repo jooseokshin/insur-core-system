@@ -2,11 +2,15 @@ package com.insur.insurcoresystem.batch;
 
 import com.insur.insurcoresystem.common.security.AccountCipher;
 import com.insur.insurcoresystem.ext.bank.BankClient;
+import com.insur.insurcoresystem.mapper.batch.BatchMapper;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import javax.sql.DataSource;
+import java.util.Map;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.batch.MyBatisCursorItemReader;
+import org.mybatis.spring.batch.builder.MyBatisCursorItemReaderBuilder;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -16,14 +20,10 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.batch.infrastructure.item.ItemWriter;
-import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
-import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -63,17 +63,12 @@ public class PayoutReconJobConfig {
 
     @Bean
     @StepScope
-    Tasklet bankFetchTasklet(NamedParameterJdbcTemplate jdbc, BankClient bank, @Value("#{jobParameters['reconDate']}") LocalDate reconDate) {
+    Tasklet bankFetchTasklet(BatchMapper batchMapper, BankClient bank, @Value("#{jobParameters['reconDate']}") LocalDate reconDate) {
         return (contribution, chunkContext) -> {
-            MapSqlParameterSource day = new MapSqlParameterSource("d", reconDate);
-            jdbc.update("DELETE FROM TB_PAY_RECON WHERE RECON_DT = :d", day);
-            jdbc.update("DELETE FROM TB_PAY_RECON_BANK WHERE RECON_DT = :d", day);
+            batchMapper.deleteRecon(reconDate);
+            batchMapper.deleteReconBank(reconDate);
             for (BankClient.BankTransfer t : bank.transfers(reconDate)) {
-                jdbc.update("""
-                        INSERT INTO TB_PAY_RECON_BANK (RECON_DT, TRACE_NO, BANK_CD, ACCOUNT_MASK, AMOUNT, PROC_DT)
-                        VALUES (:d, :trace, :bank, :mask, :amount, :proc)
-                        """, new MapSqlParameterSource(day.getValues()).addValue("trace", t.traceNo()).addValue("bank", t.bankCd())
-                        .addValue("mask", AccountCipher.mask(t.accountNo())).addValue("amount", t.amount()).addValue("proc", t.procDt()));
+                batchMapper.insertReconBank(reconDate, t.traceNo(), t.bankCd(), AccountCipher.mask(t.accountNo()), t.amount(), t.procDt());
                 contribution.incrementReadCount();
                 contribution.incrementWriteCount(1);
             }
@@ -83,7 +78,7 @@ public class PayoutReconJobConfig {
 
     @Bean
     Step reconCompareStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                          JdbcCursorItemReader<ReconSource> reconReader, ItemProcessor<ReconSource, ReconRow> reconProcessor,
+                          MyBatisCursorItemReader<ReconSource> reconReader, ItemProcessor<ReconSource, ReconRow> reconProcessor,
                           ItemWriter<ReconRow> reconWriter) {
         return new StepBuilder("reconCompareStep", jobRepository)
                 .<ReconSource, ReconRow>chunk(100)
@@ -96,26 +91,13 @@ public class PayoutReconJobConfig {
 
     @Bean
     @StepScope
-    JdbcCursorItemReader<ReconSource> reconReader(DataSource dataSource, @Value("#{jobParameters['reconDate']}") LocalDate reconDate) {
-        return new JdbcCursorItemReaderBuilder<ReconSource>()
-                .name("reconReader")
-                .dataSource(dataSource)
-                .sql("""
-                        SELECT COALESCE(P.TRACE_NO, B.TRACE_NO) AS TRACE_NO, P.PAYOUT_ID, P.STAT_CD, P.PAY_AMT, B.AMOUNT AS BANK_AMT
-                          FROM (SELECT * FROM TB_PAY_OUT
-                                 WHERE (SENT_DT >= ? AND SENT_DT < ?)
-                                    OR TRACE_NO IN (SELECT TRACE_NO FROM TB_PAY_RECON_BANK WHERE RECON_DT = ?)) P
-                          FULL OUTER JOIN (SELECT * FROM TB_PAY_RECON_BANK WHERE RECON_DT = ?) B ON B.TRACE_NO = P.TRACE_NO
-                         ORDER BY 1
-                        """)
-                .preparedStatementSetter(ps -> {
-                    ps.setObject(1, reconDate.atStartOfDay());
-                    ps.setObject(2, reconDate.plusDays(1).atStartOfDay());
-                    ps.setObject(3, reconDate);
-                    ps.setObject(4, reconDate);
-                })
-                .rowMapper((rs, i) -> new ReconSource(rs.getString("TRACE_NO"), (Long) rs.getObject("PAYOUT_ID"), rs.getString("STAT_CD"),
-                        rs.getBigDecimal("PAY_AMT"), rs.getBigDecimal("BANK_AMT")))
+    MyBatisCursorItemReader<ReconSource> reconReader(SqlSessionFactory sqlSessionFactory,
+                                                     @Value("#{jobParameters['reconDate']}") LocalDate reconDate) {
+        return new MyBatisCursorItemReaderBuilder<ReconSource>()
+                .sqlSessionFactory(sqlSessionFactory)
+                .queryId("com.insur.insurcoresystem.mapper.batch.BatchMapper.reconSources")
+                .parameterValues(Map.of("reconDt", reconDate, "dayStart", reconDate.atStartOfDay(),
+                        "dayEnd", reconDate.plusDays(1).atStartOfDay()))
                 .build();
     }
 
@@ -141,18 +123,12 @@ public class PayoutReconJobConfig {
 
     @Bean
     @StepScope
-    ItemWriter<ReconRow> reconWriter(NamedParameterJdbcTemplate jdbc, Clock clock, @Value("#{jobParameters['reconDate']}") LocalDate reconDate,
+    ItemWriter<ReconRow> reconWriter(BatchMapper batchMapper, Clock clock, @Value("#{jobParameters['reconDate']}") LocalDate reconDate,
                                      @Value("#{stepExecution.jobExecutionId}") Long jobExecutionId) {
         return chunk -> {
             LocalDateTime now = LocalDateTime.now(clock);
             for (ReconRow r : chunk.getItems()) {
-                jdbc.update("""
-                        INSERT INTO TB_PAY_RECON (RECON_DT, TRACE_NO, PAYOUT_ID, RESULT_CD, OUR_STAT_CD, OUR_AMT, BANK_AMT, JOB_EXECUTION_ID, CREATED_DT)
-                        VALUES (:d, :trace, :payout, :result, :stat, :ours, :bank, :exec, :now)
-                        """, new MapSqlParameterSource("d", reconDate).addValue("trace", r.traceNo())
-                        .addValue("payout", r.payoutId(), java.sql.Types.BIGINT).addValue("result", r.result())
-                        .addValue("stat", r.ourStat(), java.sql.Types.VARCHAR).addValue("ours", r.ourAmt(), java.sql.Types.NUMERIC)
-                        .addValue("bank", r.bankAmt(), java.sql.Types.NUMERIC).addValue("exec", jobExecutionId).addValue("now", now));
+                batchMapper.insertRecon(reconDate, r, jobExecutionId, now);
             }
         };
     }

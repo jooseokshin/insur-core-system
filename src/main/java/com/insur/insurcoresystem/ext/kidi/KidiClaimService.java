@@ -3,6 +3,7 @@ package com.insur.insurcoresystem.ext.kidi;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.medical.MedicalMapper;
 import com.insur.insurcoresystem.service.claim.ClaimService;
 import com.insur.insurcoresystem.service.claim.dto.ClaimRequests;
 import com.insur.insurcoresystem.service.claim.dto.ClaimResponses;
@@ -12,8 +13,6 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +36,7 @@ public class KidiClaimService {
     private static final String TX_PREFIX = "KIDI-";
 
     private final ClaimService claimService;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final MedicalMapper medicalMapper;
 
     /**
      * 청구를 접수한다.
@@ -61,12 +60,7 @@ public class KidiClaimService {
         MedicalClaimService.validateItems(items);
         LocalDate first = MedicalClaimService.firstTreatDate(items);
 
-        List<String> contracts = jdbc.queryForList("""
-                SELECT CONTRACT_NO FROM TB_CTR_LGD
-                 WHERE INSURED_ID = :insuredId AND INSR_CLS_CD = '05' AND CTR_STAT_CD IN ('20', '30')
-                   AND START_DATE <= :first AND :first < LEAST(END_DATE, COALESCE(TERM_DT, END_DATE))
-                 ORDER BY CONTRACT_NO
-                """, new MapSqlParameterSource("insuredId", request.getInsuredId()).addValue("first", first), String.class);
+        List<String> contracts = medicalMapper.findCoveringContractNos(request.getInsuredId(), first);
         if (contracts.isEmpty()) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "E-KIDI-002", "진료일(" + first + ")을 보장하는 실손의료보험 계약이 없습니다.");
         }

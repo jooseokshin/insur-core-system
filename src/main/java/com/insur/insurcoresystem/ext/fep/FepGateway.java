@@ -3,6 +3,7 @@ package com.insur.insurcoresystem.ext.fep;
 import static com.insur.insurcoresystem.ext.FixedLengthCodec.CHARSET;
 
 import com.insur.insurcoresystem.ext.ExternalAgencyException;
+import com.insur.insurcoresystem.mapper.ext.FepMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,8 +15,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,18 +35,18 @@ import org.springframework.stereotype.Component;
 public class FepGateway {
 
     private final Map<String, FepTransport> transports;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final FepMapper fepMapper;
     private final FepMessageLogger messageLogger;
     private final Clock clock;
     private final int failureThreshold;
     private final Duration openDuration;
     private final Map<String, Circuit> circuits = new ConcurrentHashMap<>();
 
-    public FepGateway(List<FepTransport> transports, NamedParameterJdbcTemplate jdbc, FepMessageLogger messageLogger, Clock clock,
+    public FepGateway(List<FepTransport> transports, FepMapper fepMapper, FepMessageLogger messageLogger, Clock clock,
                       @Value("${app.ext.fep.circuit-failures:5}") int failureThreshold,
                       @Value("${app.ext.fep.circuit-open-seconds:60}") int openSeconds) {
         this.transports = transports.stream().collect(Collectors.toMap(FepTransport::instCd, Function.identity()));
-        this.jdbc = jdbc;
+        this.fepMapper = fepMapper;
         this.messageLogger = messageLogger;
         this.clock = clock;
         this.failureThreshold = failureThreshold;
@@ -137,9 +136,7 @@ public class FepGateway {
     }
 
     private boolean signedOn(String instCd) {
-        List<Boolean> on = jdbc.query("SELECT SIGN_ON_YN FROM TB_FEP_INST WHERE INST_CD = :inst",
-                new MapSqlParameterSource("inst", instCd), (rs, i) -> rs.getBoolean(1));
-        return !on.isEmpty() && on.get(0);
+        return Boolean.TRUE.equals(fepMapper.findSignOn(instCd));
     }
 
     private boolean isOpen(String instCd) {

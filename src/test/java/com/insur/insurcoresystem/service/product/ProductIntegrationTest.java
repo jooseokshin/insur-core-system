@@ -1,6 +1,5 @@
 package com.insur.insurcoresystem.service.product;
 
-import com.insur.insurcoresystem.support.TestRows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
@@ -11,9 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.insur.insurcoresystem.common.security.Roles;
 import com.insur.insurcoresystem.common.security.TestAuth;
 import com.insur.insurcoresystem.domain.contract.Contract;
-import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.domain.contract.Coverage;
+import com.insur.insurcoresystem.mapper.contract.ContractMapper;
 import com.insur.insurcoresystem.mapper.contract.CoverageMapper;
+import com.insur.insurcoresystem.support.TestRows;
 import com.jayway.jsonpath.JsonPath;
 import java.math.BigDecimal;
 import java.time.LocalDate;

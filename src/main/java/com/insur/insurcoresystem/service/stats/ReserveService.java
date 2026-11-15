@@ -1,6 +1,7 @@
 package com.insur.insurcoresystem.service.stats;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
+import com.insur.insurcoresystem.mapper.stats.StatsMapper;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import com.insur.insurcoresystem.service.stats.dto.IbnrRequest;
 import com.insur.insurcoresystem.service.stats.dto.IbnrResponse;
@@ -8,14 +9,13 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -43,7 +43,7 @@ public class ReserveService {
     public static final String QUARTER = "QUARTER";
     public static final String YEAR = "YEAR";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final StatsMapper statsMapper;
     private final Clock clock;
 
     /** 사고 기간 하나 */
@@ -95,9 +95,7 @@ public class ReserveService {
         List<AccidentPeriod> periods = periods(eval, type, count);
         LocalDate from = periods.get(0).from();
         int evalIndex = index(eval, type);
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("cls", insrClsCd).addValue("from", from).addValue("eval", eval)
-                .addValue("evalExcl", eval.plusDays(1).atStartOfDay());
+        LocalDateTime evalExcl = eval.plusDays(1).atStartOfDay();
 
         // 사고 기간·경과별 증분 지급액
         BigDecimal[][] incremental = new BigDecimal[count][];
@@ -105,43 +103,28 @@ public class ReserveService {
             incremental[i] = new BigDecimal[evalIndex - periods.get(i).index() + 1];
             Arrays.fill(incremental[i], BigDecimal.ZERO);
         }
-        jdbc.query("""
-                SELECT C.ACDT_DT, CAST(C.DECIDE_DT AS DATE) AS PAID_DT, C.TOTAL_PAY_AMT
-                  FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
-                 WHERE L.INSR_CLS_CD = :cls AND C.CLM_STAT_CD = '40' AND C.TOTAL_PAY_AMT > 0
-                   AND C.ACDT_DT >= :from AND C.ACDT_DT <= :eval AND C.DECIDE_DT < :evalExcl
-                """, params, rs -> {
-            int i = index(rs.getObject("ACDT_DT", LocalDate.class), type) - periods.get(0).index();
-            int age = index(rs.getObject("PAID_DT", LocalDate.class), type) - periods.get(i).index();
+        for (StatsMapper.PaidClaimRow r : statsMapper.paidClaims(insrClsCd, from, eval, evalExcl)) {
+            int i = index(r.acdtDt(), type) - periods.get(0).index();
+            int age = index(r.paidDt(), type) - periods.get(i).index();
             // 사고일보다 먼저 지급된 자료는 없지만 혹시 있으면 경과 1에 넣는다
             age = Math.max(0, Math.min(age, incremental[i].length - 1));
-            incremental[i][age] = incremental[i][age].add(rs.getBigDecimal("TOTAL_PAY_AMT"));
-        });
+            incremental[i][age] = incremental[i][age].add(r.totalPayAmt());
+        }
 
         // 기준일의 개별추산액
         BigDecimal[] caseReserve = new BigDecimal[count];
         Arrays.fill(caseReserve, BigDecimal.ZERO);
-        jdbc.query("""
-                SELECT C.ACDT_DT,
-                       CASE WHEN C.ADJ_DT < :evalExcl AND C.TOTAL_PAY_AMT IS NOT NULL AND C.CLM_STAT_CD IN ('20', '40')
-                            THEN C.TOTAL_PAY_AMT ELSE C.TOTAL_CLAIM_AMT END AS RSV
-                  FROM TB_CLM C JOIN TB_CTR_LGD L ON L.CONTRACT_NO = C.CONTRACT_NO
-                 WHERE L.INSR_CLS_CD = :cls AND C.ACDT_DT >= :from AND C.ACDT_DT <= :eval AND C.RPT_DT < :evalExcl
-                   AND (C.DECIDE_DT IS NULL OR C.DECIDE_DT >= :evalExcl)
-                """, params, rs -> {
-            int i = index(rs.getObject("ACDT_DT", LocalDate.class), type) - periods.get(0).index();
-            caseReserve[i] = caseReserve[i].add(rs.getBigDecimal("RSV"));
-        });
+        for (StatsMapper.CaseReserveRow r : statsMapper.caseReserves(insrClsCd, from, eval, evalExcl)) {
+            int i = index(r.acdtDt(), type) - periods.get(0).index();
+            caseReserve[i] = caseReserve[i].add(r.rsv());
+        }
 
         // 사고 기간별 경과보험료 (손해율 분석과 같은 정의)
         List<ChainLadder.Period> input = new ArrayList<>();
         List<IbnrResponse.TriangleRow> triangle = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             AccidentPeriod p = periods.get(i);
-            BigDecimal earned = jdbc.queryForObject("SELECT COALESCE(SUM(PREM * EXPOSED_DAYS / NULLIF(TERM_DAYS, 0)), 0) FROM ("
-                            + LossRatioService.EXPOSURE + ") E WHERE EXPOSED_DAYS > 0 AND INSR_CLS_CD = :cls",
-                    new MapSqlParameterSource("fromDate", p.from()).addValue("toExcl", (p.to().isAfter(eval) ? eval : p.to()).plusDays(1))
-                            .addValue("cls", insrClsCd), BigDecimal.class);
+            BigDecimal earned = statsMapper.earnedPremium(insrClsCd, p.from(), (p.to().isAfter(eval) ? eval : p.to()).plusDays(1));
             BigDecimal[] cumulative = new BigDecimal[incremental[i].length];
             BigDecimal running = BigDecimal.ZERO;
             for (int k = 0; k < cumulative.length; k++) {

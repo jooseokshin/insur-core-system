@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 실손의료보험: TB_CTR_MED_CHECK, TB_CLM_MED_ITEM, TB_CLM_MED_SHARE, TB_PRD_MED_RULE -->
+<mapper namespace="com.insur.insurcoresystem.mapper.medical.MedicalMapper">
+
+    <insert id="insertCheck">
+        INSERT INTO TB_CTR_MED_CHECK (CONTRACT_NO, CONSENT_DT, CHECK_STAT_CD) VALUES (#{contractNo}, #{consentDt}, '80')
+    </insert>
+
+    <select id="findConsentDt" resultType="java.time.LocalDateTime">
+        SELECT CONSENT_DT FROM TB_CTR_MED_CHECK WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <select id="findCheck" resultType="com.insur.insurcoresystem.service.medical.dto.MedicalCheckResponse">
+        SELECT CONTRACT_NO, CONSENT_DT, CHECK_STAT_CD, OTHER_COUNT, CHECKED_DT, CHECK_EMP_ID, LAST_ERROR
+          FROM TB_CTR_MED_CHECK WHERE CONTRACT_NO = #{contractNo}
+    </select>
+
+    <update id="markCheckDone">
+        UPDATE TB_CTR_MED_CHECK
+           SET CHECK_STAT_CD = '10', OTHER_COUNT = #{otherCount}, CHECKED_DT = #{now}, CHECK_EMP_ID = #{empId}, LAST_ERROR = NULL
+         WHERE CONTRACT_NO = #{contractNo}
+    </update>
+
+    <update id="markCheckFailed">
+        UPDATE TB_CTR_MED_CHECK
+           SET CHECK_STAT_CD = '80', OTHER_COUNT = NULL, CHECKED_DT = #{now}, CHECK_EMP_ID = #{empId}, LAST_ERROR = #{lastError}
+         WHERE CONTRACT_NO = #{contractNo}
+    </update>
+
+    <!-- 보장: 보험시기 포함 ~ min(보험종기, 해지일) 미포함 (환급·사고 접수와 같은 규칙) -->
+    <select id="findCoveringContractNos" resultType="string">
+        SELECT CONTRACT_NO FROM TB_CTR_LGD
+         WHERE INSURED_ID = #{insuredId} AND INSR_CLS_CD = '05' AND CTR_STAT_CD IN ('20', '30')
+           AND START_DATE &lt;= #{treatDate} AND #{treatDate} &lt; LEAST(END_DATE, COALESCE(TERM_DT, END_DATE))
+         ORDER BY CONTRACT_NO
+    </select>
+
+    <insert id="insertItem">
+        INSERT INTO TB_CLM_MED_ITEM (CLM_NO, SEQ, TREAT_DT, CARE_TYPE, FACILITY_TYPE, FACILITY_NM, COVERED_AMT, NON_COVERED_AMT, SOURCE_CD)
+        VALUES (#{clmNo}, #{seq}, #{treatDt}, #{careType}, #{facilityType}, #{facilityNm}, #{coveredAmt}, #{nonCoveredAmt}, #{sourceCd})
+    </insert>
+
+    <select id="findClaimedItems" resultType="com.insur.insurcoresystem.mapper.medical.MedicalMapper$ClaimedItem">
+        SELECT SEQ, CARE_TYPE, FACILITY_TYPE, COVERED_AMT, NON_COVERED_AMT FROM TB_CLM_MED_ITEM WHERE CLM_NO = #{clmNo} ORDER BY SEQ
+    </select>
+
+    <update id="updateItemResult">
+        UPDATE TB_CLM_MED_ITEM
+           SET COVERED_ASSESSED = #{coveredAssessed}, NON_COVERED_ASSESSED = #{nonCoveredAssessed}, COVERED_DEDUCT = #{coveredDeduct},
+               COVERED_PAY = #{coveredPay}, NON_COVERED_DEDUCT = #{nonCoveredDeduct}, NON_COVERED_PAY = #{nonCoveredPay}
+         WHERE CLM_NO = #{clmNo} AND SEQ = #{seq}
+    </update>
+
+    <select id="findItems" resultType="com.insur.insurcoresystem.service.claim.dto.ClaimResponses$MedicalItem">
+        SELECT SEQ, TREAT_DT, CARE_TYPE, FACILITY_TYPE, FACILITY_NM, COVERED_AMT, NON_COVERED_AMT, COVERED_ASSESSED, NON_COVERED_ASSESSED,
+               COVERED_DEDUCT, COVERED_PAY, NON_COVERED_DEDUCT, NON_COVERED_PAY, SOURCE_CD
+          FROM TB_CLM_MED_ITEM WHERE CLM_NO = #{clmNo} ORDER BY SEQ
+    </select>
+
+    <delete id="deleteShares">
+        DELETE FROM TB_CLM_MED_SHARE WHERE CLM_NO = #{clmNo}
+    </delete>
+
+    <insert id="insertShare">
+        INSERT INTO TB_CLM_MED_SHARE (CLM_NO, CVRG_CD, INSURER_CD, POLICY_NO, LIABILITY_AMT, SHARE_AMT)
+        VALUES (#{clmNo}, #{cvrgCd}, #{insurerCd}, #{policyNo}, #{liabilityAmt}, #{shareAmt})
+    </insert>
+
+    <select id="findShares" resultType="com.insur.insurcoresystem.service.claim.dto.ClaimResponses$MedicalShare">
+        SELECT CVRG_CD, INSURER_CD, POLICY_NO, (INSURER_CD = #{ownInsurerCd}) AS OWN, LIABILITY_AMT, SHARE_AMT
+          FROM TB_CLM_MED_SHARE WHERE CLM_NO = #{clmNo}
+         ORDER BY CVRG_CD, CASE WHEN INSURER_CD = #{ownInsurerCd} THEN 0 ELSE 1 END, INSURER_CD, POLICY_NO
+    </select>
+
+    <select id="findRules" resultType="com.insur.insurcoresystem.service.medical.MedicalClaimCalculator$Rule">
+        SELECT CVRG_CD, CARE_TYPE, FACILITY_GRADE, COPAY_RATE, MIN_DEDUCT_AMT AS MIN_DEDUCT, PER_VISIT_LIMIT
+          FROM TB_PRD_MED_RULE WHERE PRD_CD = #{prdCd}
+    </select>
+</mapper>

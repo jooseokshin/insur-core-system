@@ -1,23 +1,22 @@
 package com.insur.insurcoresystem.service.premium;
 
-import com.insur.insurcoresystem.service.product.ProductService;
-import org.springframework.util.StringUtils;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidAmount;
 import static com.insur.insurcoresystem.common.validation.InputRules.isInvalidCode;
 
 import com.insur.insurcoresystem.common.exception.BusinessException;
 import com.insur.insurcoresystem.domain.premium.PremiumFactor;
 import com.insur.insurcoresystem.domain.premium.PremiumFactorPolicy;
-import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
-import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
 import com.insur.insurcoresystem.domain.premium.PremiumRate;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorMapper;
+import com.insur.insurcoresystem.mapper.premium.PremiumFactorPolicyMapper;
 import com.insur.insurcoresystem.mapper.premium.PremiumRateMapper;
 import com.insur.insurcoresystem.service.premium.dto.AppliedFactor;
-import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest.QuoteCoverageRequest;
-import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
+import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteRequest;
 import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse.QuoteCoverageResponse;
+import com.insur.insurcoresystem.service.premium.dto.PremiumQuoteResponse;
 import com.insur.insurcoresystem.service.premium.dto.RatingInput;
+import com.insur.insurcoresystem.service.product.ProductService;
 import com.insur.insurcoresystem.service.sequence.ProductType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 보험료 산출 서비스. 아무것도 저장하지 않으며, 산출 결과는 청약 요청의 담보 보험료/총보험료로 그대로 쓸 수 있다.
