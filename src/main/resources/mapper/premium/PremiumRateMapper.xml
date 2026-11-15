@@ -8,7 +8,11 @@
     <select id="findEffective" resultType="com.insur.insurcoresystem.domain.premium.PremiumRate">
         SELECT <include refid="columns"/> FROM TB_PRM_RATE
          WHERE INSR_CLS_CD = #{insrClsCd}
-           AND CVRG_CD IN <foreach collection="cvrgCds" item="c" open="(" separator="," close=")">#{c}</foreach>
+        <choose>
+            <!-- 빈 목록이면 IN () 문법 오류 대신 빈 결과 -->
+            <when test="cvrgCds == null or cvrgCds.isEmpty()">AND 1 = 0</when>
+            <otherwise>AND CVRG_CD IN <foreach collection="cvrgCds" item="c" open="(" separator="," close=")">#{c}</foreach></otherwise>
+        </choose>
            AND EFF_FROM &lt;= #{on} AND (EFF_TO IS NULL OR EFF_TO &gt;= #{on})
          ORDER BY EFF_FROM DESC
     </select>

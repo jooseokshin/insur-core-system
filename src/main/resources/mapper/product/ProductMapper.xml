@@ -34,7 +34,11 @@
 
     <select id="findAllById" resultMap="product">
         SELECT <include refid="columns"/> FROM TB_PRD
-         WHERE PRD_CD IN <foreach collection="collection" item="p" open="(" separator="," close=")">#{p}</foreach>
+        <choose>
+            <!-- 빈 목록이면 IN () 문법 오류 대신 빈 결과 -->
+            <when test="collection == null or collection.isEmpty()">WHERE 1 = 0</when>
+            <otherwise>WHERE PRD_CD IN <foreach collection="collection" item="p" open="(" separator="," close=")">#{p}</foreach></otherwise>
+        </choose>
          ORDER BY PRD_CD
     </select>
 </mapper>
